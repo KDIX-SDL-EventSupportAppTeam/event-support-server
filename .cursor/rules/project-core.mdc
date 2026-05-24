@@ -14,7 +14,7 @@ alwaysApply: true
 ## コード構成
 
 - ルートは `src/routes/v1/` に 1 リソース 1 ファイル（`auth` / `booths` / `checkins` / `recommendations` / `survey` / `ops`）
-- 運営 CRUD は Issue #8 で `routes/v1/admin/` へ分離予定（現状は `ops.ts` に一部同居）
+- 運営 dashboard は `routes/v1/admin/` へ分離済み。運営 CRUD の残りは Issue #8 で追加予定
 - 共通処理: `lib/`（純関数）、`plugins/`（Fastify preHandler）、`db/`（プール・URL パース）
 - レスポンスは `sendOk` / `sendFail`（`lib/response.ts`）に統一
 
