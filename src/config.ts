@@ -6,6 +6,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   JWT_SECRET: z.string().min(1),
   WEBHOOK_API_KEY: z.string().optional().default(''),
+  RECOMMENDER_URL: z.string().optional().default(''),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 })
 
@@ -14,6 +15,7 @@ export type AppConfig = {
   databaseUrl: string
   jwtSecret: string
   webhookApiKey: string
+  recommenderUrl: string
   corsOrigin: string
 }
 
@@ -29,6 +31,7 @@ export function loadConfig(): AppConfig {
     databaseUrl: e.DATABASE_URL,
     jwtSecret: e.JWT_SECRET,
     webhookApiKey: e.WEBHOOK_API_KEY,
+    recommenderUrl: e.RECOMMENDER_URL,
     corsOrigin: e.CORS_ORIGIN,
   }
 }
