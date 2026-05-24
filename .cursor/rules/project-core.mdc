@@ -1,0 +1,25 @@
+---
+description: リポジトリの責務境界と Fastify ルート構成
+alwaysApply: true
+---
+
+# project-core
+
+## 境界
+
+- REST API（`/api/v1`）・JWT 認証・MySQL アクセス・Webhook 受信を担当
+- 推薦アルゴリズムは `event-support-recommender` に委譲（server は中継のみ）
+- フロントエンドの描画・ビルドは `event-support-frontend` に委譲
+
+## コード構成
+
+- ルートは `src/routes/v1/` に 1 リソース 1 ファイル（`auth` / `booths` / `checkins` / `recommendations` / `survey` / `ops`）
+- 運営 CRUD は Issue #8 で `routes/v1/admin/` へ分離予定（現状は `ops.ts` に一部同居）
+- 共通処理: `lib/`（純関数）、`plugins/`（Fastify preHandler）、`db/`（プール・URL パース）
+- レスポンスは `sendOk` / `sendFail`（`lib/response.ts`）に統一
+
+## ドキュメント
+
+- 概要: [README.md](../../README.md)
+- 技術詳細: [AGENTS.md](../../AGENTS.md)
+- 更新タイミング: [cursor-workflow.mdc](./cursor-workflow.mdc)
