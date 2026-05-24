@@ -4,8 +4,8 @@
 
 ## 読む順序
 
-1. [README.md](../../README.md) — リポジトリの責務・アーキテクチャ・起動手順
-2. [AGENTS.md](../../AGENTS.md) — ディレクトリ構成・環境変数・エンドポイント・認証・DB
+1. [README.md](../../README.md) — リポジトリの責務・アーキテクチャ・ディレクトリ構造・起動手順
+2. [AGENTS.md](../../AGENTS.md) — 環境変数・エンドポイント・認証・DB
 3. [.cursor/rules/](../../.cursor/rules/) — 実装時に常に適用する Cursor ルール
 
 設計・要件定義は [CLAUDE.md](../../CLAUDE.md) を参照（Claude Code 向け）。

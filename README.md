@@ -102,5 +102,5 @@ curl http://localhost:3000/health
 
 ## 参照
 
-- [AGENTS.md](./AGENTS.md) — エージェント向け開発メモ（スタック・エンドポイント抜粋）
+- [AGENTS.md](./AGENTS.md) — エージェント向け開発メモ（環境変数・エンドポイント・認証）
 - [docs/legacy/designs/](./docs/legacy/designs/) — API・DB 設計（リファクタリング前の詳細仕様）

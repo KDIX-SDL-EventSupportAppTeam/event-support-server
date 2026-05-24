@@ -34,9 +34,9 @@ alwaysApply: true
 |------------|--------|
 | 設計判断をした | `docs/adrs/`（または `docs/legacy/adrs/` 移行方針に従う） |
 | 運用ルール・手順が変わった | `AGENTS.md` |
-| アーキテクチャ・責務が変わった | `README.md` |
+| アーキテクチャ・ディレクトリ構造が変わった | `README.md` |
 
-- 正本は **README.md**（概要）と **AGENTS.md**（技術詳細）
+- 正本は **README.md**（概要・構成）と **AGENTS.md**（API・認証・DB の技術詳細）
 - [README.md](../../README.md) / [AGENTS.md](../../AGENTS.md) に既にある内容を rule に重複して書かない
 
 ## ルールの追加・更新

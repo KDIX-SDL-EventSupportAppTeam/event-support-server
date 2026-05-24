@@ -20,6 +20,6 @@ alwaysApply: true
 
 ## ドキュメント
 
-- 概要: [README.md](../../README.md)
-- 技術詳細: [AGENTS.md](../../AGENTS.md)
+- 概要・ディレクトリ構造: [README.md](../../README.md)
+- 環境変数・エンドポイント・認証: [AGENTS.md](../../AGENTS.md)
 - 更新タイミング: [cursor-workflow.mdc](./cursor-workflow.mdc)

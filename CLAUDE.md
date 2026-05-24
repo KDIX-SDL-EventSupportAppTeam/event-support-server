@@ -26,14 +26,14 @@ Claude Code 向けの役割定義。プロジェクトの技術詳細・開発�
 
 - **境界の明確化** — 推薦ロジックは `event-support-recommender`、UI は `event-support-frontend` に委譲。server は API・DB・中継に集中する
 - **可読性** — ファイル名・配置から責務が推測できる構成にする
-- **一貫性** — [AGENTS.md](./AGENTS.md) の目標構成（`routes/v1/*` 分割、`admin/` 分離）に沿う
+- 一貫性 — [README.md](./README.md) の目標構成（`routes/v1/*` 分割、`admin/` 分離）に沿う
 
 ## 参照ドキュメント
 
 | ファイル | いつ見るか |
 |----------|------------|
-| [README.md](./README.md) | アーキテクチャ概要・他サービスとの関係 |
-| [AGENTS.md](./AGENTS.md) | ディレクトリ構成・環境変数・エンドポイント・認証・DB |
+| [README.md](./README.md) | アーキテクチャ概要・ディレクトリ構造・起動手順 |
+| [AGENTS.md](./AGENTS.md) | 環境変数・エンドポイント・認証・DB |
 | [docs/legacy/designs/](./docs/legacy/designs/) | API・DB・システムの詳細設計 |
 | [docs/legacy/adrs/](./docs/legacy/adrs/) | 過去の設計判断 |
 
