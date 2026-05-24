@@ -33,24 +33,16 @@ export async function recommendationRoutes(app: FastifyInstance) {
         algorithm = openRow.algorithm
         boothIds = parseJsonStringArray(openRow.offered_booth_ids)
       } else {
-        const [cand] = await app.db.query(
-          `SELECT b.id FROM booths b
-           WHERE b.event_id = ?
-             AND b.id NOT IN (SELECT booth_id FROM check_ins WHERE user_id = ? AND event_id = ?)
-           ORDER BY RAND() LIMIT 3`,
-          [eventId, uid, eventId],
-        )
-        boothIds = (cand as { id: string }[]).map((r) => r.id)
-        if (boothIds.length < 3) {
-          const [fill] = await app.db.query(
-            `SELECT id FROM booths WHERE event_id = ? ORDER BY RAND() LIMIT 3`,
-            [eventId],
-          )
-          const all = (fill as { id: string }[]).map((r) => r.id)
-          boothIds = [...new Set([...boothIds, ...all])].slice(0, 3)
+        const external = await fetchExternalRecommendations(app, eventId, uid)
+        if (external) {
+          boothIds = external.boothIds
+          algorithm = external.algorithm
+        } else {
+          const fallback = await pickFallbackBoothIds(app, eventId, uid)
+          boothIds = fallback.boothIds
+          algorithm = fallback.algorithm
         }
         recId = randomUUID()
-        algorithm = 'mab'
         await app.db.execute(
           `INSERT INTO recommendations (id, user_id, event_id, offered_booth_ids, selected_booth_id, rejected_booth_ids, algorithm)
            VALUES (?,?,?,?,?,?,?)`,
@@ -111,6 +103,77 @@ export async function recommendationRoutes(app: FastifyInstance) {
       return sendOk(reply, {})
     },
   )
+}
+
+async function pickFallbackBoothIds(
+  app: FastifyInstance,
+  eventId: string,
+  uid: string,
+): Promise<{ boothIds: string[]; algorithm: string }> {
+  const [cand] = await app.db.query(
+    `SELECT b.id FROM booths b
+     WHERE b.event_id = ?
+       AND b.id NOT IN (SELECT booth_id FROM check_ins WHERE user_id = ? AND event_id = ?)
+     ORDER BY RAND() LIMIT 3`,
+    [eventId, uid, eventId],
+  )
+  let boothIds = (cand as { id: string }[]).map((r) => r.id)
+  if (boothIds.length < 3) {
+    const [fill] = await app.db.query(`SELECT id FROM booths WHERE event_id = ? ORDER BY RAND() LIMIT 3`, [
+      eventId,
+    ])
+    const all = (fill as { id: string }[]).map((r) => r.id)
+    boothIds = [...new Set([...boothIds, ...all])].slice(0, 3)
+  }
+  return { boothIds, algorithm: 'mab' }
+}
+
+async function fetchExternalRecommendations(
+  app: FastifyInstance,
+  eventId: string,
+  uid: string,
+): Promise<{ boothIds: string[]; algorithm: string } | null> {
+  const baseUrl = app.config.recommenderUrl.trim()
+  if (!baseUrl) return null
+  const url = `${baseUrl.replace(/\/+$/, '')}/recommendations`
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        event_id: eventId,
+        user_id: uid,
+        limit: 3,
+      }),
+    })
+    if (!res.ok) return null
+    const body = (await res.json()) as unknown
+    const parsed = parseExternalRecommendationResponse(body)
+    if (!parsed.boothIds.length) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function parseExternalRecommendationResponse(v: unknown): { boothIds: string[]; algorithm: string } {
+  const body = asObject(v)
+  const directIds = parseJsonStringArray(body?.booth_ids)
+  const data = asObject(body?.data)
+  const dataIds = parseJsonStringArray(data?.booth_ids)
+  const offeredIds = parseJsonStringArray(data?.offered_booth_ids)
+  const boothIds = [...new Set([...directIds, ...dataIds, ...offeredIds])].slice(0, 3)
+
+  const directAlgo = typeof body?.algorithm === 'string' ? body.algorithm : ''
+  const dataAlgo = typeof data?.algorithm === 'string' ? data.algorithm : ''
+  const algorithm = (directAlgo || dataAlgo || 'mab').slice(0, 50)
+
+  return { boothIds, algorithm }
+}
+
+function asObject(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' ? (v as Record<string, unknown>) : null
 }
 
 function parseJsonStringArray(v: unknown): string[] {
