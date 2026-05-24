@@ -5,8 +5,6 @@ Vitest で `src/` のロジックを検証する。
 
 実行記録・フィクスチャのドキュメントは [docs/tests/](../docs/tests/README.md) に残す。
 
-> **移行中:** 現状は `src/lib/datetime.test.ts` のみ co-locate 残存（`vitest.config.ts` 参照）。新規テストは `tests/` に追加し、移行後に削除する。
-
 ## ディレクトリ
 
 | パス | 用途 |

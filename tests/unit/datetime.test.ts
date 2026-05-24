@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isoToMysqlUtc } from './datetime.js'
+import { isoToMysqlUtc } from '../../src/lib/datetime.js'
 
 describe('isoToMysqlUtc', () => {
   it('converts ISO to UTC MySQL datetime', () => {
