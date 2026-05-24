@@ -1,5 +1,7 @@
 # データベース設計
 
+> **移行元ドキュメント:** 旧モノレポからの移行版。スキーマの**実行時の正**はリポジトリ直下 `db/migrations/01_initial_schema.sql`。**現リポジトリの正本**は [AGENTS.md](../../../AGENTS.md) § DB・[docs/ubiquitous-language.md](../../ubiquitous-language.md) § DB テーブル一覧。
+
 テーブル定義・リレーション・RDBMS の物理設計方針・将来の移行メモです。
 
 **関連:** [設計インデックス](./README.md) · [システム・サーバー設計](./system-server.md) · [API設計](./api.md) · [フロントエンド](./frontend.md) · [ADR 0003（MySQL 採用）](../adrs/0003-mysql-over-postgresql.md)

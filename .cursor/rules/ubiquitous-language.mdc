@@ -1,0 +1,34 @@
+---
+description: ドメイン用語（ユビキタス言語）の使い方
+alwaysApply: true
+---
+
+# ubiquitous-language
+
+**正本:** [docs/ubiquitous-language.md](../../docs/ubiquitous-language.md)
+
+コード・コメント・コミットメッセージ・PR・ドキュメントすべてでこの語彙を統一して使う。
+
+## 守ること
+
+- 同じ概念に複数の呼び方をしない（例: `visitor` / `attendee` は使わず `user` / `participant` に統一）
+- コード上の識別子は正本の `コード上の名前` を使う（`booth_id`, `checkin_id`, `event_id` 等）
+- 日本語のエラーメッセージ・ドキュメントは正本の `日本語` 列に合わせる（参加者・ブース・チェックイン・推薦…）
+- 略語の独自定義をしない。必要なら正本に追記してから使う
+
+## 迷ったら
+
+1. 正本を確認
+2. 該当用語がなければユーザーに確認し、正本へ追記してから実装する
+
+## 例
+
+```typescript
+// ❌ BAD — 独自の語彙
+type Visitor = { name: string }
+async function scanQR(boothCode: string) {}
+
+// ✅ GOOD — 正本の語彙
+type User = { display_name: string }
+async function checkIn(manual_code: string) {}
+```

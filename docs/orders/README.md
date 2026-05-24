@@ -1,0 +1,23 @@
+# 作業指示・実装メモ
+
+リファクタリングや機能追加の作業指示・実装方針を残す。  
+新規は **`docs/legacy/orders/` ではなく本ディレクトリ** に追加する。
+
+## ファイル名
+
+```
+YYYY-MM-DD-状態-kebab-case-summary.md
+```
+
+`状態` の例: `依頼` / `完了` / `WIP`
+
+## 一覧
+
+| 日付 | ファイル | 概要 |
+|------|----------|------|
+| — | — | （まだなし。移行前は [docs/legacy/orders/](../legacy/orders/) を参照） |
+
+## 関連
+
+- [AGENTS.md](../../AGENTS.md) — 「次にやること」
+- [docs/legacy/orders/](../legacy/orders/) — モノレポ移行元（参照のみ）

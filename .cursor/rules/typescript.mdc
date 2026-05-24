@@ -1,0 +1,25 @@
+---
+description: TypeScript・ESM import 規約
+globs: **/*.ts
+alwaysApply: false
+---
+
+# typescript
+
+- TypeScript strict。`any` は避け、DB 行は必要最小限の型アサーション
+- **ESM**: 相対 import には `.js` 拡張子を付ける（`from '../../lib/response.js'`）
+- パスエイリアス `@/` は使わない。`src/` 内は相対パス
+- ルート間の相互 import 禁止。共有は `lib/` / `plugins/` / `db/` に置く
+
+```typescript
+// ❌ BAD
+import { sendOk } from '../../lib/response'
+import { boothRoutes } from './booths'
+
+// ✅ GOOD
+import { sendOk } from '../../lib/response.js'
+import type { FastifyInstance } from 'fastify'
+```
+
+- 設定は `loadConfig()`（`config.ts`）経由。`process.env` をルート内で直接読まない
+- Fastify 型拡張（`req.jwtUser`, `app.db`）は [src/types/fastify.d.ts](../../src/types/fastify.d.ts) を更新

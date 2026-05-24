@@ -1,0 +1,26 @@
+---
+description: Vitest テストの配置と実行
+globs: tests/**/*.ts
+alwaysApply: false
+---
+
+# tests
+
+- テストコードは **`tests/`** にまとめる（`unit/`・`integration/`）。`src/` 内に `*.test.ts` を置かない
+- 移行中の `src/lib/datetime.test.ts` は例外。新規は必ず `tests/` へ
+- 純関数（`lib/`）を優先。DB 依存ルートは integration で MySQL 前提を明示
+
+## 実行
+
+```bash
+npm test
+```
+
+## 追加後
+
+1. `npm test` を実行して通過を確認
+2. [docs/tests/runs/_template.md](../../docs/tests/runs/_template.md) に沿って `docs/tests/runs/` に記録
+3. [docs/tests/README.md](../../docs/tests/README.md) の一覧を更新
+4. API 契約に関わる場合は [AGENTS.md](../../AGENTS.md) のエンドポイント表と整合を確認
+
+詳細: [tests/README.md](../../tests/README.md) · [AGENTS.md](../../AGENTS.md) § テスト

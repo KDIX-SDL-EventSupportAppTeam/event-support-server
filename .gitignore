@@ -21,7 +21,9 @@ yarn-error.log*
 
 # --- IDE & editors ---
 .claude/
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 .idea/
 .vscode/
 *.swp

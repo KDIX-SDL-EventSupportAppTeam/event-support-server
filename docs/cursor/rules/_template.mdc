@@ -1,0 +1,30 @@
+---
+description: （この rule の一行説明）
+globs: **/*.ts
+alwaysApply: false
+---
+
+# （Rule タイトル）
+
+## やること
+
+- （具体的な指示）
+
+## やらないこと
+
+- （禁止事項）
+
+## 例
+
+```typescript
+// ❌ BAD
+// ...
+
+// ✅ GOOD
+// ...
+```
+
+## 参照
+
+- [AGENTS.md](../../AGENTS.md)
+- [docs/cursor/README.md](../README.md)

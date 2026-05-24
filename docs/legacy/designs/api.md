@@ -1,5 +1,7 @@
 # API・WebSocket 設計
 
+> **移行元ドキュメント:** 旧モノレポ（`Event-Support-App`）からの移行版。文中の `server/`・`docs/designs/` 等のパスは旧構成の参照。**現リポジトリの正本**は [README.md](../../../README.md)・[AGENTS.md](../../../AGENTS.md)・[docs/ubiquitous-language.md](../../ubiquitous-language.md)。
+
 REST の共通仕様・エンドポイント・socket.io イベントです。
 
 **認証方式:** JWT（`Authorization: Bearer {token}`）
