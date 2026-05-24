@@ -73,7 +73,7 @@ db/
 └── create-tables.sql
 ```
 
-> **Note:** 現時点では運営向けエンドポイントの一部は `ops.ts` に同居している。Issue #8 で `routes/v1/admin/` へ分離予定。
+> **Note:** 現時点では運営向けエンドポイントの一部（dashboard）のみ `routes/v1/admin/` へ分離済み。運営 CRUD の残りは Issue #8 で追加予定。
 
 ## ローカル開発
 

@@ -186,7 +186,7 @@ Cursor はユーザーの指示に従ってコードを書く。技術詳細は�
 
 **PR を作成するたびに、このセクションを更新すること。** 完了した項目は削除し、次の PR で取り組む内容を書く。
 
-- [ ] `routes/v1/admin/` への運営 CRUD 分離（Issue #8。dashboard は現状 `ops.ts` に同居）
+- [ ] `routes/v1/admin/` へ運営 CRUD を拡張（Issue #8。dashboard は分離済み）
 - [ ] `RECOMMENDER_URL` を `config.ts` に追加し `event-support-recommender` へ中継
 - [ ] WebSocket（socket.io）実装（Issue #8）
 - [ ] `ops.ts` から webhook / admin / export の責務分離
