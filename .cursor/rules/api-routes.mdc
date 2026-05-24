@@ -1,0 +1,55 @@
+---
+description: Fastify ルート実装・レスポンス・認証・バリデーション
+globs: src/routes/**/*.ts
+alwaysApply: false
+---
+
+# api-routes
+
+詳細は [AGENTS.md](../../AGENTS.md) のエンドポイント・認証を参照。
+
+## 構成
+
+- 1 ドメイン = 1 ファイル（`boothRoutes`, `checkinRoutes` 等）。`app.ts` で個別 register
+- 参加者向けルートは `const pre = [requireBearerAuth, requireEventMatchesJwt]` を共通化
+- Webhook は `X-Api-Key` 検証（`ops.ts`）。運営 API は `role: admin` チェック
+
+## レスポンス
+
+- 成功: `sendOk(reply, data)` — `{ ok: true, data }`
+- 失敗: `sendFail(reply, status, code, message)` — `{ ok: false, error: { code, message } }`
+- Fastify の `reply.send` を直接使わない
+
+## バリデーション
+
+- リクエスト body / query は **zod** で `safeParse`。失敗時は `422` + `VALIDATION_ERROR`
+- DB 未存在は `404` + `NOT_FOUND`、一意制約違反は `409` + `CONFLICT`
+
+## DB・日時
+
+- SQL は `app.db.query` / `app.db.execute`。ユーザー入力を SQL 文字列連結しない
+- クライアント日時は `isoToMysqlUtc` で UTC 変換してから保存
+- API 返却の日時は MySQL DATETIME を ISO8601（末尾 `Z`）に整形
+
+## 例
+
+```typescript
+// ❌ BAD
+app.post('/events/:event_id/checkins', async (req, reply) => {
+  return reply.send({ checkin_id: id })
+})
+
+// ✅ GOOD
+app.post<{ Params: { event_id: string } }>(
+  '/events/:event_id/checkins',
+  { preHandler: pre },
+  async (req, reply) => {
+    const parsed = checkinBody.safeParse(req.body)
+    if (!parsed.success) {
+      return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
+    }
+    // ...
+    return sendOk(reply, { checkin_id: id })
+  },
+)
+```

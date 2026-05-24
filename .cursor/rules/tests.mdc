@@ -1,0 +1,22 @@
+---
+description: Vitest テストの配置と実行
+globs: src/**/*.test.ts
+alwaysApply: false
+---
+
+# tests
+
+- テストは **`src/**/*.test.ts`** に co-locate（[vitest.config.ts](../../vitest.config.ts) 参照）
+- 純関数・ユーティリティ（`lib/`）を優先してテスト。DB 依存ルートは必要時のみ integration 化
+- 外部 I/O（MySQL・HTTP）はモックするか、テスト用 DB を明示的に用意する
+
+## 実行
+
+```bash
+npm test
+```
+
+## 追加後
+
+1. `npm test` を実行して通過を確認
+2. テスト対象の振る舞いが API 契約に関わる場合は [AGENTS.md](../../AGENTS.md) のエンドポイント表と整合を確認
