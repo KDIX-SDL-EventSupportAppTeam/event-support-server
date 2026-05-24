@@ -26,7 +26,7 @@ export async function buildApp(config: AppConfig, pool: DbPool) {
     service: 'event-support-server',
     health: '/health',
     api: '/api/v1',
-    hint: 'REST は docs/designs/api.md の /api/v1 配下',
+    hint: 'REST は docs/legacy/designs/api.md の /api/v1 配下',
   }))
 
   app.get('/health', async () => ({ ok: true }))

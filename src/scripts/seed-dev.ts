@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs'
 import { loadConfig } from '../config.js'
 import { createPool } from '../db/pool.js'
 
-/** ローカル確認用の固定 UUID（`docs/designs/database.md` の型に合わせる） */
+/** ローカル確認用の固定 UUID（`docs/legacy/designs/database.md` の型に合わせる） */
 const EVENT_ID = '20000000-0000-4000-8000-000000000001'
 const CAT_TECH = '20000000-0000-4000-8000-000000000011'
 const CAT_DESIGN = '20000000-0000-4000-8000-000000000012'
