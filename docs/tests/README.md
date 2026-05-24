@@ -8,7 +8,7 @@
 | `docs/tests/runs/` | 実行記録（何を・なぜ・結果） |
 | `docs/tests/fixtures/` | ダミーデータ・ログイン例・再現用の固定値 |
 
-テストコードは **`tests/` にまとめる**。`src/` 内に `*.test.ts` を置かない（移行中の例外は [tests/README.md](../../tests/README.md) 参照）。  
+テストコードは **`tests/` にまとめる**。`src/` 内に `*.test.ts` を置かない。  
 実行後は必ず `docs/tests/runs/` に記録を残し、本ファイルの「記録一覧」を更新する。
 
 詳細なコマンドは [tests/README.md](../../tests/README.md) を参照。
@@ -67,7 +67,7 @@ YYYY-MM-DD-kebab-case-summary.md
 
 | テストコード | 種別 | 主な対象（src） | 備考 |
 |--------------|------|-----------------|------|
-| `src/lib/datetime.test.ts` | unit | `src/lib/datetime.ts` | **移行予定** → `tests/unit/` |
+| `tests/unit/datetime.test.ts` | unit | `src/lib/datetime.ts` | UTC 変換の基礎テスト |
 
 新規テストを追加したら、この表も更新する。
 

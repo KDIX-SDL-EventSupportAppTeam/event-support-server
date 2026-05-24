@@ -98,7 +98,7 @@ docker exec -it event-support-mysql \
 | [`tests/`](./tests/) | Vitest のテストコード（`unit/`・`integration/`）。**ここにまとめる** |
 | [`docs/tests/`](./docs/tests/) | 実行記録（`runs/`）・フィクスチャ（`fixtures/`） |
 
-- `src/` 内に `*.test.ts` を置かない（移行中の `src/lib/datetime.test.ts` は [tests/README.md](./tests/README.md) 参照）
+- `src/` 内に `*.test.ts` を置かない
 - テスト追加・実行後は [docs/tests/runs/_template.md](./docs/tests/runs/_template.md) に沿って `docs/tests/runs/` に記録を残し、対象 `src/` ファイルと `tests/**/*.test.ts` のパスを書く
 - 詳細: [tests/README.md](./tests/README.md) · [docs/tests/README.md](./docs/tests/README.md)
 
@@ -186,7 +186,6 @@ Cursor はユーザーの指示に従ってコードを書く。技術詳細は�
 
 **PR を作成するたびに、このセクションを更新すること。** 完了した項目は削除し、次の PR で取り組む内容を書く。
 
-- [ ] `tests/` へ Vitest を移行（`src/lib/datetime.test.ts` を `tests/unit/` へ移す）
 - [ ] `routes/v1/admin/` への運営 CRUD 分離（Issue #8。dashboard は現状 `ops.ts` に同居）
 - [ ] `RECOMMENDER_URL` を `config.ts` に追加し `event-support-recommender` へ中継
 - [ ] WebSocket（socket.io）実装（Issue #8）
