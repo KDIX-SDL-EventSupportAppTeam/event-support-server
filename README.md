@@ -106,7 +106,8 @@ curl http://localhost:3000/health
 
 | 種別 | パス |
 |------|------|
-| 技術詳細 | [AGENTS.md](./AGENTS.md) — 環境変数・エンドポイント・認証・DB |
+| 技術詳細 | [AGENTS.md](./AGENTS.md) — 環境変数・エンドポイント・認証・DB・テスト・ドキュメント運用 |
 | AI エージェント | [CLAUDE.md](./CLAUDE.md) · [docs/cursor/README.md](./docs/cursor/README.md) |
 | ドメイン用語 | [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) |
+| テスト | [tests/README.md](./tests/README.md) · [docs/tests/README.md](./docs/tests/README.md) |
 | 詳細設計（移行元） | [docs/legacy/designs/](./docs/legacy/designs/) |
