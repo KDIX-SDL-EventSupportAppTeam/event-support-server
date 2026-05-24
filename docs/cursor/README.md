@@ -28,7 +28,7 @@ docs/ubiquitous-language.md … ドメイン用語
 | [ubiquitous-language.mdc](../../.cursor/rules/ubiquitous-language.mdc) | yes | — | ドメイン用語の統一 |
 | [api-routes.mdc](../../.cursor/rules/api-routes.mdc) | no | `src/routes/**/*.ts` | ルート実装・レスポンス・認証・バリデーション |
 | [typescript.mdc](../../.cursor/rules/typescript.mdc) | no | `**/*.ts` | TypeScript・import 規約 |
-| [tests.mdc](../../.cursor/rules/tests.mdc) | no | `src/**/*.test.ts` | テスト配置・実行 |
+| [tests.mdc](../../.cursor/rules/tests.mdc) | no | `tests/**/*.ts` | テスト配置・実行記録 |
 
 ## テンプレート
 

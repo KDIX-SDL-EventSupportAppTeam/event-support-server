@@ -35,6 +35,7 @@ alwaysApply: true
 | 設計判断をした | `docs/adrs/`（または `docs/legacy/adrs/` 移行方針に従う） |
 | ドメイン用語を追加・変更した | [docs/ubiquitous-language.md](../../docs/ubiquitous-language.md) |
 | 運用ルール・手順が変わった | `AGENTS.md` |
+| テスト追加・実行した | `docs/tests/runs/` + [docs/tests/README.md](../../docs/tests/README.md) |
 | アーキテクチャ・ディレクトリ構造が変わった | `README.md` |
 
 - 正本は **README.md**（概要・構成）・ **AGENTS.md**（API・認証・DB）・ **[docs/ubiquitous-language.md](../../docs/ubiquitous-language.md)**（ドメイン用語）
