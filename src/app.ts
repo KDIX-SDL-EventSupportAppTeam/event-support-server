@@ -4,8 +4,11 @@ import type { AppConfig } from './config.js'
 import type { DbPool } from './db/pool.js'
 import { sendFail } from './lib/response.js'
 import { authRoutes } from './routes/v1/auth.js'
+import { boothRoutes } from './routes/v1/booths.js'
+import { checkinRoutes } from './routes/v1/checkins.js'
 import { adminRoutes, webhookRoutes } from './routes/v1/ops.js'
-import { participantRoutes } from './routes/v1/participant.js'
+import { recommendationRoutes } from './routes/v1/recommendations.js'
+import { surveyRoutes } from './routes/v1/survey.js'
 
 export async function buildApp(config: AppConfig, pool: DbPool) {
   const app = Fastify({ logger: true })
@@ -30,7 +33,10 @@ export async function buildApp(config: AppConfig, pool: DbPool) {
   await app.register(
     async (v1) => {
       await v1.register(authRoutes, { prefix: '/auth' })
-      await v1.register(participantRoutes)
+      await v1.register(surveyRoutes)
+      await v1.register(boothRoutes)
+      await v1.register(checkinRoutes)
+      await v1.register(recommendationRoutes)
       await v1.register(webhookRoutes)
       await v1.register(adminRoutes)
     },
