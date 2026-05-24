@@ -5,7 +5,7 @@ alwaysApply: true
 
 # ubiquitous-language
 
-**正本:** [docs/ubiquitous-language.md](../../docs/ubiquitous-language.md)（未整備の間は `event-support-frontend/docs/ubiquitous-language.md` を暫定参照）
+**正本:** [docs/ubiquitous-language.md](../../docs/ubiquitous-language.md)
 
 コード・コメント・コミットメッセージ・PR・ドキュメントすべてでこの語彙を統一して使う。
 

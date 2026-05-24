@@ -37,7 +37,7 @@ Claude Code 向けの役割定義。
 
 **[docs/ubiquitous-language.md](./docs/ubiquitous-language.md) を正とする。** 設計・要件定義の文書では必ずこの語彙を使う。曖昧な用語が出てきたらまずここを確認し、定義がない場合は追加を提案する。
 
-> 未整備の間は `event-support-frontend/docs/ubiquitous-language.md` を暫定参照する（ドメイン用語はリポジトリ間で共有）。
+> フロントエンド側の UI 用語は `event-support-frontend/docs/ubiquitous-language.md` も参照（ドメイン概念は本ファイルを正とする）。
 
 ## 参照ドキュメント
 

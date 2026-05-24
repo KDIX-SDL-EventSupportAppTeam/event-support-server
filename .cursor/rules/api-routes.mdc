@@ -16,8 +16,8 @@ alwaysApply: false
 
 ## レスポンス
 
-- 成功: `sendOk(reply, data)` — `{ ok: true, data }`
-- 失敗: `sendFail(reply, status, code, message)` — `{ ok: false, error: { code, message } }`
+- 成功: `sendOk(reply, data)` — `{ success: true, data }`
+- 失敗: `sendFail(reply, status, code, message)` — `{ success: false, error: { code, message } }`
 - Fastify の `reply.send` を直接使わない
 
 ## バリデーション

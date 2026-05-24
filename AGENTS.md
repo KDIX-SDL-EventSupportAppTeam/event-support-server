@@ -100,6 +100,7 @@ npm test
 
 | 種別 | パス |
 |------|------|
+| ドメイン用語 | [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) |
 | API 設計 | [docs/legacy/designs/api.md](./docs/legacy/designs/api.md) |
 | DB 設計 | [docs/legacy/designs/database.md](./docs/legacy/designs/database.md) |
 | システム設計 | [docs/legacy/designs/system-server.md](./docs/legacy/designs/system-server.md) |
