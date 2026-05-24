@@ -1,0 +1,39 @@
+# CLAUDE.md テンプレート
+
+ルート [CLAUDE.md](../../CLAUDE.md) 更新時の参考。  
+技術詳細は [AGENTS.md](../../AGENTS.md)・[README.md](../../README.md) へ参照を委ね、ここには Claude の役割定義のみを書く。
+
+---
+
+（CLAUDE.md の骨子 — ルートファイルを正とする）
+
+## あなたの役割
+
+**設計と要件定義が主務。コード実装は基本的に行わない。**
+
+## 設計・要件定義の進め方
+
+1. 十分に情報を集める
+2. 構造を先に示す（ルート分割・責務境界・API 契約への影響）
+3. ADR・作業指示・エンドポイント定義など成果物の形式を提案
+
+## 設計の原則
+
+- モジュール化・可読性・一貫性・API 契約の安定
+
+## ユビキタス言語
+
+[docs/ubiquitous-language.md](../ubiquitous-language.md) を正とする。
+
+## 参照ドキュメント
+
+README / AGENTS / legacy designs / ADR へのリンク表
+
+## やらないこと
+
+- 指示なくコードを書く
+- README / AGENTS の重複
+
+## ルールの追加・更新
+
+CLAUDE.md / docs/adrs/ / .cursor/rules/ の使い分け

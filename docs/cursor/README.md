@@ -1,30 +1,48 @@
-# Cursor 向け指示書
+# AI エージェント向けドキュメント
 
-このディレクトリは Cursor（実装担当）向けのルール配置を説明する。
+技術詳細の正本は [AGENTS.md](../../AGENTS.md)。概要・構成は [README.md](../../README.md)。
 
-## 読む順序
+## 役割分担
 
-1. [README.md](../../README.md) — リポジトリの責務・アーキテクチャ・ディレクトリ構造・起動手順
-2. [AGENTS.md](../../AGENTS.md) — 環境変数・エンドポイント・認証・DB
-3. [.cursor/rules/](../../.cursor/rules/) — 実装時に常に適用する Cursor ルール
+| ツール | ファイル | 役割 |
+|--------|----------|------|
+| Claude Code | [CLAUDE.md](../../CLAUDE.md) | 設計・要件定義。**コードは書かない** |
+| Cursor | [.cursor/rules/](../../.cursor/rules/) | **実装**。指示に従いコードを書く |
+| 共通 | [AGENTS.md](../../AGENTS.md) | 環境変数・エンドポイント・認証・DB |
 
-設計・要件定義は [CLAUDE.md](../../CLAUDE.md) を参照（Claude Code 向け）。
+```
+README.md … 概要・アーキテクチャ・ディレクトリ構造
+AGENTS.md … API・認証・DB の技術詳細
+    ├── CLAUDE.md      … 設計・要件定義
+    └── .cursor/rules/ … 実装（cursor-workflow + ファイル種別 rule）
+```
 
-## ルール一覧
+## Cursor rules 一覧
 
-| ファイル | 内容 |
+| ファイル | alwaysApply | globs | 内容 |
+|----------|-------------|-------|------|
+| [cursor-workflow.mdc](../../.cursor/rules/cursor-workflow.mdc) | yes | — | 役割・コマンド・コミット・ドキュメント更新 |
+| [project-core.mdc](../../.cursor/rules/project-core.mdc) | yes | — | 境界・アーキテクチャ原則 |
+| [ubiquitous-language.mdc](../../.cursor/rules/ubiquitous-language.mdc) | yes | — | ドメイン用語の統一 |
+| [api-routes.mdc](../../.cursor/rules/api-routes.mdc) | no | `src/routes/**/*.ts` | ルート実装・レスポンス・認証・バリデーション |
+| [typescript.mdc](../../.cursor/rules/typescript.mdc) | no | `**/*.ts` | TypeScript・import 規約 |
+| [tests.mdc](../../.cursor/rules/tests.mdc) | no | `src/**/*.test.ts` | テスト配置・実行 |
+
+## テンプレート
+
+| ファイル | 説明 |
 |----------|------|
-| [project-core.mdc](../../.cursor/rules/project-core.mdc) | 責務境界・ルート構成・ドキュメント正本 |
-| [cursor-workflow.mdc](../../.cursor/rules/cursor-workflow.mdc) | 役割・コマンド実行・コミット・ドキュメント更新 |
+| [CLAUDE.md.template](./CLAUDE.md.template) | CLAUDE.md 更新用 |
+| [rules/_template.mdc](./rules/_template.mdc) | 新規 Cursor rule 用 |
 
-## ルールの追加
+## ルールの追加・更新
 
-新しい `.mdc` を `.cursor/rules/` に追加したら、上記一覧を更新する。
+Claude / Cursor ともに、繰り返し参照する方針が生まれたら **必要に応じて** rule を追加する。
 
-- `alwaysApply: true` — プロジェクト全体に常時適用（現状はすべて true）
-- `globs` — 特定ファイルパターンにのみ適用する場合に指定
+| ツール | 追加先 | 一覧の更新 |
+|--------|--------|------------|
+| Claude Code | [CLAUDE.md](../../CLAUDE.md) または `docs/adrs/` | ADR 一覧 |
+| Cursor | `.cursor/rules/*.mdc` | 本ファイル「Cursor rules 一覧」 |
 
-## 関連
-
-- 詳細設計: [docs/legacy/designs/](../legacy/designs/)
-- ADR: [docs/legacy/adrs/](../legacy/adrs/)
+- 1 トピック = 1 rule / 1 ADR。詳細は [AGENTS.md](../../AGENTS.md) に書き、rule には要約のみ
+- テンプレート: [rules/_template.mdc](./rules/_template.mdc)
