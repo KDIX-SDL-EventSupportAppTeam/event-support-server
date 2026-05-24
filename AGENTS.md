@@ -43,6 +43,11 @@ npm run dev             # http://0.0.0.0:3000 （/api/v1 配下）
 npm test
 ```
 
+## 開発運用ルール
+
+- コミットメッセージは日本語で記述する
+- PR のタイトル・本文・コメントは日本語で記述する
+
 ## 参照
 
 - [docs/designs/api.md](../docs/designs/api.md)
