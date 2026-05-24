@@ -9,7 +9,7 @@ import { parseMysqlUrl } from '../db/parse-mysql-url.js'
 const EXPECTED_TABLES = 10
 const MIGRATION_FILE = '01_initial_schema.sql'
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..')
 const sqlPath = join(repoRoot, 'db/migrations', MIGRATION_FILE)
 
 /** `USE dbname;` は DATABASE_URL の DB 名と衝突するため除去する */
