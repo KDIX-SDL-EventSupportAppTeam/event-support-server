@@ -81,10 +81,12 @@ db/
 cp .env.example .env      # DATABASE_URL・JWT_SECRET・WEBHOOK_API_KEY を設定
 npm install
 docker compose up -d mysql
-npm run db:migrate        # 初回のみ（空 DB にテーブル作成）
 npm run db:seed           # 初回のみ（開発用データ投入）
 npm run dev               # http://localhost:3000
 ```
+
+> **DB スキーマ:** `docker compose up` 初回（空ボリューム）では `db/migrations/` が MySQL init で自動適用される。  
+> `npm run db:migrate` は **Docker 未使用時**、または **init 前の空 DB** 向け。Docker 初回 init 済みなら不要（実行すると「既にテーブルあり」で終了する）。
 
 動作確認:
 
@@ -102,5 +104,9 @@ curl http://localhost:3000/health
 
 ## 参照
 
-- [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) — ドメイン用語の正本
-- [docs/legacy/designs/](./docs/legacy/designs/) — API・DB 設計（リファクタリング前の詳細仕様）
+| 種別 | パス |
+|------|------|
+| 技術詳細 | [AGENTS.md](./AGENTS.md) — 環境変数・エンドポイント・認証・DB |
+| AI エージェント | [CLAUDE.md](./CLAUDE.md) · [docs/cursor/README.md](./docs/cursor/README.md) |
+| ドメイン用語 | [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) |
+| 詳細設計（移行元） | [docs/legacy/designs/](./docs/legacy/designs/) |

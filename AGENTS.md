@@ -10,7 +10,7 @@
 |--------|------|------|
 | `DATABASE_URL` | ✅ | `mysql://user:pass@host:3306/dbname` |
 | `JWT_SECRET` | ✅ | JWT 署名キー（本番は 32 文字以上のランダム文字列） |
-| `WEBHOOK_API_KEY` | ✅ | Google Apps Script から受け取る Webhook 認証キー |
+| `WEBHOOK_API_KEY` | 本番 ✅ | Google Apps Script から受け取る Webhook 認証キー（開発は空でも可） |
 | `RECOMMENDER_URL` | — | 推薦エンジンの URL（未設定時は内部ランダム推薦にフォールバック）※ |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
 | `PORT` | — | リッスンポート（既定: `3000`） |
@@ -36,8 +36,9 @@
 | GET | `/api/v1/events/:event_id/recommendations` | Bearer | 推薦取得（現在はランダム） |
 | POST | `/api/v1/events/:event_id/recommendations/:recommendation_id/select` | Bearer | 推薦選択 |
 | POST | `/api/v1/webhook/booths/sync` | `X-Api-Key` | ブース情報同期（Google Forms） |
+| GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（`role: admin`） | 運営ダッシュボード（簡易集計） |
 
-未実装（設計済み）: WebSocket・運営 CRUD の大部分 → Issue #8  
+未実装（設計済み）: WebSocket・運営 CRUD の大部分（dashboard 以外）→ Issue #8  
 詳細は [docs/legacy/designs/api.md](./docs/legacy/designs/api.md) を参照。
 
 ---
@@ -45,7 +46,7 @@
 ## 認証の仕組み
 
 ```
-POST /auth/login → JWT 発行（payload: { sub: user_id, event_id, role }）
+POST /api/v1/auth/login → JWT 発行（payload: { sub, event_id, display_name, role }）
         ↓
 以降のリクエストに Authorization: Bearer <token> を付与
         ↓
@@ -53,13 +54,15 @@ requireBearerAuth         → トークンの署名・有効期限を検証
 requireEventMatchesJwt    → URL の :event_id と JWT の event_id が一致するか検証
 ```
 
-`role: admin` のみアクセスできるエンドポイントは `requireAdminRole`（Issue #8 で追加予定）。
+運営向けエンドポイントは JWT の `role: admin` を検証する（`requireAdminRole` への共通化は Issue #8 予定）。  
+ペイロードの詳細は [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) § 認証・ユーザーを参照。
 
 ---
 
 ## DB
 
 スキーマの正は `db/migrations/01_initial_schema.sql`（10 テーブル）。  
+起動手順・Docker init と `db:migrate` の使い分けは [README.md § ローカル開発](./README.md#ローカル開発) を参照。  
 設計の解説は [docs/legacy/designs/database.md](./docs/legacy/designs/database.md) を参照。
 
 ```bash
@@ -100,6 +103,8 @@ npm test
 
 | 種別 | パス |
 |------|------|
+| 概要・起動手順 | [README.md](./README.md) |
+| 設計・要件定義 | [CLAUDE.md](./CLAUDE.md) · [docs/cursor/README.md](./docs/cursor/README.md) |
 | ドメイン用語 | [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) |
 | API 設計 | [docs/legacy/designs/api.md](./docs/legacy/designs/api.md) |
 | DB 設計 | [docs/legacy/designs/database.md](./docs/legacy/designs/database.md) |

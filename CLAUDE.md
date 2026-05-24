@@ -68,6 +68,7 @@ Claude Code 向けの役割定義。
 |------|--------|
 | Claude 向けの設計・要件の進め方 | 本ファイル（`CLAUDE.md`）にセクション追加 |
 | プロジェクト全体の設計判断 | `docs/adrs/` に ADR として記録 |
+| ドメイン用語の追加・変更 | [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) |
 | Cursor 実装時に守ってほしい規約 | `.cursor/rules/*.mdc` 追加を提案（[docs/cursor/README.md](./docs/cursor/README.md)） |
 
 - 1 トピック = 1 ルール / 1 ADR。肥大化したら分割する

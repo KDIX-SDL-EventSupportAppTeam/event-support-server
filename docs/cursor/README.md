@@ -9,10 +9,12 @@
 | Claude Code | [CLAUDE.md](../../CLAUDE.md) | 設計・要件定義。**コードは書かない** |
 | Cursor | [.cursor/rules/](../../.cursor/rules/) | **実装**。指示に従いコードを書く |
 | 共通 | [AGENTS.md](../../AGENTS.md) | 環境変数・エンドポイント・認証・DB |
+| 共通 | [docs/ubiquitous-language.md](../../docs/ubiquitous-language.md) | ドメイン用語の正本 |
 
 ```
 README.md … 概要・アーキテクチャ・ディレクトリ構造
 AGENTS.md … API・認証・DB の技術詳細
+docs/ubiquitous-language.md … ドメイン用語
     ├── CLAUDE.md      … 設計・要件定義
     └── .cursor/rules/ … 実装（cursor-workflow + ファイル種別 rule）
 ```
@@ -42,6 +44,7 @@ Claude / Cursor ともに、繰り返し参照する方針が生まれたら **�
 | ツール | 追加先 | 一覧の更新 |
 |--------|--------|------------|
 | Claude Code | [CLAUDE.md](../../CLAUDE.md) または `docs/adrs/` | ADR 一覧 |
+| 共通 | [docs/ubiquitous-language.md](../../docs/ubiquitous-language.md) | — |
 | Cursor | `.cursor/rules/*.mdc` | 本ファイル「Cursor rules 一覧」 |
 
 - 1 トピック = 1 rule / 1 ADR。詳細は [AGENTS.md](../../AGENTS.md) に書き、rule には要約のみ

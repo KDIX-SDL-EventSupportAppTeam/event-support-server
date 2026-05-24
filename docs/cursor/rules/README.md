@@ -14,3 +14,5 @@ Project Rules の正本は [.cursor/rules/](../../../.cursor/rules/)（リポジ
 | `tests.mdc` | Vitest |
 
 新規 rule は [_template.mdc](./_template.mdc) をコピーして `.cursor/rules/` に追加し、[docs/cursor/README.md](../README.md) の一覧を更新する。
+
+ドメイン用語の正本は [docs/ubiquitous-language.md](../../ubiquitous-language.md)。

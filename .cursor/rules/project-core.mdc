@@ -22,4 +22,5 @@ alwaysApply: true
 
 - 概要・ディレクトリ構造: [README.md](../../README.md)
 - 環境変数・エンドポイント・認証: [AGENTS.md](../../AGENTS.md)
+- ドメイン用語: [docs/ubiquitous-language.md](../../docs/ubiquitous-language.md)
 - 更新タイミング: [cursor-workflow.mdc](./cursor-workflow.mdc)
