@@ -11,11 +11,9 @@
 | `DATABASE_URL` | ✅ | `mysql://user:pass@host:3306/dbname` |
 | `JWT_SECRET` | ✅ | JWT 署名キー（本番は 32 文字以上のランダム文字列） |
 | `WEBHOOK_API_KEY` | 本番 ✅ | Google Apps Script から受け取る Webhook 認証キー（開発は空でも可） |
-| `RECOMMENDER_URL` | — | 推薦エンジンの URL（未設定時は内部ランダム推薦にフォールバック）※ |
+| `RECOMMENDER_URL` | — | 推薦エンジンの URL（未設定・失敗時は内部ランダム推薦にフォールバック） |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
 | `PORT` | — | リッスンポート（既定: `3000`） |
-
-※ `RECOMMENDER_URL` は設計上の予定。現行 `config.ts` 未対応の場合は `recommendations.ts` のスタブ実装を正とする。
 
 ---
 
@@ -33,7 +31,7 @@
 | POST | `/api/v1/events/:event_id/checkins` | Bearer | チェックイン（QR / 手動コード） |
 | GET | `/api/v1/events/:event_id/checkins` | Bearer | 自分のチェックイン履歴 |
 | POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating` | Bearer | 評価送信 |
-| GET | `/api/v1/events/:event_id/recommendations` | Bearer | 推薦取得（現在はランダム） |
+| GET | `/api/v1/events/:event_id/recommendations` | Bearer | 推薦取得（`RECOMMENDER_URL` 設定時は外部推薦、未設定/失敗時はランダム） |
 | POST | `/api/v1/events/:event_id/recommendations/:recommendation_id/select` | Bearer | 推薦選択 |
 | POST | `/api/v1/webhook/booths/sync` | `X-Api-Key` | ブース情報同期（Google Forms） |
 | GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（`role: admin`） | 運営ダッシュボード（簡易集計） |
@@ -98,7 +96,7 @@ docker exec -it event-support-mysql \
 | [`tests/`](./tests/) | Vitest のテストコード（`unit/`・`integration/`）。**ここにまとめる** |
 | [`docs/tests/`](./docs/tests/) | 実行記録（`runs/`）・フィクスチャ（`fixtures/`） |
 
-- `src/` 内に `*.test.ts` を置かない（移行中の `src/lib/datetime.test.ts` は [tests/README.md](./tests/README.md) 参照）
+- `src/` 内に `*.test.ts` を置かない
 - テスト追加・実行後は [docs/tests/runs/_template.md](./docs/tests/runs/_template.md) に沿って `docs/tests/runs/` に記録を残し、対象 `src/` ファイルと `tests/**/*.test.ts` のパスを書く
 - 詳細: [tests/README.md](./tests/README.md) · [docs/tests/README.md](./docs/tests/README.md)
 
@@ -186,9 +184,8 @@ Cursor はユーザーの指示に従ってコードを書く。技術詳細は�
 
 **PR を作成するたびに、このセクションを更新すること。** 完了した項目は削除し、次の PR で取り組む内容を書く。
 
-- [ ] `tests/` へ Vitest を移行（`src/lib/datetime.test.ts` を `tests/unit/` へ移す）
-- [ ] `routes/v1/admin/` への運営 CRUD 分離（Issue #8。dashboard は現状 `ops.ts` に同居）
-- [ ] `RECOMMENDER_URL` を `config.ts` に追加し `event-support-recommender` へ中継
+- [ ] `routes/v1/admin/` へ運営 CRUD を拡張（Issue #8。dashboard は分離済み）
+- [ ] `RECOMMENDER_URL` 連携の API 契約（request/response スキーマ）を `event-support-recommender` と固定化
 - [ ] WebSocket（socket.io）実装（Issue #8）
 - [ ] `ops.ts` から webhook / admin / export の責務分離
 - [ ] Google Sheets エクスポート API の実装

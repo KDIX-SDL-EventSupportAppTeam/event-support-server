@@ -4,9 +4,10 @@ import type { AppConfig } from './config.js'
 import type { DbPool } from './db/pool.js'
 import { sendFail } from './lib/response.js'
 import { authRoutes } from './routes/v1/auth.js'
+import { adminRoutes } from './routes/v1/admin/dashboard.js'
 import { boothRoutes } from './routes/v1/booths.js'
 import { checkinRoutes } from './routes/v1/checkins.js'
-import { adminRoutes, webhookRoutes } from './routes/v1/ops.js'
+import { webhookRoutes } from './routes/v1/ops.js'
 import { recommendationRoutes } from './routes/v1/recommendations.js'
 import { surveyRoutes } from './routes/v1/survey.js'
 
@@ -25,7 +26,7 @@ export async function buildApp(config: AppConfig, pool: DbPool) {
     service: 'event-support-server',
     health: '/health',
     api: '/api/v1',
-    hint: 'REST は docs/designs/api.md の /api/v1 配下',
+    hint: 'REST は docs/legacy/designs/api.md の /api/v1 配下',
   }))
 
   app.get('/health', async () => ({ ok: true }))
