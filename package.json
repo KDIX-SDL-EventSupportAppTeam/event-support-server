@@ -9,8 +9,10 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "db:check": "tsx src/scripts/db-check.ts",
     "db:migrate": "tsx src/scripts/db-migrate.ts",
-    "db:seed": "tsx src/scripts/seed-dev.ts"
+    "db:seed": "tsx src/scripts/seed-dev.ts",
+    "db:seed:prod": "tsx src/scripts/seed-prod.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",
