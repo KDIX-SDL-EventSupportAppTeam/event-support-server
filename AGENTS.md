@@ -13,7 +13,40 @@
 | `WEBHOOK_API_KEY` | 本番 ✅ | Google Apps Script から受け取る Webhook 認証キー（開発は空でも可） |
 | `RECOMMENDER_URL` | — | 推薦エンジンの URL（未設定・失敗時は内部ランダム推薦にフォールバック） |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
-| `PORT` | — | リッスンポート（既定: `3000`） |
+| `PORT` | — | リッスンポート（既定: `3000`。Cloud Run では `$PORT` が自動注入される） |
+
+### 本番（Cloud Run）向けの渡し方
+
+- `DATABASE_URL` / `JWT_SECRET` / `WEBHOOK_API_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
+- `PORT` / `CORS_ORIGIN` / `RECOMMENDER_URL` は `--set-env-vars` で渡す
+- 値はリポジトリにコミットしない（`.env` は `.gitignore` 済み）
+- 詳細手順: [docs/deploy/cloud-run.md](./docs/deploy/cloud-run.md)
+
+### シークレットの生成コマンド
+
+```bash
+# JWT_SECRET（48 バイト ≒ 64 文字）
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+
+# WEBHOOK_API_KEY（32 バイト ≒ 43 文字）
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+### `CORS_ORIGIN` 運用フロー
+
+`CORS_ORIGIN` はフロントの本番ドメインに依存するので、デプロイの順序に注意:
+
+1. **初回**: 仮の値（例: フロントの App Engine 既定 URL）で server をデプロイ
+2. フロントを `VITE_API_BASE_URL=<server の URL>` でビルド・デプロイ
+3. フロントの **本番 URL が確定** したら、`CORS_ORIGIN` を更新して server を再デプロイ
+   ```bash
+   gcloud run services update event-support-server \
+     --region=asia-northeast1 \
+     --update-env-vars="CORS_ORIGIN=https://<frontend-host>"
+   ```
+4. 複数の許可オリジン（例: カスタムドメイン + appspot.com）を許す場合はカンマ区切り
+
+> プレビュー/ステージング環境を持つときは、ステージング側の CORS と本番側を別サービスとして分けるのが安全。
 
 ---
 
