@@ -1,0 +1,32 @@
+# 不要なファイル・秘密情報を Docker コンテキストから除外
+.git
+.gitignore
+.gitattributes
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Build artifacts（コンテナ内でビルドし直す）
+dist
+node_modules
+coverage
+
+# IDE / OS
+.vscode
+.idea
+.cursor
+.claude
+.DS_Store
+Thumbs.db
+
+# Tests / docs（本番イメージに不要）
+tests
+docs
+*.md
+!README.md
+
+# Local dev
+docker-compose.yml
+db/docker.env.example
