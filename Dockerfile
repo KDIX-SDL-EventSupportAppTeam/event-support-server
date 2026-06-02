@@ -1,10 +1,12 @@
-# syntax=docker/dockerfile:1.7
 # ============================================================================
 # event-support-server — Cloud Run 用マルチステージ Dockerfile
 # ----------------------------------------------------------------------------
 # - Stage 1: deps     … 依存パッケージ解決（npm ci でフル）
 # - Stage 2: build    … TypeScript を dist/ に出力
 # - Stage 3: runtime  … 本番依存のみ + dist/ で軽量化
+#
+# Cloud Build のデフォルトビルダーは BuildKit を有効化しないため、
+# `RUN --mount=type=cache` などの BuildKit 拡張は使わない。
 #
 # Cloud Run へのデプロイ手順は docs/deploy/cloud-run.md を参照
 # ============================================================================
@@ -13,8 +15,7 @@
 FROM node:22-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
 # ---------- Stage 2: build --------------------------------------------------
 FROM node:22-slim AS build
@@ -32,8 +33,7 @@ WORKDIR /app
 
 # 本番依存のみインストール（devDependencies を含めない）
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev --no-audit --no-fund
+RUN npm ci --omit=dev --no-audit --no-fund
 
 # ビルド成果物のみコピー
 COPY --from=build /app/dist ./dist
