@@ -29,7 +29,10 @@ export async function buildApp(config: AppConfig, pool: DbPool) {
     hint: 'REST は docs/legacy/designs/api.md の /api/v1 配下',
   }))
 
-  app.get('/health', async () => ({ ok: true }))
+  app.get('/health', async () => ({
+    ok: true,
+    cdTest: '20250601-trigger-1',
+  }))
 
   await app.register(
     async (v1) => {
