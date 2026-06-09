@@ -34,7 +34,8 @@
         │                        │
         │ 内部 HTTP                │ SQL
         ▼                        ▼
-[event-support-recommender]   [MySQL（Cloud SQL）]
+[event-support-recommender]   [MySQL（さくら / Docker）]
+                              ↑ 本番はさくら上ラッパー API 経由（HTTPS）
 ```
 
 ## ディレクトリ構造
@@ -50,7 +51,9 @@ src/
 │   ├── ops.ts               # Webhook・エクスポート
 │   └── admin/               # 運営 CRUD（Issue #8）
 ├── db/
-│   ├── pool.ts
+│   ├── client.ts          # DbClient インターフェース
+│   ├── pool.ts            # mysql2 直接接続
+│   ├── http-proxy.ts      # さくらラッパー API 経由
 │   └── parse-mysql-url.ts
 ├── lib/
 │   ├── datetime.ts
@@ -60,7 +63,8 @@ src/
 │   └── auth.ts
 ├── scripts/
 │   ├── db-migrate.ts        # CREATE TABLE 実行
-│   └── seed-dev.ts          # 開発用データ投入
+│   ├── seed-dev.ts          # 開発用データ投入
+│   └── sakura-proxy-mock.ts # さくらラッパー API のローカルモック
 ├── types/
 │   └── fastify.d.ts
 ├── app.ts
@@ -84,6 +88,15 @@ docker compose up -d mysql
 npm run db:seed           # 初回のみ（開発用データ投入）
 npm run dev               # http://localhost:3000
 ```
+
+さくら DB プロキシのローカル検証（任意）:
+
+```bash
+npm run proxy:mock        # ターミナル A: http://localhost:3001
+SAKURA_PROXY_URL=http://localhost:3001 npm run dev   # ターミナル B
+```
+
+詳細: [docs/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md](./docs/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)
 
 > **DB スキーマ:** `docker compose up` 初回（空ボリューム）では `db/migrations/` が MySQL init で自動適用される。  
 > `npm run db:migrate` は **Docker 未使用時**、または **init 前の空 DB** 向け。Docker 初回 init 済みなら不要（実行すると「既にテーブルあり」で終了する）。
