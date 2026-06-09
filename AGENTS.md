@@ -8,17 +8,22 @@
 
 | 変数名 | 必須 | 説明 |
 |--------|------|------|
-| `DATABASE_URL` | ✅ | `mysql://user:pass@host:3306/dbname` |
+| `DATABASE_URL` | △ | `mysql://user:pass@host:3306/dbname`。`SAKURA_PROXY_URL` 未設定時は必須 |
+| `SAKURA_PROXY_URL` | △ | さくら上ラッパー API のベース URL（例: `https://example.sakura.ne.jp/proxy`）。設定時は HTTP プロキシ経由で DB アクセス |
+| `SAKURA_PROXY_KEY` | プロキシ使用時 ✅ | ラッパー API 認証キー（`X-Proxy-Key` ヘッダー。本番は Secret Manager） |
 | `JWT_SECRET` | ✅ | JWT 署名キー（本番は 32 文字以上のランダム文字列） |
 | `WEBHOOK_API_KEY` | 本番 ✅ | Google Apps Script から受け取る Webhook 認証キー（開発は空でも可） |
 | `RECOMMENDER_URL` | — | 推薦エンジンの URL（未設定・失敗時は内部ランダム推薦にフォールバック） |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
 | `PORT` | — | リッスンポート（既定: `3000`。Cloud Run では `$PORT` が自動注入される） |
 
+> `DATABASE_URL` と `SAKURA_PROXY_URL` の**どちらか一方**は必須。本番（さくら Standard）は外部から MySQL 直接接続不可のため、通常は `SAKURA_PROXY_URL` + `SAKURA_PROXY_KEY` を使う。
+
 ### 本番（Cloud Run）向けの渡し方
 
-- `DATABASE_URL` / `JWT_SECRET` / `WEBHOOK_API_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
-- `PORT` / `CORS_ORIGIN` / `RECOMMENDER_URL` は `--set-env-vars` で渡す
+- `JWT_SECRET` / `WEBHOOK_API_KEY` / `SAKURA_PROXY_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
+- `SAKURA_PROXY_URL` / `PORT` / `CORS_ORIGIN` / `RECOMMENDER_URL` は `--set-env-vars` で渡す
+- 本番（さくら Standard）では `SAKURA_PROXY_URL` 経由が前提。`DATABASE_URL` は Cloud Run から不要（ラッパー API がさくら内から MySQL に接続）
 - 値はリポジトリにコミットしない（`.env` は `.gitignore` 済み）
 - 詳細手順: [docs/deploy/cloud-run.md](./docs/deploy/cloud-run.md)
 
@@ -217,6 +222,7 @@ Cursor はユーザーの指示に従ってコードを書く。技術詳細は�
 
 **PR を作成するたびに、このセクションを更新すること。** 完了した項目は削除し、次の PR で取り組む内容を書く。
 
+- [ ] さくら上のラッパー API 設置（先生）と Cloud Run への `SAKURA_PROXY_URL` / `SAKURA_PROXY_KEY` 設定・本番接続確認
 - [ ] `routes/v1/admin/` へ運営 CRUD を拡張（Issue #8。dashboard は分離済み）
 - [ ] `RECOMMENDER_URL` 連携の API 契約（request/response スキーマ）を `event-support-recommender` と固定化
 - [ ] WebSocket（socket.io）実装（Issue #8）
