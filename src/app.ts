@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import type { AppConfig } from './config.js'
-import type { DbPool } from './db/pool.js'
+import type { DbClient } from './db/client.js'
 import { sendFail } from './lib/response.js'
 import { authRoutes } from './routes/v1/auth.js'
 import { adminRoutes } from './routes/v1/admin/dashboard.js'
@@ -11,10 +11,10 @@ import { webhookRoutes } from './routes/v1/ops.js'
 import { recommendationRoutes } from './routes/v1/recommendations.js'
 import { surveyRoutes } from './routes/v1/survey.js'
 
-export async function buildApp(config: AppConfig, pool: DbPool) {
+export async function buildApp(config: AppConfig, db: DbClient) {
   const app = Fastify({ logger: true })
   app.decorate('config', config)
-  app.decorate('db', pool)
+  app.decorate('db', db)
 
   await app.register(cors, {
     origin: config.corsOrigin.split(',').map((s) => s.trim()),
