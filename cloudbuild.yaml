@@ -35,8 +35,8 @@ steps:
       - --platform=managed
       - --allow-unauthenticated
       - --port=8080
-      - --update-env-vars=^@^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com
-      - --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest
+      - --update-env-vars=^@^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com@SAKURA_PROXY_URL=https://sutolab.sakura.ne.jp/bingo/query/index.php
+      - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest
 
 options:
   logging: CLOUD_LOGGING_ONLY
