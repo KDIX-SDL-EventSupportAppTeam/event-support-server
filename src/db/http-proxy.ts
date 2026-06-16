@@ -12,10 +12,12 @@ export function createHttpProxy(baseUrl: string, apiKey: string): DbClient {
   } as const
 
   async function callProxy(sql: string, params: unknown[]) {
+    // さくらMySQL は JSON boolean を TINYINT(1) にバインドできないため整数に変換する
+    const normalizedParams = params.map((p) => (typeof p === 'boolean' ? (p ? 1 : 0) : p))
     const res = await fetch(baseUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ sql, params }),
+      body: JSON.stringify({ sql, params: normalizedParams }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
