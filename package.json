@@ -13,6 +13,8 @@
     "db:migrate": "tsx src/scripts/db-migrate.ts",
     "db:seed": "tsx src/scripts/seed-dev.ts",
     "db:seed:prod": "tsx src/scripts/seed-prod.ts",
+    "db:seed:sample": "tsx src/scripts/seed-sample.ts",
+    "db:clear:sample": "tsx src/scripts/clear-sample.ts",
     "proxy:mock": "tsx src/scripts/sakura-proxy-mock.ts"
   },
   "dependencies": {

@@ -1,0 +1,43 @@
+import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
+import { sendFail, sendOk } from '../../../lib/response.js'
+import { clearSampleData } from '../../../lib/sample-data/clear.js'
+import { generateSampleData } from '../../../lib/sample-data/generate.js'
+import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+
+const generateBody = z.object({
+  force: z.boolean().optional(),
+})
+
+export async function adminSampleDataRoutes(app: FastifyInstance) {
+  const pre = [requireAdmin, requireEventMatchesJwt]
+
+  app.post<{ Params: { event_id: string } }>(
+    '/admin/events/:event_id/sample-data/generate',
+    { preHandler: pre },
+    async (req, reply) => {
+      const parsed = generateBody.safeParse(req.body ?? {})
+      if (!parsed.success) {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
+      }
+      try {
+        const result = await generateSampleData(app.db, req.params.event_id, {
+          force: parsed.data.force,
+        })
+        return sendOk(reply, { generated: result })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'サンプルデータの生成に失敗しました'
+        return sendFail(reply, 409, 'CONFLICT', msg)
+      }
+    },
+  )
+
+  app.delete<{ Params: { event_id: string } }>(
+    '/admin/events/:event_id/sample-data',
+    { preHandler: pre },
+    async (req, reply) => {
+      const result = await clearSampleData(app.db, req.params.event_id)
+      return sendOk(reply, { cleared: result.deleted })
+    },
+  )
+}
