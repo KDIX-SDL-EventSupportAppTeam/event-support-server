@@ -12,6 +12,7 @@ import { adminSurveyQuestionRoutes } from './routes/v1/admin/survey-questions.js
 import { adminParticipantRoutes } from './routes/v1/admin/participants.js'
 import { adminAnalyticsRoutes } from './routes/v1/admin/analytics.js'
 import { adminSampleDataRoutes } from './routes/v1/admin/sample-data.js'
+import { adminEventDataRoutes } from './routes/v1/admin/event-data.js'
 import { boothRoutes } from './routes/v1/booths.js'
 import { checkinRoutes } from './routes/v1/checkins.js'
 import { webhookRoutes } from './routes/v1/ops.js'
@@ -58,6 +59,7 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(adminParticipantRoutes)
       await v1.register(adminAnalyticsRoutes)
       await v1.register(adminSampleDataRoutes)
+      await v1.register(adminEventDataRoutes)
     },
     { prefix: '/api/v1' },
   )
