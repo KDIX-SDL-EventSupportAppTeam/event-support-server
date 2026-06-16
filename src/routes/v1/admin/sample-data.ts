@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../../lib/response.js'
 import { clearSampleData } from '../../../lib/sample-data/clear.js'
+import { SampleDataConflictError } from '../../../lib/sample-data/errors.js'
 import { generateSampleData } from '../../../lib/sample-data/generate.js'
 import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
 
@@ -26,8 +27,11 @@ export async function adminSampleDataRoutes(app: FastifyInstance) {
         })
         return sendOk(reply, { generated: result })
       } catch (e) {
+        if (e instanceof SampleDataConflictError) {
+          return sendFail(reply, 409, 'CONFLICT', e.message)
+        }
         const msg = e instanceof Error ? e.message : 'サンプルデータの生成に失敗しました'
-        return sendFail(reply, 409, 'CONFLICT', msg)
+        return sendFail(reply, 500, 'INTERNAL_ERROR', msg)
       }
     },
   )
@@ -36,8 +40,13 @@ export async function adminSampleDataRoutes(app: FastifyInstance) {
     '/admin/events/:event_id/sample-data',
     { preHandler: pre },
     async (req, reply) => {
-      const result = await clearSampleData(app.db, req.params.event_id)
-      return sendOk(reply, { cleared: result.deleted })
+      try {
+        const result = await clearSampleData(app.db, req.params.event_id)
+        return sendOk(reply, { cleared: result.deleted })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'サンプルデータの削除に失敗しました'
+        return sendFail(reply, 500, 'INTERNAL_ERROR', msg)
+      }
     },
   )
 }
