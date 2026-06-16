@@ -12,7 +12,7 @@ export function createHttpProxy(baseUrl: string, apiKey: string): DbClient {
   } as const
 
   async function callProxy(sql: string, params: unknown[]) {
-    const res = await fetch(`${baseUrl}/query`, {
+    const res = await fetch(baseUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify({ sql, params }),
