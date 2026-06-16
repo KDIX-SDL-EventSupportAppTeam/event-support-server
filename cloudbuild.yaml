@@ -35,6 +35,9 @@ steps:
       - --platform=managed
       - --allow-unauthenticated
       - --port=8080
+      - --session-affinity
+      - --timeout=3600
+      - --min-instances=1
       - --update-env-vars=^@^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com@SAKURA_PROXY_URL=https://sutolab.sakura.ne.jp/bingo/query/index.php
       - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest
 
