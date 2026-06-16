@@ -1,15 +1,19 @@
 import type { DbClient } from '../../db/client.js'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
-const sqlPath = join(repoRoot, 'db/migrations/02_booth_categories.sql')
+/** db/migrations/02_booth_categories.sql と同一（本番イメージに migrations は含まれない） */
+const BOOTH_CATEGORIES_DDL = `
+CREATE TABLE IF NOT EXISTS booth_categories (
+  booth_id    CHAR(36) NOT NULL,
+  category_id CHAR(36) NOT NULL,
+  PRIMARY KEY (booth_id, category_id),
+  FOREIGN KEY (booth_id)    REFERENCES booths(id)     ON DELETE CASCADE,
+  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+`.trim()
 
 /** booth_categories テーブルが無ければ作成する（既存 DB 向け） */
 export async function ensureBoothCategoriesTable(db: DbClient): Promise<void> {
-  const sql = readFileSync(sqlPath, 'utf8')
-  await db.query(sql)
+  await db.query(BOOTH_CATEGORIES_DDL)
 }
 
 export const SAMPLE_PREFIX = '[SAMPLE]'

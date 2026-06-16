@@ -15,6 +15,7 @@
     "db:seed:prod": "tsx src/scripts/seed-prod.ts",
     "db:seed:sample": "tsx src/scripts/seed-sample.ts",
     "db:clear:sample": "tsx src/scripts/clear-sample.ts",
+    "db:clear:event": "tsx src/scripts/clear-event.ts",
     "proxy:mock": "tsx src/scripts/sakura-proxy-mock.ts"
   },
   "dependencies": {
