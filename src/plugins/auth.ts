@@ -28,3 +28,15 @@ export async function requireEventMatchesJwt(
     return sendFail(reply, 403, 'FORBIDDEN', 'このイベントにアクセスできません')
   }
 }
+
+export async function requireAdmin(
+  this: FastifyInstance,
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  await requireBearerAuth.call(this, req, reply)
+  if (reply.sent) return
+  if (req.jwtUser?.role !== 'admin') {
+    return sendFail(reply, 403, 'FORBIDDEN', '運営権限が必要です')
+  }
+}

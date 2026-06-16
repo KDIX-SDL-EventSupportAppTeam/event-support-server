@@ -35,6 +35,7 @@ export async function checkinRoutes(app: FastifyInstance) {
       const uid = req.jwtUser!.sub
       const body = parsed.data
       let boothId: string
+      let boothName: string
       let method: 'qr' | 'manual'
       let checkedMysql: string
       try {
@@ -54,6 +55,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         if (!row) {
           return sendFail(reply, 404, 'NOT_FOUND', 'ブースが見つかりません')
         }
+        boothName = row.name
       } else {
         method = 'manual'
         const code = body.manual_code.trim().toUpperCase()
@@ -66,6 +68,7 @@ export async function checkinRoutes(app: FastifyInstance) {
           return sendFail(reply, 404, 'NOT_FOUND', '手動コードに一致するブースがありません')
         }
         boothId = row.id
+        boothName = row.name
       }
 
       const id = randomUUID()
@@ -84,12 +87,16 @@ export async function checkinRoutes(app: FastifyInstance) {
         throw e
       }
 
-      const [bn] = await app.db.query('SELECT name FROM booths WHERE id = ? LIMIT 1', [boothId])
-      const name = ((bn as { name: string }[])[0]?.name) ?? ''
+      app.io.to(`event:${eventId}:admin`).emit('checkin:new', {
+        booth_id: boothId,
+        booth_name: boothName,
+        user_display_name: req.jwtUser!.display_name,
+        checked_in_at: body.checked_in_at,
+      })
 
       return sendOk(reply, {
         checkin_id: id,
-        booth: { id: boothId, name },
+        booth: { id: boothId, name: boothName },
         synced_at: `${synced.replace(' ', 'T')}Z`,
       })
     },

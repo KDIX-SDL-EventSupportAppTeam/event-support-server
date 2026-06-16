@@ -53,6 +53,7 @@ CREATE TABLE users (
   password_hash TEXT,
   google_id     TEXT,
   display_name  TEXT,
+  role          VARCHAR(20) NOT NULL DEFAULT 'participant',
   created_at    DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_email_event (email, event_id),
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE

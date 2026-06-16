@@ -3,6 +3,7 @@ import { loadConfig } from './config.js'
 import { createHttpProxy } from './db/http-proxy.js'
 import { createPool } from './db/pool.js'
 import { buildApp } from './app.js'
+import { initSocketIO } from './plugins/socket.js'
 
 async function main() {
   const config = loadConfig()
@@ -12,6 +13,8 @@ async function main() {
     : createPool(config)
 
   const app = await buildApp(config, db)
+  await app.ready()
+  initSocketIO(app)
   await app.listen({ port: config.port, host: '0.0.0.0' })
 }
 

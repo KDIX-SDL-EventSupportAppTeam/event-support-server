@@ -10,6 +10,7 @@ const envSchema = z.object({
   WEBHOOK_API_KEY: z.string().optional().default(''),
   RECOMMENDER_URL: z.string().optional().default(''),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  ADMIN_REGISTRATION_KEY: z.string().min(1),
 })
 
 export type AppConfig = {
@@ -21,6 +22,7 @@ export type AppConfig = {
   webhookApiKey: string
   recommenderUrl: string
   corsOrigin: string
+  adminRegistrationKey: string
 }
 
 export function loadConfig(): AppConfig {
@@ -44,5 +46,6 @@ export function loadConfig(): AppConfig {
     webhookApiKey: e.WEBHOOK_API_KEY,
     recommenderUrl: e.RECOMMENDER_URL,
     corsOrigin: e.CORS_ORIGIN,
+    adminRegistrationKey: e.ADMIN_REGISTRATION_KEY,
   }
 }
