@@ -11,8 +11,10 @@
   - Artifact Registry API
   - Secret Manager API
   - Cloud Build API
-- **さくら DB の「データベース外部接続」が許可されていること**（必須）
-- DB スキーマ適用済み（`npm run db:check` で `tables: 10` を確認）
+- **さくら上のラッパー API** が設置済み（`src/scripts/sakura-proxy-mock.ts` をベースに先生が HTTPS で公開）
+- DB スキーマ適用済み（さくら DB 上で `db/create-tables.sql` 等を実行済み）
+
+> さくら Standard は外部から MySQL 直接接続不可。Cloud Run は `SAKURA_PROXY_URL` 経由でラッパー API を呼ぶ（[完了メモ](../orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)）。
 
 ---
 
@@ -57,12 +59,13 @@ echo -n "$(node -e "console.log(require('crypto').randomBytes(48).toString('base
 echo -n "$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")" \
   | gcloud secrets create WEBHOOK_API_KEY --data-file=-
 
-# DATABASE_URL（さくら DB の接続文字列）
-echo -n "mysql://USER:PASSWORD@mysqlXXXX.db.sakura.ne.jp:3306/DBNAME" \
-  | gcloud secrets create DATABASE_URL --data-file=-
+# SAKURA_PROXY_KEY（ラッパー API 認証キー。さくら側と同じ値）
+echo -n "$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")" \
+  | gcloud secrets create SAKURA_PROXY_KEY --data-file=-
 ```
 
-> 値を更新したい場合は `gcloud secrets versions add <NAME> --data-file=-` で新バージョンを作る。
+> 値を更新したい場合は `gcloud secrets versions add <NAME> --data-file=-` で新バージョンを作る。  
+> `DATABASE_URL` は Cloud Run から不要（ラッパー API がさくら内から MySQL に接続する）。
 
 Cloud Run のサービスアカウントに参照権限を付与:
 
@@ -70,7 +73,7 @@ Cloud Run のサービスアカウントに参照権限を付与:
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
 SA=$PROJECT_NUMBER-compute@developer.gserviceaccount.com
 
-for s in JWT_SECRET WEBHOOK_API_KEY DATABASE_URL; do
+for s in JWT_SECRET WEBHOOK_API_KEY SAKURA_PROXY_KEY; do
   gcloud secrets add-iam-policy-binding $s \
     --member="serviceAccount:$SA" \
     --role="roles/secretmanager.secretAccessor"
@@ -110,8 +113,8 @@ gcloud run deploy $SERVICE \
   --max-instances=3 \
   --cpu=1 \
   --memory=512Mi \
-  --set-env-vars="CORS_ORIGIN=<FRONTEND_ORIGIN>" \
-  --set-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest"
+  --set-env-vars="CORS_ORIGIN=<FRONTEND_ORIGIN>,SAKURA_PROXY_URL=https://<sakura-host>/proxy" \
+  --set-secrets="JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest"
 ```
 
 デプロイ後の URL を控える:
@@ -167,8 +170,7 @@ gcloud app deploy
 
 ## 注意点・既知の落とし穴
 
-- **さくら DB の外部接続**: コントロールパネルで「外部接続を許可」を有効にしていないと TCP 3306 が閉じている。`nc -vz mysqlXXXX.db.sakura.ne.jp 3306` で疎通確認できる
-- **Cloud Run の IP は動的**: さくら側で接続元 IP 制限をかけている場合は Cloud NAT で固定 IP を発行するか制限を外す
+- **さくら Standard の MySQL**: Cloud Run から 3306 直接接続は不可。ラッパー API（HTTPS）経由のみ
+- **ラッパー API の HTTPS**: 本番は必ず HTTPS。ローカルモック（`npm run proxy:mock`）は HTTP の開発専用
 - **コールドスタート**: `min-instances=0` だと初回アクセスが遅い。本番中は `min-instances=1` に上げると改善
-- **接続プール**: Cloud Run はインスタンスごとに DB プールを持つので、`connectionLimit` × `max-instances` がさくら DB の最大接続数を超えないこと
-- **DB スキーマの適用**: Cloud Run 上では `tsx` を持たないため、`npm run db:check` / `db:migrate` / `db:seed:prod` は **ローカルから** 実行する
+- **DB スキーマの適用**: さくら DB 上で `db/create-tables.sql` を実行。`db:check` / `db:seed:prod` は **ローカルまたはさくら内** から実行

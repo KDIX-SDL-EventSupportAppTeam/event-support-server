@@ -15,7 +15,7 @@ YYYY-MM-DD-状態-kebab-case-summary.md
 
 | 日付 | ファイル | 概要 |
 |------|----------|------|
-| — | — | （まだなし。移行前は [docs/legacy/orders/](../legacy/orders/) を参照） |
+| 2026-06-09 | [2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md](./2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md) | さくらMySQL接続用WebAPIプロキシの実装（Cloud Run側クライアント＋ローカルモック） |
 
 ## 関連
 
