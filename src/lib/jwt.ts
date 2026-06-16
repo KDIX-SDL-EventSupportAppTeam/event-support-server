@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken'
-import type { DbPool } from '../db/pool.js'
+import type { DbClient } from '../db/client.js'
 
 export type JwtPayload = {
   sub: string
@@ -9,7 +9,7 @@ export type JwtPayload = {
 }
 
 export async function signAccessToken(
-  pool: DbPool,
+  pool: DbClient,
   secret: string,
   userId: string,
   eventId: string,

@@ -77,7 +77,7 @@ YYYY-MM-DD-kebab-case-summary.md
 
 | 日付 | ファイル | 概要 | テストコード |
 |------|----------|------|--------------|
-| — | — | （まだなし） | — |
+| 2026-06-09 | [2026-06-09-sakura-db-proxy-manual.md](./runs/2026-06-09-sakura-db-proxy-manual.md) | さくらDBプロキシ手動検証 | なし（手動） |
 
 ---
 

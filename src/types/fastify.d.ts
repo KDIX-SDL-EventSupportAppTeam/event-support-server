@@ -1,11 +1,11 @@
 import type { AppConfig } from '../config.js'
-import type { DbPool } from '../db/pool.js'
+import type { DbClient } from '../db/client.js'
 import type { JwtPayload } from '../lib/jwt.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
     config: AppConfig
-    db: DbPool
+    db: DbClient
   }
   interface FastifyRequest {
     jwtUser?: JwtPayload
