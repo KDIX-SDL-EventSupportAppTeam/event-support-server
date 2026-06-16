@@ -143,7 +143,15 @@ CREATE TABLE recommendations (
   FOREIGN KEY (selected_booth_id) REFERENCES booths(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
--- 確認（結果が 10 なら成功）
+CREATE TABLE booth_categories (
+  booth_id    CHAR(36) NOT NULL,
+  category_id CHAR(36) NOT NULL,
+  PRIMARY KEY (booth_id, category_id),
+  FOREIGN KEY (booth_id)    REFERENCES booths(id)     ON DELETE CASCADE,
+  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 確認（結果が 11 なら成功）
 SELECT COUNT(*) AS table_count
 FROM information_schema.tables
 WHERE table_schema = DATABASE();
