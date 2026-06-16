@@ -154,7 +154,7 @@ export async function generateSampleData(
     await db.execute(
       `INSERT INTO survey_questions (id, event_id, question_text, options, display_order, is_required)
        VALUES (?,?,?,?,?,?)`,
-      [qid, eventId, q.text, JSON.stringify(q.options), idx + 1, false],
+      [qid, eventId, q.text, JSON.stringify(q.options), idx + 1, 0],
     )
   }
 
