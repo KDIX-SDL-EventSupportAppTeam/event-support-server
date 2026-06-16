@@ -12,8 +12,13 @@ export function createHttpProxy(baseUrl: string, apiKey: string): DbClient {
   } as const
 
   async function callProxy(sql: string, params: unknown[]) {
-    // さくらMySQL は JSON boolean を TINYINT(1) にバインドできないため整数に変換する
-    const normalizedParams = params.map((p) => (typeof p === 'boolean' ? (p ? 1 : 0) : p))
+    // さくらMySQL は JSON boolean/Date をそのままバインドできないため変換する
+    // boolean → 0/1、Date → 'YYYY-MM-DD HH:MM:SS'（MySQL DATETIME 形式）
+    const normalizedParams = params.map((p) => {
+      if (typeof p === 'boolean') return p ? 1 : 0
+      if (p instanceof Date) return p.toISOString().replace('T', ' ').slice(0, 19)
+      return p
+    })
     const res = await fetch(baseUrl, {
       method: 'POST',
       headers,
