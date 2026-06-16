@@ -335,6 +335,25 @@ curl -s -X POST https://sutolab.sakura.ne.jp/bingo/query/index.php \
 
 ---
 
+## 5. booth_categories テーブル（サンプルデータ用）
+
+サンプルデータ生成で使う `booth_categories` は、**さくらプロキシ経由の DDL（CREATE TABLE）が 500 になる**ことがあります。  
+その場合は phpMyAdmin 等で DB に直接接続し、以下を **1 回だけ** 実行してください。
+
+```sql
+CREATE TABLE IF NOT EXISTS booth_categories (
+  booth_id    CHAR(36) NOT NULL,
+  category_id CHAR(36) NOT NULL,
+  PRIMARY KEY (booth_id, category_id),
+  FOREIGN KEY (booth_id)    REFERENCES booths(id)     ON DELETE CASCADE,
+  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+```
+
+テーブルが無くてもサンプル生成は動作します（各ブースの `category_id` のみ使用。複数カテゴリ紐付けはスキップ）。
+
+---
+
 ## 関連ドキュメント
 
 - [docs/orders/README.md](../orders/README.md) — 作業指示・依頼メモ
