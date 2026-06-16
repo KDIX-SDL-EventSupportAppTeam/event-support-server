@@ -11,9 +11,26 @@ CREATE TABLE IF NOT EXISTS booth_categories (
 ) ENGINE=InnoDB;
 `.trim()
 
-/** booth_categories テーブルが無ければ作成する（既存 DB 向け） */
-export async function ensureBoothCategoriesTable(db: DbClient): Promise<void> {
-  await db.query(BOOTH_CATEGORIES_DDL)
+export async function hasBoothCategoriesTable(db: DbClient): Promise<boolean> {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS c FROM information_schema.tables
+     WHERE table_schema = DATABASE() AND table_name = 'booth_categories'`,
+  )
+  return Number((rows as { c: number }[])[0]?.c ?? 0) > 0
+}
+
+/**
+ * booth_categories テーブルが無ければ作成を試みる。
+ * さくらプロキシ経由では DDL が 500 になることがあるため、失敗時は false を返す。
+ */
+export async function ensureBoothCategoriesTable(db: DbClient): Promise<boolean> {
+  if (await hasBoothCategoriesTable(db)) return true
+  try {
+    await db.query(BOOTH_CATEGORIES_DDL)
+    return await hasBoothCategoriesTable(db)
+  } catch {
+    return false
+  }
 }
 
 export const SAMPLE_PREFIX = '[SAMPLE]'

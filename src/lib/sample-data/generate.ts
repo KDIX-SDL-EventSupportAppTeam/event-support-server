@@ -13,6 +13,7 @@ import {
   sampleParticipantEmail,
 } from './constants.js'
 import { clearSampleData } from './clear.js'
+import { SampleDataConflictError } from './errors.js'
 
 const AGE_RANGES = ['10代', '20代', '30代', '40代', '50代以上']
 const OCCUPATIONS = ['学生', '会社員', '経営者', 'その他']
@@ -65,7 +66,7 @@ async function assertNoExistingSample(db: DbClient, eventId: string, force: bool
   )
   const count = Number((rows as { c: number }[])[0]?.c ?? 0)
   if (count > 0 && !force) {
-    throw new Error(
+    throw new SampleDataConflictError(
       `${SAMPLE_PREFIX} ブースが既に ${count} 件あります。削除してから再実行するか --force を指定してください。`,
     )
   }
@@ -79,9 +80,10 @@ export async function generateSampleData(
   eventId: string,
   options: { force?: boolean } = {},
 ): Promise<SampleGenerateResult> {
-  await ensureBoothCategoriesTable(db)
   await assertEventExists(db, eventId)
   await assertNoExistingSample(db, eventId, options.force ?? false)
+
+  const hasBoothCategories = await ensureBoothCategoriesTable(db)
 
   const categoryCount = SAMPLE_DEFAULTS.categoryCount
   const boothCount = SAMPLE_DEFAULTS.boothCount
@@ -116,10 +118,12 @@ export async function generateSampleData(
       ],
     )
     for (const catId of boothCategories) {
-      await db.execute(
-        `INSERT INTO booth_categories (booth_id, category_id) VALUES (?,?)`,
-        [id, catId],
-      )
+      if (hasBoothCategories) {
+        await db.execute(
+          `INSERT INTO booth_categories (booth_id, category_id) VALUES (?,?)`,
+          [id, catId],
+        )
+      }
     }
     await db.execute(`INSERT INTO booth_tags (id, booth_id, tag) VALUES (?,?,?)`, [
       randomUUID(),

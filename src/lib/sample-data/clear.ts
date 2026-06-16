@@ -2,7 +2,7 @@ import type { DbClient } from '../../db/client.js'
 import {
   SAMPLE_EMAIL_DOMAIN,
   SAMPLE_PREFIX,
-  ensureBoothCategoriesTable,
+  hasBoothCategoriesTable,
 } from './constants.js'
 
 export type SampleClearResult = {
@@ -39,7 +39,7 @@ async function sampleCategoryIds(db: DbClient, eventId: string): Promise<string[
 }
 
 export async function clearSampleData(db: DbClient, eventId: string): Promise<SampleClearResult> {
-  await ensureBoothCategoriesTable(db)
+  const hasBoothCategories = await hasBoothCategoriesTable(db)
 
   const userIds = await sampleUserIds(db, eventId)
   const boothIds = await sampleBoothIds(db, eventId)
@@ -80,10 +80,12 @@ export async function clearSampleData(db: DbClient, eventId: string): Promise<Sa
       ...boothIds,
     ])
     await db.execute(`DELETE FROM booth_tags WHERE booth_id IN (${placeholders})`, boothIds)
-    await db.execute(`DELETE FROM booth_categories WHERE booth_id IN (${placeholders})`, boothIds)
+    if (hasBoothCategories) {
+      await db.execute(`DELETE FROM booth_categories WHERE booth_id IN (${placeholders})`, boothIds)
+    }
   }
 
-  if (categoryIds.length) {
+  if (categoryIds.length && hasBoothCategories) {
     const placeholders = categoryIds.map(() => '?').join(',')
     await db.execute(`DELETE FROM booth_categories WHERE category_id IN (${placeholders})`, categoryIds)
   }
