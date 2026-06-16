@@ -15,6 +15,7 @@ import { checkinRoutes } from './routes/v1/checkins.js'
 import { webhookRoutes } from './routes/v1/ops.js'
 import { recommendationRoutes } from './routes/v1/recommendations.js'
 import { surveyRoutes } from './routes/v1/survey.js'
+import { registerSocketIO } from './plugins/socket.js'
 
 export async function buildApp(config: AppConfig, db: DbClient) {
   const app = Fastify({ logger: true })
@@ -62,6 +63,8 @@ export async function buildApp(config: AppConfig, db: DbClient) {
     if (reply.sent) return
     sendFail(reply, 500, 'INTERNAL_ERROR', 'サーバーエラーが発生しました')
   })
+
+  registerSocketIO(app)
 
   return app
 }
