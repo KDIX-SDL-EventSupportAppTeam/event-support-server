@@ -38,6 +38,11 @@ steps:
       - --session-affinity
       - --timeout=3600
       - --min-instances=1
+      # socket.io はインメモリ管理（Redis 等の共有 adapter なし）。複数インスタンス
+      # に増えるとチェックインを受けたインスタンスと運営画面の socket が別になり
+      # WebSocket 配信が届かなくなるため、1 インスタンスに固定する。
+      # 運営画面のみ socket を張り負荷も軽いため 1 台で十分。
+      - --max-instances=1
       - --update-env-vars=^@^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com@SAKURA_PROXY_URL=https://sutolab.sakura.ne.jp/bingo/query/index.php
       - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest
 
