@@ -102,6 +102,10 @@ gcloud builds submit --tag $IMAGE:latest .
 
 `<FRONTEND_ORIGIN>` をフロントの本番 URL に差し替える（複数ならカンマ区切り）。
 
+> 通常は CI（`cloudbuild.yaml`）でデプロイする。下記は手動デプロイ時の参照。
+> **WebSocket 関連の 4 設定は必須**（理由は [ADR 0002](../adrs/0002-cloud-run-single-instance-for-websocket.md)）。
+> `gcloud run deploy` は毎回これらを上書きするため、必ず付けること。
+
 ```bash
 gcloud run deploy $SERVICE \
   --image=$IMAGE:latest \
@@ -109,13 +113,22 @@ gcloud run deploy $SERVICE \
   --platform=managed \
   --allow-unauthenticated \
   --port=8080 \
-  --min-instances=0 \
-  --max-instances=3 \
+  --min-instances=1 \
+  --max-instances=1 \
+  --session-affinity \
+  --timeout=3600 \
   --cpu=1 \
   --memory=512Mi \
   --set-env-vars="CORS_ORIGIN=<FRONTEND_ORIGIN>,SAKURA_PROXY_URL=https://<sakura-host>/proxy" \
-  --set-secrets="JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest"
+  --set-secrets="JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest"
 ```
+
+| フラグ | 理由 |
+|--------|------|
+| `--min-instances=1` | コールドスタートによる WebSocket 接続断を防ぐ |
+| `--max-instances=1` | socket.io がインメモリ管理のため複数インスタンスだと配信が届かない（[ADR 0002](../adrs/0002-cloud-run-single-instance-for-websocket.md)） |
+| `--session-affinity` | 同一クライアントを同一インスタンスへルーティング |
+| `--timeout=3600` | WebSocket がデフォルト 300 秒で切れるのを防ぐ |
 
 デプロイ後の URL を控える:
 
@@ -158,12 +171,12 @@ VITE_DATA_SOURCE=api
 VITE_MOCK_API=false
 ```
 
-ビルドして App Engine などに上げ直す:
+フロントは Firebase Hosting にデプロイする（`event-support-frontend/cloudbuild.yaml` 参照）:
 
 ```bash
 cd event-support-frontend
 npm run build
-gcloud app deploy
+firebase deploy --only hosting --project event-support-app
 ```
 
 ---
@@ -171,6 +184,7 @@ gcloud app deploy
 ## 注意点・既知の落とし穴
 
 - **さくら Standard の MySQL**: Cloud Run から 3306 直接接続は不可。ラッパー API（HTTPS）経由のみ
+- **ラッパー API はエラーを 500 に潰す**: MySQL のエラーコードが取れないため、一意制約は INSERT 前に SELECT で確認する（[ADR 0001](../adrs/0001-sakura-proxy-error-masking.md)）
+- **WebSocket は 1 インスタンス固定が前提**: `--max-instances=1` 等が無いとリアルタイム配信が届かない（[ADR 0002](../adrs/0002-cloud-run-single-instance-for-websocket.md)）
 - **ラッパー API の HTTPS**: 本番は必ず HTTPS。ローカルモック（`npm run proxy:mock`）は HTTP の開発専用
-- **コールドスタート**: `min-instances=0` だと初回アクセスが遅い。本番中は `min-instances=1` に上げると改善
 - **DB スキーマの適用**: さくら DB 上で `db/create-tables.sql` を実行。`db:check` / `db:seed:prod` は **ローカルまたはさくら内** から実行
