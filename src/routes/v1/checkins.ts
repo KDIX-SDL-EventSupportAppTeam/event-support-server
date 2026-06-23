@@ -71,6 +71,17 @@ export async function checkinRoutes(app: FastifyInstance) {
         boothName = row.name
       }
 
+      // さくらプロキシは重複キーエラーを 500 に潰してしまい ER_DUP_ENTRY を
+      // 受け取れないため、INSERT 前に重複を明示的に確認する（下の catch は
+      // ローカル mysql2 経路・競合時のフォールバック）
+      const [dupRows] = await app.db.query(
+        'SELECT id FROM check_ins WHERE user_id = ? AND booth_id = ? LIMIT 1',
+        [uid, boothId],
+      )
+      if ((dupRows as { id: string }[])[0]) {
+        return sendFail(reply, 409, 'CONFLICT', 'このブースには既にチェックイン済みです')
+      }
+
       const id = randomUUID()
       const synced = utcMysqlNow()
       try {
@@ -156,6 +167,16 @@ export async function checkinRoutes(app: FastifyInstance) {
       if (!ci) {
         return sendFail(reply, 404, 'NOT_FOUND', 'チェックインが見つかりません')
       }
+
+      // さくらプロキシは重複キーを 500 に潰すため、INSERT 前に重複評価を確認する
+      const [dupRating] = await app.db.query(
+        'SELECT id FROM booth_ratings WHERE checkin_id = ? LIMIT 1',
+        [checkin_id],
+      )
+      if ((dupRating as { id: string }[])[0]) {
+        return sendFail(reply, 409, 'CONFLICT', 'このチェックインには既に評価があります')
+      }
+
       const rid = randomUUID()
       try {
         await app.db.execute(
