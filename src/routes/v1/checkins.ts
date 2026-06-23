@@ -146,10 +146,13 @@ export async function checkinRoutes(app: FastifyInstance) {
       const { event_id, checkin_id } = req.params
       const uid = req.jwtUser!.sub
       const [rows] = await app.db.query(
-        `SELECT ci.booth_id FROM check_ins ci WHERE ci.id = ? AND ci.user_id = ? AND ci.event_id = ? LIMIT 1`,
+        `SELECT ci.booth_id, b.name AS booth_name
+         FROM check_ins ci
+         JOIN booths b ON b.id = ci.booth_id
+         WHERE ci.id = ? AND ci.user_id = ? AND ci.event_id = ? LIMIT 1`,
         [checkin_id, uid, event_id],
       )
-      const ci = (rows as { booth_id: string }[])[0]
+      const ci = (rows as { booth_id: string; booth_name: string }[])[0]
       if (!ci) {
         return sendFail(reply, 404, 'NOT_FOUND', 'チェックインが見つかりません')
       }
@@ -167,6 +170,14 @@ export async function checkinRoutes(app: FastifyInstance) {
         }
         throw e
       }
+
+      app.io.to(`event:${event_id}:admin`).emit('rating:new', {
+        booth_id: ci.booth_id,
+        booth_name: ci.booth_name,
+        rating: parsed.data.rating,
+        user_display_name: req.jwtUser!.display_name,
+      })
+
       return sendOk(reply, { rating_id: rid })
     },
   )

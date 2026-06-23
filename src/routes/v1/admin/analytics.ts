@@ -52,6 +52,18 @@ function rate(selected: number, offered: number): number | null {
   return Math.round((selected / offered) * 1000) / 10
 }
 
+/** 評価分布 {1..5: 件数} から平均評価を算出する（評価なしは null） */
+function avgFromDistribution(dist: Record<number, number>): number | null {
+  let sum = 0
+  let count = 0
+  for (const star of [1, 2, 3, 4, 5]) {
+    const n = dist[star] ?? 0
+    sum += star * n
+    count += n
+  }
+  return count > 0 ? Math.round((sum / count) * 100) / 100 : null
+}
+
 export async function adminAnalyticsRoutes(app: FastifyInstance) {
   const pre = [requireAdmin, requireEventMatchesJwt]
 
@@ -62,17 +74,18 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       const eventId = req.params.event_id
 
       const [[boothRows], [tagRows], [ratingRows], [recRows]] = await Promise.all([
+        // booth_ratings はここで JOIN しない。check_ins と同時に LEFT JOIN すると
+        // 直積でメソッド別カウントが評価件数分だけ水増しされるため。
+        // 平均評価は下の ratingRows（評価分布）から算出する。
         app.db.query(
           `SELECT b.id, b.name, b.manual_code, b.created_at,
                   c.id AS category_id, c.name AS category_name,
-                  COUNT(DISTINCT ci.id) AS checkin_count,
+                  COUNT(ci.id) AS checkin_count,
                   SUM(CASE WHEN ci.checkin_method = 'qr' THEN 1 ELSE 0 END) AS qr_count,
-                  SUM(CASE WHEN ci.checkin_method = 'manual' THEN 1 ELSE 0 END) AS manual_count,
-                  AVG(br.rating) AS avg_rating
+                  SUM(CASE WHEN ci.checkin_method = 'manual' THEN 1 ELSE 0 END) AS manual_count
            FROM booths b
            LEFT JOIN categories c ON c.id = b.category_id
            LEFT JOIN check_ins ci ON ci.booth_id = b.id
-           LEFT JOIN booth_ratings br ON br.booth_id = b.id
            WHERE b.event_id = ?
            GROUP BY b.id, b.name, b.manual_code, b.created_at, c.id, c.name
            ORDER BY b.manual_code ASC`,
@@ -124,7 +137,6 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         checkin_count: number
         qr_count: number
         manual_count: number
-        avg_rating: string | number | null
       }[]).map((b) => {
         const offered = recAgg.boothOfferedCount[b.id] ?? 0
         const selected = recAgg.boothSelectedCount[b.id] ?? 0
@@ -144,7 +156,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
             qr: Number(b.qr_count) || 0,
             manual: Number(b.manual_count) || 0,
           },
-          avg_rating: b.avg_rating != null ? Number(b.avg_rating) : null,
+          avg_rating: avgFromDistribution(dist),
           rating_distribution: dist,
           recommendation_offered_count: offered,
           recommendation_selected_count: selected,
