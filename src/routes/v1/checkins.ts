@@ -71,6 +71,17 @@ export async function checkinRoutes(app: FastifyInstance) {
         boothName = row.name
       }
 
+      // さくらプロキシは重複キーエラーを 500 に潰してしまい ER_DUP_ENTRY を
+      // 受け取れないため、INSERT 前に重複を明示的に確認する（下の catch は
+      // ローカル mysql2 経路・競合時のフォールバック）
+      const [dupRows] = await app.db.query(
+        'SELECT id FROM check_ins WHERE user_id = ? AND booth_id = ? LIMIT 1',
+        [uid, boothId],
+      )
+      if ((dupRows as { id: string }[])[0]) {
+        return sendFail(reply, 409, 'CONFLICT', 'このブースには既にチェックイン済みです')
+      }
+
       const id = randomUUID()
       const synced = utcMysqlNow()
       try {
@@ -146,13 +157,26 @@ export async function checkinRoutes(app: FastifyInstance) {
       const { event_id, checkin_id } = req.params
       const uid = req.jwtUser!.sub
       const [rows] = await app.db.query(
-        `SELECT ci.booth_id FROM check_ins ci WHERE ci.id = ? AND ci.user_id = ? AND ci.event_id = ? LIMIT 1`,
+        `SELECT ci.booth_id, b.name AS booth_name
+         FROM check_ins ci
+         JOIN booths b ON b.id = ci.booth_id
+         WHERE ci.id = ? AND ci.user_id = ? AND ci.event_id = ? LIMIT 1`,
         [checkin_id, uid, event_id],
       )
-      const ci = (rows as { booth_id: string }[])[0]
+      const ci = (rows as { booth_id: string; booth_name: string }[])[0]
       if (!ci) {
         return sendFail(reply, 404, 'NOT_FOUND', 'チェックインが見つかりません')
       }
+
+      // さくらプロキシは重複キーを 500 に潰すため、INSERT 前に重複評価を確認する
+      const [dupRating] = await app.db.query(
+        'SELECT id FROM booth_ratings WHERE checkin_id = ? LIMIT 1',
+        [checkin_id],
+      )
+      if ((dupRating as { id: string }[])[0]) {
+        return sendFail(reply, 409, 'CONFLICT', 'このチェックインには既に評価があります')
+      }
+
       const rid = randomUUID()
       try {
         await app.db.execute(
@@ -167,6 +191,14 @@ export async function checkinRoutes(app: FastifyInstance) {
         }
         throw e
       }
+
+      app.io.to(`event:${event_id}:admin`).emit('rating:new', {
+        booth_id: ci.booth_id,
+        booth_name: ci.booth_name,
+        rating: parsed.data.rating,
+        user_display_name: req.jwtUser!.display_name,
+      })
+
       return sendOk(reply, { rating_id: rid })
     },
   )
