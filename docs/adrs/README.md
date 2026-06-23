@@ -22,7 +22,8 @@ NNNN-kebab-case-title.md
 
 | 番号 | ファイル | 概要 |
 |------|----------|------|
-| — | — | （まだなし。移行前の ADR は [docs/legacy/adrs/](../legacy/adrs/) を参照） |
+| 0001 | [0001-sakura-proxy-error-masking.md](./0001-sakura-proxy-error-masking.md) | さくらプロキシは DB エラーを 500 に潰すため、一意制約は INSERT 前に確認する |
+| 0002 | [0002-cloud-run-single-instance-for-websocket.md](./0002-cloud-run-single-instance-for-websocket.md) | WebSocket 配信のため Cloud Run を 1 インスタンスに固定する |
 
 ## 関連
 
