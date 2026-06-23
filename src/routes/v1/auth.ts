@@ -44,6 +44,15 @@ export async function authRoutes(app: FastifyInstance) {
       return sendFail(reply, 404, 'NOT_FOUND', 'イベントが見つかりません')
     }
 
+    // さくらプロキシは重複キーを 500 に潰すため、INSERT 前にメール重複を確認する
+    const [dupUser] = await app.db.query(
+      'SELECT id FROM users WHERE event_id = ? AND email = ? LIMIT 1',
+      [event_id, email.toLowerCase()],
+    )
+    if ((dupUser as { id: string }[])[0]) {
+      return sendFail(reply, 409, 'CONFLICT', 'このメールアドレスは既に登録されています')
+    }
+
     const id = randomUUID()
     const hash = await bcrypt.hash(password, 10)
     try {
@@ -81,6 +90,15 @@ export async function authRoutes(app: FastifyInstance) {
     const [ev] = await app.db.query('SELECT id FROM events WHERE id = ? LIMIT 1', [event_id])
     if (!(ev as { id: string }[]).length) {
       return sendFail(reply, 404, 'NOT_FOUND', 'イベントが見つかりません')
+    }
+
+    // さくらプロキシは重複キーを 500 に潰すため、INSERT 前にメール重複を確認する
+    const [dupAdmin] = await app.db.query(
+      'SELECT id FROM users WHERE event_id = ? AND email = ? LIMIT 1',
+      [event_id, email.toLowerCase()],
+    )
+    if ((dupAdmin as { id: string }[])[0]) {
+      return sendFail(reply, 409, 'CONFLICT', 'このメールアドレスは既に登録されています')
     }
 
     const id = randomUUID()
