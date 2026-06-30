@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { isoToMysqlUtc } from '../../../lib/datetime.js'
 import { sendFail, sendOk } from '../../../lib/response.js'
-import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireStaff, requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
 
 const patchEventBody = z.object({
   name: z.string().min(1).max(500).optional(),
@@ -13,11 +13,12 @@ const patchEventBody = z.object({
 })
 
 export async function adminEventRoutes(app: FastifyInstance) {
-  const pre = [requireAdmin, requireEventMatchesJwt]
+  const readPre = [requireStaff, requireEventMatchesJwt]
+  const writePre = [requireManager, requireEventMatchesJwt]
 
   app.get<{ Params: { event_id: string } }>(
     '/admin/events/:event_id',
-    { preHandler: pre },
+    { preHandler: readPre },
     async (req, reply) => {
       const [rows] = await app.db.query(
         `SELECT id, name, date_start, date_end, venue, created_at
@@ -50,7 +51,7 @@ export async function adminEventRoutes(app: FastifyInstance) {
 
   app.patch<{ Params: { event_id: string } }>(
     '/admin/events/:event_id',
-    { preHandler: pre },
+    { preHandler: writePre },
     async (req, reply) => {
       const parsed = patchEventBody.safeParse(req.body)
       if (!parsed.success) {

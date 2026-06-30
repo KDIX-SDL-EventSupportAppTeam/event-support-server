@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { sendOk } from '../../../lib/response.js'
-import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
 
 export async function adminRoutes(app: FastifyInstance) {
-  const pre = [requireAdmin, requireEventMatchesJwt]
+  const pre = [requireStaff, requireEventMatchesJwt]
 
   app.get<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/dashboard',
