@@ -1,13 +1,14 @@
 import type { FastifyInstance } from 'fastify'
 import { sendFail, sendOk } from '../../../lib/response.js'
-import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireStaff, requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
 
 export async function adminParticipantRoutes(app: FastifyInstance) {
-  const pre = [requireAdmin, requireEventMatchesJwt]
+  const readPre = [requireStaff, requireEventMatchesJwt]
+  const writePre = [requireManager, requireEventMatchesJwt]
 
   app.get<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/participants',
-    { preHandler: pre },
+    { preHandler: readPre },
     async (req, reply) => {
       const [rows] = await app.db.query(
         `SELECT u.id, u.display_name, u.email, u.created_at,
@@ -39,7 +40,7 @@ export async function adminParticipantRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { event_id: string; user_id: string } }>(
     '/admin/events/:event_id/participants/:user_id',
-    { preHandler: pre },
+    { preHandler: writePre },
     async (req, reply) => {
       const [result] = await app.db.execute(
         `DELETE FROM users WHERE id = ? AND event_id = ? AND role = 'participant'`,

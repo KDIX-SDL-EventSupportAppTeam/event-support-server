@@ -1,6 +1,6 @@
 import type { AppConfig } from '../config.js'
 import type { DbClient } from '../db/client.js'
-import type { JwtPayload } from '../lib/jwt.js'
+import type { JwtPayload, OrganizerJwtPayload } from '../lib/jwt.js'
 import type { Server } from 'socket.io'
 
 declare module 'fastify' {
@@ -11,5 +11,6 @@ declare module 'fastify' {
   }
   interface FastifyRequest {
     jwtUser?: JwtPayload
+    organizerUser?: OrganizerJwtPayload
   }
 }
