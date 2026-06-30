@@ -34,7 +34,7 @@ CREATE TABLE organizers (
   display_name  TEXT,
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_organizer_email (email)
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE events (
   id            CHAR(36)     PRIMARY KEY,
@@ -45,14 +45,14 @@ CREATE TABLE events (
   venue         TEXT,
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organizer_id) REFERENCES organizers(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE categories (
   id        CHAR(36)  PRIMARY KEY,
   event_id  CHAR(36)  NOT NULL,
   name      TEXT      NOT NULL,
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE booths (
   id                      CHAR(36)     PRIMARY KEY,
@@ -68,7 +68,7 @@ CREATE TABLE booths (
   FOREIGN KEY (event_id)    REFERENCES events(id)     ON DELETE CASCADE,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
   UNIQUE KEY uq_manual_code_event (event_id, manual_code)
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE booth_tags (
   id        CHAR(36)      PRIMARY KEY,
@@ -76,7 +76,7 @@ CREATE TABLE booth_tags (
   tag       VARCHAR(255)  NOT NULL,
   FOREIGN KEY (booth_id) REFERENCES booths(id) ON DELETE CASCADE,
   UNIQUE KEY uq_booth_tag (booth_id, tag)
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE users (
   id            CHAR(36)  PRIMARY KEY,
@@ -89,7 +89,7 @@ CREATE TABLE users (
   created_at    DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_email_event (email, event_id),
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE survey_questions (
   id             CHAR(36)  PRIMARY KEY,
@@ -99,7 +99,7 @@ CREATE TABLE survey_questions (
   display_order  INT,
   is_required    BOOLEAN   DEFAULT FALSE,
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE user_survey_answers (
   id              CHAR(36)  PRIMARY KEY,
@@ -112,7 +112,7 @@ CREATE TABLE user_survey_answers (
   created_at      DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE,
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE check_ins (
   id             CHAR(36)     PRIMARY KEY,
@@ -126,7 +126,7 @@ CREATE TABLE check_ins (
   FOREIGN KEY (booth_id) REFERENCES booths(id) ON DELETE CASCADE,
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
   UNIQUE KEY uq_checkin_user_booth (user_id, booth_id)
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE booth_ratings (
   id          CHAR(36)  PRIMARY KEY,
@@ -141,7 +141,7 @@ CREATE TABLE booth_ratings (
   FOREIGN KEY (event_id)   REFERENCES events(id)     ON DELETE CASCADE,
   FOREIGN KEY (checkin_id) REFERENCES check_ins(id)  ON DELETE CASCADE,
   UNIQUE KEY uq_rating_per_checkin (checkin_id)
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE recommendations (
   id                 CHAR(36)  PRIMARY KEY,
@@ -155,7 +155,7 @@ CREATE TABLE recommendations (
   FOREIGN KEY (user_id)           REFERENCES users(id)  ON DELETE CASCADE,
   FOREIGN KEY (event_id)          REFERENCES events(id) ON DELETE CASCADE,
   FOREIGN KEY (selected_booth_id) REFERENCES booths(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE booth_categories (
   booth_id    CHAR(36) NOT NULL,
@@ -163,7 +163,7 @@ CREATE TABLE booth_categories (
   PRIMARY KEY (booth_id, category_id),
   FOREIGN KEY (booth_id)    REFERENCES booths(id)     ON DELETE CASCADE,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+);
 
 -- 監査ログ（誰が・いつ・何をしたかの操作証跡）
 -- actor_id は users(id) への外部キーを張らない（アカウント削除後も履歴を残すため）
@@ -178,7 +178,7 @@ CREATE TABLE audit_logs (
   detail       JSON,
   created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+);
 
 -- 確認（結果が 13 なら成功）
 SELECT COUNT(*) AS table_count
