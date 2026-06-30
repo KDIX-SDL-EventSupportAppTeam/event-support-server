@@ -27,8 +27,10 @@ type UserRow = {
   role?: string | null
 }
 
-function resolveRole(role: string | null | undefined): 'admin' | 'participant' {
-  return role === 'admin' ? 'admin' : 'participant'
+function resolveRole(role: string | null | undefined): 'manager' | 'viewer' | 'participant' {
+  if (role === 'manager') return 'manager'
+  if (role === 'viewer') return 'viewer'
+  return 'participant'
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -106,7 +108,7 @@ export async function authRoutes(app: FastifyInstance) {
     try {
       await app.db.execute(
         `INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)`,
-        [id, event_id, email.toLowerCase(), hash, display_name, 'admin'],
+        [id, event_id, email.toLowerCase(), hash, display_name, 'manager'],
       )
     } catch (e: unknown) {
       const err = e as { code?: string }
@@ -122,11 +124,11 @@ export async function authRoutes(app: FastifyInstance) {
       id,
       event_id,
       display_name,
-      'admin',
+      'manager',
     )
     return sendOk(reply, {
       token,
-      user: { id, display_name, event_id, role: 'admin' as const },
+      user: { id, display_name, event_id, role: 'manager' as const },
     })
   })
 
