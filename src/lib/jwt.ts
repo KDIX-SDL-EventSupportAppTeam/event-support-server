@@ -5,7 +5,13 @@ export type JwtPayload = {
   sub: string
   event_id: string
   display_name: string
-  role?: 'admin' | 'participant'
+  role?: 'manager' | 'viewer' | 'participant'
+}
+
+export type OrganizerJwtPayload = {
+  sub: string
+  scope: 'organizer'
+  display_name: string
 }
 
 export async function signAccessToken(
@@ -40,10 +46,38 @@ export function verifyAccessToken(secret: string, token: string): JwtPayload {
   if (!decoded.sub || !decoded.event_id) {
     throw new Error('Invalid token payload')
   }
+  let role: JwtPayload['role'] = 'participant'
+  if (decoded.role === 'manager') role = 'manager'
+  else if (decoded.role === 'viewer') role = 'viewer'
   return {
     sub: decoded.sub,
     event_id: decoded.event_id,
     display_name: decoded.display_name ?? '',
-    role: decoded.role === 'admin' ? 'admin' : 'participant',
+    role,
+  }
+}
+
+export function signOrganizerToken(
+  secret: string,
+  organizerId: string,
+  displayName: string,
+): string {
+  const payload: OrganizerJwtPayload = {
+    sub: organizerId,
+    scope: 'organizer',
+    display_name: displayName,
+  }
+  return jwt.sign(payload, secret, { algorithm: 'HS256', expiresIn: 30 * 24 * 3600 })
+}
+
+export function verifyOrganizerToken(secret: string, token: string): OrganizerJwtPayload {
+  const decoded = jwt.verify(token, secret) as jwt.JwtPayload & Partial<OrganizerJwtPayload>
+  if (!decoded.sub || decoded.scope !== 'organizer') {
+    throw new Error('Invalid organizer token')
+  }
+  return {
+    sub: decoded.sub,
+    scope: 'organizer',
+    display_name: decoded.display_name ?? '',
   }
 }

@@ -11,6 +11,9 @@ const envSchema = z.object({
   RECOMMENDER_URL: z.string().optional().default(''),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   ADMIN_REGISTRATION_KEY: z.string().min(1),
+  FRONTEND_BASE_URL: z.string().optional(),
+  ORGANIZER_REGISTRATION_KEY: z.string().optional(),
+  ORGANIZER_SIGNUP_MODE: z.enum(['invite', 'open']).default('invite'),
 })
 
 export type AppConfig = {
@@ -23,6 +26,9 @@ export type AppConfig = {
   recommenderUrl: string
   corsOrigin: string
   adminRegistrationKey: string
+  frontendBaseUrl: string | undefined
+  organizerRegistrationKey: string | undefined
+  organizerSignupMode: 'invite' | 'open'
 }
 
 export function loadConfig(): AppConfig {
@@ -47,5 +53,8 @@ export function loadConfig(): AppConfig {
     recommenderUrl: e.RECOMMENDER_URL,
     corsOrigin: e.CORS_ORIGIN,
     adminRegistrationKey: e.ADMIN_REGISTRATION_KEY,
+    frontendBaseUrl: e.FRONTEND_BASE_URL,
+    organizerRegistrationKey: e.ORGANIZER_REGISTRATION_KEY,
+    organizerSignupMode: e.ORGANIZER_SIGNUP_MODE,
   }
 }
