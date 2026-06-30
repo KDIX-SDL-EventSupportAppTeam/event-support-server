@@ -13,6 +13,7 @@
 | `SAKURA_PROXY_KEY` | プロキシ使用時 ✅ | ラッパー API 認証キー（`X-Proxy-Key` ヘッダー。本番は Secret Manager） |
 | `JWT_SECRET` | ✅ | JWT 署名キー（本番は 32 文字以上のランダム文字列） |
 | `WEBHOOK_API_KEY` | 本番 ✅ | Google Apps Script から受け取る Webhook 認証キー（開発は空でも可） |
+| `ADMIN_REGISTRATION_KEY` | 本番 ✅ | 運営アカウント登録（`POST /auth/register/admin`）の `X-Admin-Key` 検証キー |
 | `RECOMMENDER_URL` | — | 推薦エンジンの URL（未設定・失敗時は内部ランダム推薦にフォールバック） |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
 | `PORT` | — | リッスンポート（既定: `3000`。Cloud Run では `$PORT` が自動注入される） |
@@ -21,7 +22,7 @@
 
 ### 本番（Cloud Run）向けの渡し方
 
-- `JWT_SECRET` / `WEBHOOK_API_KEY` / `SAKURA_PROXY_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
+- `JWT_SECRET` / `WEBHOOK_API_KEY` / `SAKURA_PROXY_KEY` / `ADMIN_REGISTRATION_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
 - `SAKURA_PROXY_URL` / `PORT` / `CORS_ORIGIN` / `RECOMMENDER_URL` は `--set-env-vars` で渡す
 - 本番（さくら Standard）では `SAKURA_PROXY_URL` 経由が前提。`DATABASE_URL` は Cloud Run から不要（ラッパー API がさくら内から MySQL に接続）
 - 値はリポジトリにコミットしない（`.env` は `.gitignore` 済み）
@@ -41,7 +42,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 `CORS_ORIGIN` はフロントの本番ドメインに依存するので、デプロイの順序に注意:
 
-1. **初回**: 仮の値（例: フロントの App Engine 既定 URL）で server をデプロイ
+1. **初回**: 仮の値（例: フロントの Firebase Hosting 既定 URL）で server をデプロイ
 2. フロントを `VITE_API_BASE_URL=<server の URL>` でビルド・デプロイ
 3. フロントの **本番 URL が確定** したら、`CORS_ORIGIN` を更新して server を再デプロイ
    ```bash
@@ -49,7 +50,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
      --region=asia-northeast1 \
      --update-env-vars="CORS_ORIGIN=https://<frontend-host>"
    ```
-4. 複数の許可オリジン（例: カスタムドメイン + appspot.com）を許す場合はカンマ区切り
+4. 複数の許可オリジン（例: `web.app` + `firebaseapp.com`）を許す場合はカンマ区切り
 
 > プレビュー/ステージング環境を持つときは、ステージング側の CORS と本番側を別サービスとして分けるのが安全。
 
@@ -61,6 +62,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 |----------|------|------|------|
 | GET | `/health` | — | 死活監視 |
 | POST | `/api/v1/auth/register` | — | 参加者登録 |
+| POST | `/api/v1/auth/register/admin` | `X-Admin-Key` | 運営アカウント登録 |
 | POST | `/api/v1/auth/login` | — | ログイン・JWT 発行 |
 | GET | `/api/v1/events/:event_id/survey/questions` | Bearer | アンケート設問取得 |
 | POST | `/api/v1/events/:event_id/survey/answers` | Bearer | アンケート回答送信 |
@@ -73,9 +75,21 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | POST | `/api/v1/events/:event_id/recommendations/:recommendation_id/select` | Bearer | 推薦選択 |
 | POST | `/api/v1/webhook/booths/sync` | `X-Api-Key` | ブース情報同期（Google Forms） |
 | GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（`role: admin`） | 運営ダッシュボード（簡易集計） |
+| GET | `/api/v1/admin/events/:event_id/analytics/{booths,participants,checkins,recommendations}` | Bearer（`role: admin`） | 分析データ取得 |
+| CRUD | `/api/v1/admin/events/:event_id/{categories,booths,survey-questions}` ほか | Bearer（`role: admin`） | カテゴリ/ブース/設問の運営 CRUD・参加者一覧・サンプルデータ生成/削除 |
 
-未実装（設計済み）: WebSocket・運営 CRUD の大部分（dashboard 以外）→ Issue #8  
-詳細は [docs/legacy/designs/api.md](./docs/legacy/designs/api.md) を参照。
+運営 CRUD の各エンドポイントは `src/routes/v1/admin/` 配下に分割（`app.ts` の登録順を参照）。
+
+### WebSocket（socket.io）
+
+- 接続時に JWT（`auth.token`）で認証し、`event:<event_id>`（全員）/ `event:<event_id>:admin`（運営のみ）ルームへ参加
+- サーバー → クライアントのイベント:
+  - `checkin:new` — チェックイン発生時に運営ルームへ配信
+  - `rating:new` — 評価送信時に運営ルームへ配信
+- 配信が複数インスタンスで届かない問題を避けるため Cloud Run は 1 インスタンス固定（[ADR 0002](./docs/adrs/0002-cloud-run-single-instance-for-websocket.md)）
+
+> 一意制約（チェックイン/評価/メール）は、さくらプロキシがエラーを 500 に潰す都合上 INSERT 前に SELECT で重複確認する（[ADR 0001](./docs/adrs/0001-sakura-proxy-error-masking.md)）。
+> 詳細は [docs/legacy/designs/api.md](./docs/legacy/designs/api.md) を参照。
 
 ---
 
@@ -222,9 +236,9 @@ Cursor はユーザーの指示に従ってコードを書く。技術詳細は�
 
 **PR を作成するたびに、このセクションを更新すること。** 完了した項目は削除し、次の PR で取り組む内容を書く。
 
-- [ ] さくら上のラッパー API 設置（先生）と Cloud Run への `SAKURA_PROXY_URL` / `SAKURA_PROXY_KEY` 設定・本番接続確認
-- [ ] `routes/v1/admin/` へ運営 CRUD を拡張（Issue #8。dashboard は分離済み）
+- [x] さくら上のラッパー API 設置と Cloud Run 本番接続（完了）
+- [x] `routes/v1/admin/` の運営 CRUD（categories/booths/survey-questions/participants/sample-data/event-data）（完了）
+- [x] WebSocket（socket.io）実装 — `checkin:new` / `rating:new` 配信（完了）
 - [ ] `RECOMMENDER_URL` 連携の API 契約（request/response スキーマ）を `event-support-recommender` と固定化
-- [ ] WebSocket（socket.io）実装（Issue #8）
 - [ ] `ops.ts` から webhook / admin / export の責務分離
 - [ ] Google Sheets エクスポート API の実装

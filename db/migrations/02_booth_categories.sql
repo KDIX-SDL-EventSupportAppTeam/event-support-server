@@ -5,4 +5,4 @@ CREATE TABLE IF NOT EXISTS booth_categories (
   PRIMARY KEY (booth_id, category_id),
   FOREIGN KEY (booth_id)    REFERENCES booths(id)     ON DELETE CASCADE,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+);
