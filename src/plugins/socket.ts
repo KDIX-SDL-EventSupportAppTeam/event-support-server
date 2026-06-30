@@ -40,7 +40,7 @@ class SocketIOFacade {
     io.on('connection', (socket) => {
       const user = socket.data.user as ReturnType<typeof verifyAccessToken>
       socket.join(`event:${user.event_id}`)
-      if (user.role === 'admin') {
+      if (user.role === 'manager' || user.role === 'viewer') {
         socket.join(`event:${user.event_id}:admin`)
       }
     })
