@@ -2,14 +2,14 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { clearAllEventData } from '../../../lib/event-data/clear-all.js'
 import { sendFail, sendOk } from '../../../lib/response.js'
-import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
 
 const clearBody = z.object({
   confirm: z.literal('DELETE_ALL_EVENT_DATA'),
 })
 
 export async function adminEventDataRoutes(app: FastifyInstance) {
-  const pre = [requireAdmin, requireEventMatchesJwt]
+  const pre = [requireManager, requireEventMatchesJwt]
 
   app.delete<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/event-data',

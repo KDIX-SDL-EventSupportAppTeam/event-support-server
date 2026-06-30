@@ -4,14 +4,14 @@ import { sendFail, sendOk } from '../../../lib/response.js'
 import { clearSampleData } from '../../../lib/sample-data/clear.js'
 import { SampleDataConflictError } from '../../../lib/sample-data/errors.js'
 import { generateSampleData } from '../../../lib/sample-data/generate.js'
-import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
 
 const generateBody = z.object({
   force: z.boolean().optional(),
 })
 
 export async function adminSampleDataRoutes(app: FastifyInstance) {
-  const pre = [requireAdmin, requireEventMatchesJwt]
+  const pre = [requireManager, requireEventMatchesJwt]
 
   app.post<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/sample-data/generate',

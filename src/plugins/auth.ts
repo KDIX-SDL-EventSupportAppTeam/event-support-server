@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { verifyAccessToken, type JwtPayload } from '../lib/jwt.js'
+import { verifyAccessToken, verifyOrganizerToken, type JwtPayload } from '../lib/jwt.js'
 import { sendFail } from '../lib/response.js'
 
 export async function requireBearerAuth(
@@ -29,14 +29,47 @@ export async function requireEventMatchesJwt(
   }
 }
 
-export async function requireAdmin(
+export async function requireManager(
   this: FastifyInstance,
   req: FastifyRequest,
   reply: FastifyReply,
 ) {
   await requireBearerAuth.call(this, req, reply)
   if (reply.sent) return
-  if (req.jwtUser?.role !== 'admin') {
+  if (req.jwtUser?.role !== 'manager') {
     return sendFail(reply, 403, 'FORBIDDEN', '運営権限が必要です')
   }
 }
+
+export async function requireStaff(
+  this: FastifyInstance,
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  await requireBearerAuth.call(this, req, reply)
+  if (reply.sent) return
+  const role = req.jwtUser?.role
+  if (role !== 'manager' && role !== 'viewer') {
+    return sendFail(reply, 403, 'FORBIDDEN', 'スタッフ権限が必要です')
+  }
+}
+
+export async function requireOrganizer(
+  this: FastifyInstance,
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const raw = req.headers.authorization
+  if (!raw?.startsWith('Bearer ')) {
+    return sendFail(reply, 401, 'UNAUTHORIZED', '認証が必要です')
+  }
+  const token = raw.slice('Bearer '.length).trim()
+  try {
+    req.organizerUser = verifyOrganizerToken(this.config.jwtSecret, token)
+  } catch {
+    return sendFail(reply, 401, 'UNAUTHORIZED', '認証に失敗しました')
+  }
+}
+
+// 後方互換: requireAdmin は requireManager の別名として保持
+export const requireAdmin = requireManager

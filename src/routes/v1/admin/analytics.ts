@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { parseJsonStringArray } from '../../../lib/json-array.js'
 import { sendOk } from '../../../lib/response.js'
-import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
 
 type RecRow = {
   offered_booth_ids: unknown
@@ -65,7 +65,7 @@ function avgFromDistribution(dist: Record<number, number>): number | null {
 }
 
 export async function adminAnalyticsRoutes(app: FastifyInstance) {
-  const pre = [requireAdmin, requireEventMatchesJwt]
+  const pre = [requireStaff, requireEventMatchesJwt]
 
   app.get<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/analytics/booths',
