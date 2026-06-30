@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../../lib/response.js'
-import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireStaff, requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { insertAuditLog } from '../../../lib/audit.js'
 
 const surveyBody = z.object({
   question_text: z.string().min(1).max(1000),
@@ -30,11 +31,12 @@ function mapQuestion(row: {
 }
 
 export async function adminSurveyQuestionRoutes(app: FastifyInstance) {
-  const pre = [requireAdmin, requireEventMatchesJwt]
+  const readPre = [requireStaff, requireEventMatchesJwt]
+  const writePre = [requireManager, requireEventMatchesJwt]
 
   app.get<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/survey-questions',
-    { preHandler: pre },
+    { preHandler: readPre },
     async (req, reply) => {
       const [rows] = await app.db.query(
         `SELECT id, question_text, options, display_order, is_required
@@ -57,7 +59,7 @@ export async function adminSurveyQuestionRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/survey-questions',
-    { preHandler: pre },
+    { preHandler: writePre },
     async (req, reply) => {
       const parsed = surveyBody.safeParse(req.body)
       if (!parsed.success) {
@@ -77,6 +79,15 @@ export async function adminSurveyQuestionRoutes(app: FastifyInstance) {
           body.is_required ?? false,
         ],
       )
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'survey_question.create',
+        targetType: 'survey_question',
+        targetId: id,
+        detail: { question_text: body.question_text },
+      })
       return sendOk(
         reply,
         {
@@ -95,7 +106,7 @@ export async function adminSurveyQuestionRoutes(app: FastifyInstance) {
 
   app.patch<{ Params: { event_id: string; question_id: string } }>(
     '/admin/events/:event_id/survey-questions/:question_id',
-    { preHandler: pre },
+    { preHandler: writePre },
     async (req, reply) => {
       const parsed = surveyBody.partial().safeParse(req.body)
       if (!parsed.success || !Object.keys(parsed.data).length) {
@@ -132,6 +143,16 @@ export async function adminSurveyQuestionRoutes(app: FastifyInstance) {
         return sendFail(reply, 404, 'NOT_FOUND', '設問が見つかりません')
       }
 
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'survey_question.update',
+        targetType: 'survey_question',
+        targetId: req.params.question_id,
+        detail: body,
+      })
+
       const [rows] = await app.db.query(
         `SELECT id, question_text, options, display_order, is_required
          FROM survey_questions WHERE id = ? AND event_id = ? LIMIT 1`,
@@ -150,7 +171,7 @@ export async function adminSurveyQuestionRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { event_id: string; question_id: string } }>(
     '/admin/events/:event_id/survey-questions/:question_id',
-    { preHandler: pre },
+    { preHandler: writePre },
     async (req, reply) => {
       const [result] = await app.db.execute(
         'DELETE FROM survey_questions WHERE id = ? AND event_id = ?',
@@ -160,6 +181,14 @@ export async function adminSurveyQuestionRoutes(app: FastifyInstance) {
       if (!affected) {
         return sendFail(reply, 404, 'NOT_FOUND', '設問が見つかりません')
       }
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'survey_question.delete',
+        targetType: 'survey_question',
+        targetId: req.params.question_id,
+      })
       return sendOk(reply, { deleted: true })
     },
   )

@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../../lib/response.js'
-import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { insertAuditLog } from '../../../lib/audit.js'
 
 const boothBody = z.object({
   name: z.string().min(1).max(200),
@@ -28,7 +29,7 @@ async function replaceBoothTags(
 }
 
 export async function adminBoothRoutes(app: FastifyInstance) {
-  const pre = [requireAdmin, requireEventMatchesJwt]
+  const pre = [requireManager, requireEventMatchesJwt]
 
   app.post<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/booths',
@@ -61,6 +62,15 @@ export async function adminBoothRoutes(app: FastifyInstance) {
         throw e
       }
       await replaceBoothTags(app, id, body.tags)
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'booth.create',
+        targetType: 'booth',
+        targetId: id,
+        detail: { name: body.name, manual_code: body.manual_code.trim().toUpperCase() },
+      })
       return sendOk(
         reply,
         {
@@ -126,6 +136,15 @@ export async function adminBoothRoutes(app: FastifyInstance) {
       }
 
       await replaceBoothTags(app, req.params.booth_id, body.tags)
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'booth.update',
+        targetType: 'booth',
+        targetId: req.params.booth_id,
+        detail: body,
+      })
 
       const [rows] = await app.db.query(
         `SELECT id, name, description, category_id, manual_code
@@ -168,6 +187,14 @@ export async function adminBoothRoutes(app: FastifyInstance) {
       if (!affected) {
         return sendFail(reply, 404, 'NOT_FOUND', 'ブースが見つかりません')
       }
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'booth.delete',
+        targetType: 'booth',
+        targetId: req.params.booth_id,
+      })
       return sendOk(reply, { deleted: true })
     },
   )

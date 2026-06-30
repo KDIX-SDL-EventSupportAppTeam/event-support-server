@@ -2,18 +2,20 @@ import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../../lib/response.js'
-import { requireAdmin, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireStaff, requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { insertAuditLog } from '../../../lib/audit.js'
 
 const categoryBody = z.object({
   name: z.string().min(1).max(200),
 })
 
 export async function adminCategoryRoutes(app: FastifyInstance) {
-  const pre = [requireAdmin, requireEventMatchesJwt]
+  const readPre = [requireStaff, requireEventMatchesJwt]
+  const writePre = [requireManager, requireEventMatchesJwt]
 
   app.get<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/categories',
-    { preHandler: pre },
+    { preHandler: readPre },
     async (req, reply) => {
       const [rows] = await app.db.query(
         'SELECT id, name FROM categories WHERE event_id = ? ORDER BY name ASC',
@@ -30,7 +32,7 @@ export async function adminCategoryRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/categories',
-    { preHandler: pre },
+    { preHandler: writePre },
     async (req, reply) => {
       const parsed = categoryBody.safeParse(req.body)
       if (!parsed.success) {
@@ -41,13 +43,22 @@ export async function adminCategoryRoutes(app: FastifyInstance) {
         'INSERT INTO categories (id, event_id, name) VALUES (?,?,?)',
         [id, req.params.event_id, parsed.data.name],
       )
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'category.create',
+        targetType: 'category',
+        targetId: id,
+        detail: { name: parsed.data.name },
+      })
       return sendOk(reply, { category: { id, name: parsed.data.name } }, 201)
     },
   )
 
   app.patch<{ Params: { event_id: string; category_id: string } }>(
     '/admin/events/:event_id/categories/:category_id',
-    { preHandler: pre },
+    { preHandler: writePre },
     async (req, reply) => {
       const parsed = categoryBody.safeParse(req.body)
       if (!parsed.success) {
@@ -61,13 +72,22 @@ export async function adminCategoryRoutes(app: FastifyInstance) {
       if (!affected) {
         return sendFail(reply, 404, 'NOT_FOUND', 'カテゴリが見つかりません')
       }
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'category.update',
+        targetType: 'category',
+        targetId: req.params.category_id,
+        detail: { name: parsed.data.name },
+      })
       return sendOk(reply, { category: { id: req.params.category_id, name: parsed.data.name } })
     },
   )
 
   app.delete<{ Params: { event_id: string; category_id: string } }>(
     '/admin/events/:event_id/categories/:category_id',
-    { preHandler: pre },
+    { preHandler: writePre },
     async (req, reply) => {
       const [result] = await app.db.execute(
         'DELETE FROM categories WHERE id = ? AND event_id = ?',
@@ -77,6 +97,14 @@ export async function adminCategoryRoutes(app: FastifyInstance) {
       if (!affected) {
         return sendFail(reply, 404, 'NOT_FOUND', 'カテゴリが見つかりません')
       }
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'category.delete',
+        targetType: 'category',
+        targetId: req.params.category_id,
+      })
       return sendOk(reply, { deleted: true })
     },
   )
