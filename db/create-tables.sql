@@ -180,6 +180,21 @@ CREATE TABLE audit_logs (
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
 
+-- 監査ログ（誰が・いつ・何をしたかの操作証跡）
+-- actor_id は users(id) への外部キーを張らない（アカウント削除後も履歴を残すため）
+CREATE TABLE audit_logs (
+  id           CHAR(36)     PRIMARY KEY,
+  event_id     CHAR(36)     NOT NULL,
+  actor_id     CHAR(36)     NOT NULL,
+  actor_role   VARCHAR(20)  NOT NULL,
+  action       VARCHAR(50)  NOT NULL,
+  target_type  VARCHAR(50)  NOT NULL,
+  target_id    CHAR(36),
+  detail       JSON,
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- 確認（結果が 13 なら成功）
 SELECT COUNT(*) AS table_count
 FROM information_schema.tables
