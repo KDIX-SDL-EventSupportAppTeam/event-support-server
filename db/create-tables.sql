@@ -10,14 +10,15 @@
 --   1. 下の「USE」の行で、実際のデータベース名に書き換える。
 --      （phpMyAdmin 等で対象 DB を選択済みの場合は、USE 行を削除しても構いません。）
 --   2. このファイル全文を SQL 実行画面に貼り付けて実行する。
---   3. 末尾の確認用 SELECT で、テーブル数が 10 であることを確認する。
+--   3. 末尾の確認用 SELECT で、テーブル数が 13 であることを確認する。
 --
--- 【作成されるテーブル（10）】
+-- 【作成されるテーブル（13）】
 --   events, categories, booths, booth_tags, users, survey_questions,
---   user_survey_answers, check_ins, booth_ratings, recommendations
+--   user_survey_answers, check_ins, booth_ratings, recommendations,
+--   booth_categories, organizers, audit_logs
 --
--- 開発用の同一 DDL: db/migrations/01_initial_schema.sql（内容を同期すること）
--- 設計書: docs/designs/database.md §11
+-- 開発用の同一 DDL: db/migrations/01_initial_schema.sql + 02_*.sql + 03_*.sql（内容を同期すること）
+-- 設計書: docs/designs/database.md §11、主催者自己管理機能: .sdd/02-data-model.md
 -- =============================================================================
 
 SET NAMES utf8mb4;
@@ -25,13 +26,25 @@ SET NAMES utf8mb4;
 -- ↓ さくら等で作成済みの DB 名に変更してください（例: event_support）
 USE `your_database_name`;
 
+-- organizers は events から参照されるため先に作成する
+CREATE TABLE organizers (
+  id            CHAR(36)     PRIMARY KEY,
+  email         VARCHAR(255) NOT NULL,
+  password_hash TEXT         NOT NULL,
+  display_name  TEXT,
+  created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_organizer_email (email)
+) ENGINE=InnoDB;
+
 CREATE TABLE events (
-  id          CHAR(36)     PRIMARY KEY,
-  name        TEXT         NOT NULL,
-  date_start  DATETIME     NOT NULL,
-  date_end    DATETIME     NOT NULL,
-  venue       TEXT,
-  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id            CHAR(36)     PRIMARY KEY,
+  organizer_id  CHAR(36),
+  name          TEXT         NOT NULL,
+  date_start    DATETIME     NOT NULL,
+  date_end      DATETIME     NOT NULL,
+  venue         TEXT,
+  created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (organizer_id) REFERENCES organizers(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE categories (
@@ -72,6 +85,7 @@ CREATE TABLE users (
   password_hash TEXT,
   google_id     TEXT,
   display_name  TEXT,
+  role          VARCHAR(20) NOT NULL DEFAULT 'participant',
   created_at    DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_email_event (email, event_id),
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
@@ -151,7 +165,22 @@ CREATE TABLE booth_categories (
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- 確認（結果が 11 なら成功）
+-- 監査ログ（誰が・いつ・何をしたかの操作証跡）
+-- actor_id は users(id) への外部キーを張らない（アカウント削除後も履歴を残すため）
+CREATE TABLE audit_logs (
+  id           CHAR(36)     PRIMARY KEY,
+  event_id     CHAR(36)     NOT NULL,
+  actor_id     CHAR(36)     NOT NULL,
+  actor_role   VARCHAR(20)  NOT NULL,
+  action       VARCHAR(50)  NOT NULL,
+  target_type  VARCHAR(50)  NOT NULL,
+  target_id    CHAR(36),
+  detail       JSON,
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 確認（結果が 13 なら成功）
 SELECT COUNT(*) AS table_count
 FROM information_schema.tables
 WHERE table_schema = DATABASE();
