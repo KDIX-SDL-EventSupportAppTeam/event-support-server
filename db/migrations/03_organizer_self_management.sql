@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS organizers (
   display_name  TEXT,
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_organizer_email (email)
-) ENGINE=InnoDB;
+);
 
 -- events テーブルに organizer_id を追加（既存行は NULL のまま）
 -- MySQL 5.7+ は ADD COLUMN IF NOT EXISTS 非対応のため、IGNORE を使わずストアドプロシージャで安全に実行
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   detail       JSON,
   created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+);
 
 -- users.role を 'manager' / 'viewer' に対応させる（既存の 'admin' を 'manager' に移行）
 -- VARCHAR(20) は既に十分な長さのため ALTER 不要
