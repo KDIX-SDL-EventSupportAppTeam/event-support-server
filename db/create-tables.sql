@@ -1,18 +1,25 @@
 -- =============================================================================
--- Event Support App — テーブル作成用 SQL（先生・運用側で実行）
+-- Event Support App — DB 再構築用 SQL（先生・運用側で実行）
 -- =============================================================================
+--
+-- 【このファイルがすること】
+--   既存の13テーブルを「データごと全削除」してから、新しいテーブル構成で
+--   作り直します。実行すると **中に入っているデータはすべて消えます**。
+--   バックアップが必要な場合は、実行前に必ずダンプを取得してください。
 --
 -- 【前提】
 --   - MySQL 8.0.16 以上（InnoDB）。CHECK 制約を使用しています。
---   - 空のデータベースを 1 つ用意してください（既に同名テーブルがあるとエラーになります）。
+--   - 対象 DB は、空でも・既にテーブルやデータが入っていても構いません。
+--     （既存テーブルは冒頭の DROP セクションで削除するため、上書き実行できます。）
 --
 -- 【実行手順】
 --   1. 下の「USE」の行で、実際のデータベース名に書き換える。
 --      （phpMyAdmin 等で対象 DB を選択済みの場合は、USE 行を削除しても構いません。）
 --   2. このファイル全文を SQL 実行画面に貼り付けて実行する。
 --   3. 末尾の確認用 SELECT で、テーブル数が 13 であることを確認する。
+--      （13 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
 --
--- 【作成されるテーブル（13）】
+-- 【削除 → 再作成されるテーブル（13）】
 --   events, categories, booths, booth_tags, users, survey_questions,
 --   user_survey_answers, check_ins, booth_ratings, recommendations,
 --   booth_categories, organizers, audit_logs
@@ -25,6 +32,27 @@ SET NAMES utf8mb4;
 
 -- ↓ さくら等で作成済みの DB 名に変更してください（例: event_support）
 USE `your_database_name`;
+
+-- =============================================================================
+-- 既存テーブルの削除（データも含めて全消去）
+-- 外部キー制約があるため、参照先→参照元の逆順で DROP する
+-- =============================================================================
+SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS booth_categories;
+DROP TABLE IF EXISTS recommendations;
+DROP TABLE IF EXISTS booth_ratings;
+DROP TABLE IF EXISTS check_ins;
+DROP TABLE IF EXISTS user_survey_answers;
+DROP TABLE IF EXISTS survey_questions;
+DROP TABLE IF EXISTS booth_tags;
+DROP TABLE IF EXISTS booths;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS organizers;
+SET FOREIGN_KEY_CHECKS = 1;
+-- =============================================================================
 
 -- organizers は events から参照されるため先に作成する
 CREATE TABLE organizers (
