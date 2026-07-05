@@ -133,15 +133,19 @@ export async function adminSurveyQuestionRoutes(app: FastifyInstance) {
         params.push(body.is_required)
       }
 
+      const [existingRows] = await app.db.query(
+        'SELECT id FROM survey_questions WHERE id = ? AND event_id = ? LIMIT 1',
+        [req.params.question_id, req.params.event_id],
+      )
+      if (!(existingRows as { id: string }[])[0]) {
+        return sendFail(reply, 404, 'NOT_FOUND', '設問が見つかりません')
+      }
+
       params.push(req.params.question_id, req.params.event_id)
-      const [result] = await app.db.execute(
+      await app.db.execute(
         `UPDATE survey_questions SET ${fields.join(', ')} WHERE id = ? AND event_id = ?`,
         params,
       )
-      const affected = (result as { affectedRows?: number }).affectedRows ?? 0
-      if (!affected) {
-        return sendFail(reply, 404, 'NOT_FOUND', '設問が見つかりません')
-      }
 
       await insertAuditLog(app.db, {
         eventId: req.params.event_id,

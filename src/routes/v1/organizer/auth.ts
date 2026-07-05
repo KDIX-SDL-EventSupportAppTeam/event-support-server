@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { signOrganizerToken } from '../../../lib/jwt.js'
 import { sendFail, sendOk } from '../../../lib/response.js'
+import { safeCompare } from '../../../lib/safe-compare.js'
 
 const registerBody = z.object({
   email: z.string().email(),
@@ -27,7 +28,7 @@ export async function organizerAuthRoutes(app: FastifyInstance) {
   app.post('/organizer/auth/register', async (req, reply) => {
     if (app.config.organizerSignupMode === 'invite') {
       const key = req.headers['x-organizer-key']
-      if (!app.config.organizerRegistrationKey || key !== app.config.organizerRegistrationKey) {
+      if (!app.config.organizerRegistrationKey || !safeCompare(key, app.config.organizerRegistrationKey)) {
         return sendFail(reply, 403, 'FORBIDDEN', 'オーガナイザー登録キーが正しくありません')
       }
     }

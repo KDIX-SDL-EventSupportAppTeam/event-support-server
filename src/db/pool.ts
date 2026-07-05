@@ -18,5 +18,18 @@ export function createPool(config: AppConfig): DbClient {
     execute: (sql, params = []) =>
       pool.execute(sql, params as ExecuteValues) as Promise<[unknown, unknown]>,
     end: () => pool.end(),
+    getConnection: async () => {
+      const conn = await pool.getConnection()
+      return {
+        query: (sql, params = []) =>
+          conn.query(sql, params as ExecuteValues) as Promise<[unknown, unknown]>,
+        execute: (sql, params = []) =>
+          conn.execute(sql, params as ExecuteValues) as Promise<[unknown, unknown]>,
+        beginTransaction: () => conn.beginTransaction(),
+        commit: () => conn.commit(),
+        rollback: () => conn.rollback(),
+        release: () => conn.release(),
+      }
+    },
   }
 }

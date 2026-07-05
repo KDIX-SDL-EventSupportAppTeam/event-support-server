@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { signAccessToken } from '../../lib/jwt.js'
 import { sendFail, sendOk } from '../../lib/response.js'
+import { safeCompare } from '../../lib/safe-compare.js'
 
 const registerBody = z.object({
   event_id: z.string().uuid(),
@@ -26,6 +27,9 @@ type UserRow = {
   display_name: string | null
   role?: string | null
 }
+
+/** ユーザー不在時に本物と同程度の時間をかけるためのダミーハッシュ（既知の平文なし） */
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(randomUUID(), 10)
 
 function resolveRole(role: string | null | undefined): 'manager' | 'viewer' | 'participant' {
   if (role === 'manager') return 'manager'
@@ -79,7 +83,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post('/register/admin', async (req, reply) => {
     const adminKey = req.headers['x-admin-key']
-    if (adminKey !== app.config.adminRegistrationKey) {
+    if (!safeCompare(adminKey, app.config.adminRegistrationKey)) {
       return sendFail(reply, 403, 'FORBIDDEN', '運営登録キーが正しくありません')
     }
 
@@ -144,11 +148,8 @@ export async function authRoutes(app: FastifyInstance) {
       [event_id, email.toLowerCase()],
     )
     const u = (rows as UserRow[])[0]
-    if (!u?.password_hash) {
-      return sendFail(reply, 401, 'UNAUTHORIZED', 'メールアドレスまたはパスワードが正しくありません')
-    }
-    const ok = await bcrypt.compare(password, u.password_hash)
-    if (!ok) {
+    const ok = await bcrypt.compare(password, u?.password_hash ?? DUMMY_PASSWORD_HASH)
+    if (!u?.password_hash || !ok) {
       return sendFail(reply, 401, 'UNAUTHORIZED', 'メールアドレスまたはパスワードが正しくありません')
     }
 

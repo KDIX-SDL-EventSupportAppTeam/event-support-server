@@ -1,5 +1,6 @@
 -- オーガナイザー自己管理機能: organizers テーブル・events.organizer_id・audit_logs テーブル追加
--- Apply: `npm run db:migrate` または mysql CLI で実行
+-- Apply: Docker init（mysql CLI 実行）/ 既存 DB への増分適用は mysql CLI で本ファイルを直接実行する。
+-- 空 DB への `npm run db:migrate` は db/create-tables.sql を使うため本ファイルは対象外。
 
 SET NAMES utf8mb4;
 

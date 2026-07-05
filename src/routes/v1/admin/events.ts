@@ -89,15 +89,16 @@ export async function adminEventRoutes(app: FastifyInstance) {
         return sendFail(reply, 422, 'VALIDATION_ERROR', '更新項目がありません')
       }
 
-      params.push(req.params.event_id)
-      const [result] = await app.db.execute(
-        `UPDATE events SET ${fields.join(', ')} WHERE id = ?`,
-        params,
+      const [existingRows] = await app.db.query(
+        'SELECT id FROM events WHERE id = ? LIMIT 1',
+        [req.params.event_id],
       )
-      const affected = (result as { affectedRows?: number }).affectedRows ?? 0
-      if (!affected) {
+      if (!(existingRows as { id: string }[])[0]) {
         return sendFail(reply, 404, 'NOT_FOUND', 'イベントが見つかりません')
       }
+
+      params.push(req.params.event_id)
+      await app.db.execute(`UPDATE events SET ${fields.join(', ')} WHERE id = ?`, params)
 
       const [rows] = await app.db.query(
         `SELECT id, name, date_start, date_end, venue, created_at

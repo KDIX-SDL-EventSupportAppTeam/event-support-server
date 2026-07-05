@@ -1,5 +1,6 @@
--- Canonical schema: keep in sync with docs/designs/database.md §11 and db/create-tables.sql
--- Apply: Docker 初回 init / `cd server && npm run db:migrate` / mysql CLI で本ファイルを実行
+-- Canonical schema: keep in sync with docs/legacy/designs/database.md §11 and db/create-tables.sql
+-- Apply: Docker 初回 init（mysql CLI 実行）専用。空 DB への `npm run db:migrate` は db/create-tables.sql を使う。
+-- 既存 DB への増分適用は mysql CLI で本ファイルを直接実行すること。
 -- DB は接続先で選択する（DATABASE_URL のパス、MYSQL_DATABASE、または USE 文）。USE は書かない。
 -- CURRENT_TIMESTAMP（UTC_TIMESTAMP 式既定は一部環境で init 失敗するため未使用）。
 -- docker-compose は --default-time-zone=+00:00 で UTC 運用。
