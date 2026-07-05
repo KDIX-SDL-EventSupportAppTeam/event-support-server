@@ -43,6 +43,13 @@ export function loadConfig(): AppConfig {
     throw new Error('DATABASE_URL または SAKURA_PROXY_URL のいずれかが必要です')
   }
 
+  if (e.ORGANIZER_SIGNUP_MODE === 'invite' && !e.ORGANIZER_REGISTRATION_KEY) {
+    console.warn(
+      'ORGANIZER_SIGNUP_MODE=invite ですが ORGANIZER_REGISTRATION_KEY が未設定です。' +
+        'オーガナイザー登録（POST /api/v1/organizer/auth/register）は常に 403 になります。',
+    )
+  }
+
   return {
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,

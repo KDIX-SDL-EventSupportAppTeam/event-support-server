@@ -50,7 +50,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       const managerDisplayName = body.initial_manager.display_name ?? body.initial_manager.email
       const managerEmail = body.initial_manager.email.toLowerCase()
 
-      const conn = await (app.db as { getConnection?: () => Promise<{ execute: typeof app.db.execute; query: typeof app.db.query; beginTransaction: () => Promise<void>; commit: () => Promise<void>; rollback: () => Promise<void>; release: () => void }> }).getConnection?.()
+      const conn = await app.db.getConnection?.()
 
       if (conn) {
         // トランザクション対応（接続プールが getConnection をサポートする場合）
@@ -90,26 +90,32 @@ export async function organizerEventRoutes(app: FastifyInstance) {
           conn.release()
         }
       } else {
-        // getConnection 非対応の場合は順次実行（さくらプロキシ環境等）
+        // getConnection 非対応の場合は順次実行し、失敗時は補償削除する（さくらプロキシ環境等）
         await app.db.execute(
           'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue) VALUES (?,?,?,?,?,?)',
           [eventId, organizerId, body.name, body.date_start, body.date_end, body.venue ?? null],
         )
 
-        await app.db.execute(
-          'INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)',
-          [managerId, eventId, managerEmail, managerHash, managerDisplayName, 'manager'],
-        )
+        try {
+          await app.db.execute(
+            'INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)',
+            [managerId, eventId, managerEmail, managerHash, managerDisplayName, 'manager'],
+          )
 
-        await insertAuditLog(app.db, {
-          eventId,
-          actorId: organizerId,
-          actorRole: 'organizer',
-          action: 'staff.invite',
-          targetType: 'user',
-          targetId: managerId,
-          detail: { email: managerEmail, role: 'manager' },
-        })
+          await insertAuditLog(app.db, {
+            eventId,
+            actorId: organizerId,
+            actorRole: 'organizer',
+            action: 'staff.invite',
+            targetType: 'user',
+            targetId: managerId,
+            detail: { email: managerEmail, role: 'manager' },
+          })
+        } catch (e) {
+          // ON DELETE CASCADE により events に紐づく中間データも削除される
+          await app.db.execute('DELETE FROM events WHERE id = ?', [eventId])
+          throw e
+        }
       }
 
       const [eventRows] = await app.db.query(

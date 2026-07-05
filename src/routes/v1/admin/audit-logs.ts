@@ -8,6 +8,15 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 })
 
+function parseDetail(detail: string | unknown): unknown {
+  if (typeof detail !== 'string') return detail
+  try {
+    return JSON.parse(detail) as unknown
+  } catch {
+    return null
+  }
+}
+
 type AuditLogRow = {
   id: string
   event_id: string
@@ -60,7 +69,7 @@ export async function adminAuditLogRoutes(app: FastifyInstance) {
           action: r.action,
           target_type: r.target_type,
           target_id: r.target_id ?? null,
-          detail: typeof r.detail === 'string' ? (JSON.parse(r.detail) as unknown) : r.detail,
+          detail: parseDetail(r.detail),
           created_at: `${String(r.created_at).replace(' ', 'T')}Z`,
         })),
         pagination: {

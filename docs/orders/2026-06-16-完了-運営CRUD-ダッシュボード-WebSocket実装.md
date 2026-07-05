@@ -500,3 +500,10 @@ curl -s -X POST http://localhost:3000/api/v1/admin/events/<EVENT_ID>/booths \
 curl -s http://localhost:3000/api/v1/admin/events/<EVENT_ID>/dashboard \
   -H "Authorization: Bearer <TOKEN>"
 ```
+
+---
+
+## 完了
+
+- **完了日**: 2026-07-03
+- **対応 PR**: 2026-07-02 コードレビュー是正（`.sdd/2026-07-02-code-review/`）で最終確認・関連ドキュメント同期
