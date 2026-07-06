@@ -208,7 +208,7 @@ CREATE TABLE audit_logs (
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
 
--- 確認（結果が 13 なら成功）
-SELECT COUNT(*) AS table_count
-FROM information_schema.tables
-WHERE table_schema = DATABASE();
+-- 確認（一覧に13テーブルが表示されれば成功）
+-- ※ さくら等の共有サーバーでは information_schema へのアクセスが権限で拒否される
+--   （#1044）ため、COUNT ではなく SHOW TABLES で確認する。
+SHOW TABLES;
