@@ -13,7 +13,11 @@
 |--------|----------------|------|
 | 参加者 | `user` / `participant` | イベントに参加しブースを回る人。`users` テーブルで管理 |
 | 出展者 | `exhibitor` | ブースを出す人。Google フォームでブース情報を登録する |
-| 運営 | `admin` / `organizer` | イベントを管理する人。JWT の `role: admin` で識別する |
+| 運営 | `manager` / `viewer` | イベント単位でイベントを管理する人の総称。運営管理者（`manager`）と運営閲覧者（`viewer`）からなる。旧 `admin` は `manager` に移行済み（`03_organizer_self_management.sql` の UPDATE 文） |
+| 運営管理者 / Manager | `manager` | イベント単位の運営ロール。ブース等の作成・編集・削除が可能 |
+| 運営閲覧者 / Viewer | `viewer` | イベント単位の運営ロール。閲覧のみ可能 |
+| 主催者 / Organizer | `organizer` | イベントを横断して作成・編集できるプラットフォームレベルのアカウント。`event_id` を持たない。`organizers` テーブルで管理 |
+| 主催者ポータル / Organizer Portal | — | 主催者がイベントを管理する画面群 |
 
 ---
 
@@ -102,11 +106,29 @@
 | メールアドレス | `email` | ログインキー。`event_id` × `email` で一意制約 |
 | パスワードハッシュ | `password_hash` | bcrypt（コスト 10）でハッシュ化したパスワード。`users.password_hash` |
 | JWT トークン | `token` | ログイン・登録時に発行するアクセストークン |
-| JWT ペイロード | — | `{ sub: user_id, event_id, display_name, role }` |
-| ロール | `role` | JWT に含まれる権限種別。`participant`（参加者）または `admin`（運営） |
+| JWT ペイロード（参加者/運営） | — | `{ sub: user_id, event_id, display_name, role }`。イベント終了 +24h 有効 |
+| JWT ペイロード（主催者） | — | `{ sub: organizer_id, scope: 'organizer' }`。`event_id` を持たない。30 日有効 |
+| ロール | `role` | JWT に含まれる権限種別。`participant`（参加者）/ `manager`（運営管理者）/ `viewer`（運営閲覧者）。旧 `admin` は `manager` の後方互換値 |
 | Bearer 認証 | — | `Authorization: Bearer <token>` ヘッダーによる認証方式 |
 | `requireBearerAuth` | — | JWT の署名・有効期限を検証する preHandler |
 | `requireEventMatchesJwt` | — | URL の `:event_id` と JWT の `event_id` の一致を検証する preHandler |
+| `requireManager` | — | `role: manager`（または旧 `admin`）を要求する preHandler |
+| `requireStaff` | — | `role: manager` または `viewer`（= 運営）を要求する preHandler |
+| `requireOrganizer` | — | 主催者 JWT（`scope: 'organizer'`）を検証する preHandler |
+| `requireAdmin` | — | `requireManager` の後方互換エイリアス |
+
+---
+
+## オーガナイザー管理
+
+| 日本語 | コード上の名前 | 定義 |
+|--------|----------------|------|
+| 初期管理者自動発行 | — | イベント作成時に、そのイベント用の `role='manager'` ユーザーを同時に作成すること |
+| スタッフ招待 | — | 主催者がイベントに運営スタッフ（manager/viewer）を email・ロール指定で追加すること |
+| スタッフ管理 | — | 主催者がイベントのスタッフを一覧・ロール変更・削除すること（招待は「スタッフ招待」）。監査 action は `staff.role_change` / `staff.remove` |
+| 開催ステータス | — | イベントの時間的状態（準備中 / 開催中 / 終了）。`date_start`/`date_end` と現在時刻から導出する。DB には保存せずフロントエンドで算出する |
+| 監査ログ / Audit Log | `audit_logs` | 誰が・いつ・何をしたかの操作証跡。`actor_role` に `manager` / `viewer` / `organizer` が入る。action は `booth.*` / `category.*` / `survey_question.*` / `staff.invite` / `staff.role_change` / `staff.remove` |
+| 参加者 URL / 運営 URL | — | イベント作成時に発行される、参加者登録画面・運営ログイン画面への入口リンク。`FRONTEND_BASE_URL` から生成 |
 
 ---
 
@@ -175,6 +197,9 @@
 | `check_ins` | チェックイン |
 | `booth_ratings` | 評価 |
 | `recommendations` | 推薦 |
+| `booth_categories` | ブースとカテゴリの多対多 |
+| `organizers` | 主催者 |
+| `audit_logs` | 監査ログ |
 
 ---
 
