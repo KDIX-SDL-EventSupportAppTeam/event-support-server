@@ -171,11 +171,27 @@ export async function organizerStaffRoutes(app: FastifyInstance) {
         return sendFail(reply, 404, 'NOT_FOUND', 'スタッフが見つかりません')
       }
 
+      const fromRole = target.role === 'admin' ? 'manager' : target.role
+
+      // 同一ロールへの no-op PATCH は UPDATE・監査ログをスキップして 200 を返す（冪等）。
+      // 例外: 生ロールが旧 'admin' で manager 指定のときは表記の正規化のみ
+      // UPDATE する（意味的には同一ロールのため監査ログは記録しない）
+      if (fromRole === toRole) {
+        if (target.role === 'admin' && toRole === 'manager') {
+          await app.db.execute(
+            'UPDATE users SET role = ? WHERE id = ? AND event_id = ?',
+            [toRole, user_id, event_id],
+          )
+        }
+        return sendOk(reply, {
+          staff: toStaffPayload({ ...target, role: toRole }),
+        })
+      }
+
       if (toRole === 'viewer' && (await isLastManager(app, event_id, user_id))) {
         return sendFail(reply, 409, 'CONFLICT', '最後の管理者は閲覧者に変更できません')
       }
 
-      const fromRole = target.role === 'admin' ? 'manager' : target.role
       await app.db.execute(
         'UPDATE users SET role = ? WHERE id = ? AND event_id = ?',
         [toRole, user_id, event_id],
