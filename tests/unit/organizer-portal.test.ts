@@ -30,9 +30,10 @@ type Handler = {
   rows: unknown[] | ((params: unknown[]) => unknown[])
 }
 
-/** SQL 文字列をパターン照合して結果を返す DbClient モック。 */
-function makeDb(handlers: Handler[]): DbClient {
+/** SQL 文字列をパターン照合して結果を返す DbClient モック。`log` に実行 SQL を記録する。 */
+function makeDb(handlers: Handler[], log?: string[]): DbClient {
   const run = async (sql: string, params: unknown[] = []) => {
+    log?.push(sql)
     const h = handlers.find((x) => x.match.test(sql))
     if (!h) throw new Error(`unmatched SQL: ${sql}`)
     const rows = typeof h.rows === 'function' ? h.rows(params) : h.rows
@@ -150,6 +151,54 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
     const res = await app.inject({ method: 'PATCH', url: '/api/v1/organizer/events/e1/staff/u1', headers: authHeader(), payload: { role: 'viewer' } })
     expect(res.statusCode).toBe(200)
     expect(res.json().data.staff.role).toBe('viewer')
+    await app.close()
+  })
+
+  it('同一ロールへの変更（manager → manager）は 200 で UPDATE・監査ログを行わない（冪等）', async () => {
+    const log: string[] = []
+    const db = makeDb([
+      ownership,
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
+      ...writeHandlers,
+    ], log)
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'PATCH', url: '/api/v1/organizer/events/e1/staff/u1', headers: authHeader(), payload: { role: 'manager' } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.staff.role).toBe('manager')
+    expect(log.some((sql) => /UPDATE users/.test(sql))).toBe(false)
+    expect(log.some((sql) => /INSERT INTO audit_logs/.test(sql))).toBe(false)
+    await app.close()
+  })
+
+  it('viewer → viewer の no-op は最後の manager ガードより先に 200 を返す', async () => {
+    const log: string[] = []
+    const db = makeDb([
+      ownership,
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'v1', email: 'v@x.com', display_name: '閲覧', role: 'viewer', created_at: '2026-07-02 00:00:00' }] },
+      // COUNT が呼ばれたら 0（誤って呼ばれた場合 409 になり検出できる）
+      { match: /COUNT\(\*\) AS c FROM users/, rows: [{ c: 0 }] },
+      ...writeHandlers,
+    ], log)
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'PATCH', url: '/api/v1/organizer/events/e1/staff/v1', headers: authHeader(), payload: { role: 'viewer' } })
+    expect(res.statusCode).toBe(200)
+    expect(log.some((sql) => /UPDATE users|INSERT INTO audit_logs/.test(sql))).toBe(false)
+    await app.close()
+  })
+
+  it('旧 admin への manager 指定は表記の正規化 UPDATE のみ行い監査ログは記録しない', async () => {
+    const log: string[] = []
+    const db = makeDb([
+      ownership,
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'a1', email: 'a@x.com', display_name: '旧管理', role: 'admin', created_at: '2026-07-01 00:00:00' }] },
+      ...writeHandlers,
+    ], log)
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'PATCH', url: '/api/v1/organizer/events/e1/staff/a1', headers: authHeader(), payload: { role: 'manager' } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.staff.role).toBe('manager')
+    expect(log.some((sql) => /UPDATE users/.test(sql))).toBe(true)
+    expect(log.some((sql) => /INSERT INTO audit_logs/.test(sql))).toBe(false)
     await app.close()
   })
 })
