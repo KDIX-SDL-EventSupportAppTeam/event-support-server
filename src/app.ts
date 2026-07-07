@@ -15,6 +15,7 @@ import { adminAnalyticsRoutes } from './routes/v1/admin/analytics.js'
 import { adminSampleDataRoutes } from './routes/v1/admin/sample-data.js'
 import { adminEventDataRoutes } from './routes/v1/admin/event-data.js'
 import { adminAuditLogRoutes } from './routes/v1/admin/audit-logs.js'
+import { adminBoothCommentRoutes } from './routes/v1/admin/booth-comments.js'
 import { organizerAuthRoutes } from './routes/v1/organizer/auth.js'
 import { organizerEventRoutes } from './routes/v1/organizer/events.js'
 import { organizerStaffRoutes } from './routes/v1/organizer/staff.js'
@@ -68,6 +69,7 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(adminSampleDataRoutes)
       await v1.register(adminEventDataRoutes)
       await v1.register(adminAuditLogRoutes)
+      await v1.register(adminBoothCommentRoutes)
       await v1.register(organizerAuthRoutes)
       await v1.register(organizerEventRoutes)
       await v1.register(organizerStaffRoutes)
