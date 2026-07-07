@@ -28,6 +28,7 @@ type AuditLogRow = {
   detail: string | unknown
   created_at: string
   actor_display_name: string | null
+  actor_email: string | null
 }
 
 export async function adminAuditLogRoutes(app: FastifyInstance) {
@@ -50,7 +51,7 @@ export async function adminAuditLogRoutes(app: FastifyInstance) {
       const [rows] = await app.db.query(
         `SELECT al.id, al.event_id, al.actor_id, al.actor_role, al.action,
                 al.target_type, al.target_id, al.detail, al.created_at,
-                u.display_name AS actor_display_name
+                u.display_name AS actor_display_name, u.email AS actor_email
          FROM audit_logs al
          LEFT JOIN users u ON u.id = al.actor_id AND u.event_id = al.event_id
          WHERE al.event_id = ?
@@ -66,6 +67,7 @@ export async function adminAuditLogRoutes(app: FastifyInstance) {
           actor_id: r.actor_id,
           actor_role: r.actor_role,
           actor_display_name: r.actor_display_name ?? null,
+          actor_email: r.actor_email ?? null,
           action: r.action,
           target_type: r.target_type,
           target_id: r.target_id ?? null,

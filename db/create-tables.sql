@@ -3,7 +3,7 @@
 -- =============================================================================
 --
 -- 【このファイルがすること】
---   既存の13テーブルを「データごと全削除」してから、新しいテーブル構成で
+--   既存の15テーブルを「データごと全削除」してから、新しいテーブル構成で
 --   作り直します。実行すると **中に入っているデータはすべて消えます**。
 --   バックアップが必要な場合は、実行前に必ずダンプを取得してください。
 --
@@ -16,15 +16,16 @@
 --   1. 下の「USE」の行で、実際のデータベース名に書き換える。
 --      （phpMyAdmin 等で対象 DB を選択済みの場合は、USE 行を削除しても構いません。）
 --   2. このファイル全文を SQL 実行画面に貼り付けて実行する。
---   3. 末尾の確認用 SELECT で、テーブル数が 13 であることを確認する。
---      （13 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
+--   3. 末尾の確認用 SELECT で、テーブル数が 15 であることを確認する。
+--      （15 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
 --
--- 【削除 → 再作成されるテーブル（13）】
+-- 【削除 → 再作成されるテーブル（15）】
 --   events, categories, booths, booth_tags, users, survey_questions,
 --   user_survey_answers, check_ins, booth_ratings, recommendations,
---   booth_categories, organizers, audit_logs
+--   booth_categories, organizers, audit_logs, exhibitor_booths,
+--   email_verification_tokens
 --
--- 開発用の同一 DDL: db/migrations/01_initial_schema.sql + 02_*.sql + 03_*.sql（内容を同期すること）
+-- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 08_*.sql（内容を同期すること）
 -- 設計書: docs/designs/database.md §11、主催者自己管理機能: .sdd/02-data-model.md
 -- =============================================================================
 
@@ -39,6 +40,8 @@ USE `your_database_name`;
 -- =============================================================================
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS email_verification_tokens;
+DROP TABLE IF EXISTS exhibitor_booths;
 DROP TABLE IF EXISTS booth_categories;
 DROP TABLE IF EXISTS recommendations;
 DROP TABLE IF EXISTS booth_ratings;
@@ -71,6 +74,7 @@ CREATE TABLE events (
   date_start    DATETIME     NOT NULL,
   date_end      DATETIME     NOT NULL,
   venue         TEXT,
+  survey_url    VARCHAR(2048),
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organizer_id) REFERENCES organizers(id) ON DELETE SET NULL
 );
@@ -114,6 +118,7 @@ CREATE TABLE users (
   google_id     TEXT,
   display_name  TEXT,
   role          VARCHAR(20) NOT NULL DEFAULT 'participant',
+  email_verified_at DATETIME,
   created_at    DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_email_event (email, event_id),
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
@@ -163,6 +168,8 @@ CREATE TABLE booth_ratings (
   event_id    CHAR(36)  NOT NULL,
   checkin_id  CHAR(36)  NOT NULL,
   rating      TINYINT   NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment     TEXT,
+  is_hidden   TINYINT(1) NOT NULL DEFAULT 0,
   rated_at    DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id)    REFERENCES users(id)      ON DELETE CASCADE,
   FOREIGN KEY (booth_id)   REFERENCES booths(id)     ON DELETE CASCADE,
@@ -193,6 +200,21 @@ CREATE TABLE booth_categories (
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
 );
 
+CREATE TABLE exhibitor_booths (
+  user_id  CHAR(36) NOT NULL,
+  booth_id CHAR(36) NOT NULL,
+  PRIMARY KEY (user_id, booth_id),
+  FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE,
+  FOREIGN KEY (booth_id) REFERENCES booths(id) ON DELETE CASCADE
+);
+
+CREATE TABLE email_verification_tokens (
+  token      CHAR(64)  NOT NULL PRIMARY KEY,
+  user_id    CHAR(36)  NOT NULL,
+  expires_at DATETIME  NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- 監査ログ（誰が・いつ・何をしたかの操作証跡）
 -- actor_id は users(id) への外部キーを張らない（アカウント削除後も履歴を残すため）
 CREATE TABLE audit_logs (
@@ -208,7 +230,7 @@ CREATE TABLE audit_logs (
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
 
--- 確認（一覧に13テーブルが表示されれば成功）
+-- 確認（一覧に15テーブルが表示されれば成功）
 -- ※ さくら等の共有サーバーでは information_schema へのアクセスが権限で拒否される
 --   （#1044）ため、COUNT ではなく SHOW TABLES で確認する。
 SHOW TABLES;

@@ -91,8 +91,12 @@ db/
 │   ├── 01_initial_schema.sql
 │   ├── 02_add_user_role.sql
 │   ├── 03_organizer_self_management.sql
-│   └── 04_booth_categories.sql
-└── create-tables.sql          # 空 DB への `npm run db:migrate` はこちらを使う（13 テーブル）
+│   ├── 04_booth_categories.sql
+│   ├── 05_exhibitor_booths.sql
+│   ├── 06_booth_rating_comments.sql
+│   ├── 07_email_verification.sql
+│   └── 08_event_survey_url.sql
+└── create-tables.sql          # 空 DB への `npm run db:migrate` はこちらを使う（15 テーブル）
 ```
 
 ## ローカル開発
