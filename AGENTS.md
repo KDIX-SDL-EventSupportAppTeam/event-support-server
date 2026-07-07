@@ -132,7 +132,7 @@ requireOrganizer          → 主催者 JWT（scope: 'organizer'）を検証
 
 ## DB
 
-完全なスキーマの正は `db/create-tables.sql`（**13 テーブル**）。増分は `db/migrations/`（4 ファイル）。  
+完全なスキーマの正は `db/create-tables.sql`（**15 テーブル**）。増分は `db/migrations/`（8 ファイル）。  
 起動手順・Docker init と `db:migrate` の使い分けは [README.md § ローカル開発](./README.md#ローカル開発) を参照。  
 設計の解説は [docs/legacy/designs/database.md](./docs/legacy/designs/database.md) を参照。
 
@@ -141,7 +141,7 @@ requireOrganizer          → 主催者 JWT（scope: 'organizer'）を検証
 docker exec -it event-support-mysql \
   mysql -u app -pappsecret event_support \
   -NBe "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='event_support';"
-# 13 が返ること
+# 15 が返ること
 ```
 
 さくら等への引き渡し時: `db/create-tables.sql` を渡す（先頭の `USE` を実 DB 名に書き換えて全文実行）。
