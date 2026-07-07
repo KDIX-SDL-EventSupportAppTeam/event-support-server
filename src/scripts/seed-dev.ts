@@ -13,11 +13,17 @@ const BOOTH_B = '20000000-0000-4000-8000-000000000022'
 const BOOTH_C = '20000000-0000-4000-8000-000000000023'
 const Q1 = '20000000-0000-4000-8000-000000000031'
 const DEV_USER_ID = '20000000-0000-4000-8000-000000000041'
+const EXHIBITOR_USER_ID = '20000000-0000-4000-8000-000000000042'
 
 /** docs/tests/fixtures/dummy-login.md・frontend の DEV_API_* と同期 */
 const DEV_USER_EMAIL = 'dev@example.com'
 const DEV_USER_PASSWORD = 'password123'
 const DEV_USER_DISPLAY_NAME = '開発用参加者'
+
+/** docs/tests/fixtures/dummy-login.md と同期。ブースA担当の開発用出展者。 */
+const EXHIBITOR_EMAIL = 'exhibitor@example.com'
+const EXHIBITOR_PASSWORD = 'password123'
+const EXHIBITOR_DISPLAY_NAME = '開発用出展者'
 
 async function ensureDevUser(pool: ReturnType<typeof createPool>) {
   const [existing] = await pool.query(
@@ -36,6 +42,38 @@ async function ensureDevUser(pool: ReturnType<typeof createPool>) {
   console.log('Seed: dev user created:', DEV_USER_EMAIL, '/', DEV_USER_PASSWORD)
 }
 
+/** 開発用出展者を作成しブースAに紐付ける。「SELECTしてあればスキップ」流儀で冪等にする。 */
+async function ensureExhibitorUser(pool: ReturnType<typeof createPool>) {
+  const [existing] = await pool.query(
+    'SELECT id FROM users WHERE event_id = ? AND email = ? LIMIT 1',
+    [EVENT_ID, EXHIBITOR_EMAIL.toLowerCase()],
+  )
+  let exhibitorId = (existing as { id: string }[])[0]?.id
+  if (!exhibitorId) {
+    exhibitorId = EXHIBITOR_USER_ID
+    const hash = await bcrypt.hash(EXHIBITOR_PASSWORD, 10)
+    await pool.execute(
+      `INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)`,
+      [exhibitorId, EVENT_ID, EXHIBITOR_EMAIL.toLowerCase(), hash, EXHIBITOR_DISPLAY_NAME, 'exhibitor'],
+    )
+    console.log('Seed: exhibitor user created:', EXHIBITOR_EMAIL, '/', EXHIBITOR_PASSWORD)
+  } else {
+    console.log('Seed: exhibitor user already exists:', EXHIBITOR_EMAIL)
+  }
+
+  const [existingLink] = await pool.query(
+    'SELECT 1 FROM exhibitor_booths WHERE user_id = ? AND booth_id = ? LIMIT 1',
+    [exhibitorId, BOOTH_A],
+  )
+  if (!(existingLink as unknown[]).length) {
+    await pool.execute('INSERT INTO exhibitor_booths (user_id, booth_id) VALUES (?, ?)', [
+      exhibitorId,
+      BOOTH_A,
+    ])
+    console.log('Seed: exhibitor linked to booth A')
+  }
+}
+
 async function main() {
   const config = loadConfig()
   const pool = createPool(config)
@@ -44,6 +82,7 @@ async function main() {
   if ((existing as { id: string }[]).length) {
     console.log('Seed: event already exists, skip inserts:', EVENT_ID)
     await ensureDevUser(pool)
+    await ensureExhibitorUser(pool)
     await pool.end()
     return
   }
@@ -127,10 +166,12 @@ async function main() {
   )
 
   await ensureDevUser(pool)
+  await ensureExhibitorUser(pool)
 
   console.log('Seed OK. event_id =', EVENT_ID)
   console.log('  Booths manual codes: DEV001, DEV002, DEV003')
   console.log('  Login:', DEV_USER_EMAIL, '/', DEV_USER_PASSWORD)
+  console.log('  Exhibitor login:', EXHIBITOR_EMAIL, '/', EXHIBITOR_PASSWORD)
   await pool.end()
 }
 
