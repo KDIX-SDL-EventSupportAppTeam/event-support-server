@@ -4,22 +4,23 @@
  * 用途:
  *   - さくら DB（本番）など、`DATABASE_URL` で指す DB に対して
  *     プロジェクト本体と同じ mysql2 ドライバ・同じ接続経路で繋がるかを確かめる。
- *   - スキーマ DDL を適用済みかどうかを「テーブル数 10」で判定する。
+ *   - スキーマ DDL を適用済みかどうかを「テーブル数 15」で判定する。
  *   - 主要テーブルの行数を表示し、シード投入の要否を一目でわかるようにする。
  *
  * 使い方:
  *   npm run db:check
  *
  * 期待値:
- *   - tables: 10
+ *   - tables: 15
  *   - events / survey_questions に最低 1 行（空なら seed が必要）
  */
 import 'dotenv/config'
 import { loadConfig } from '../config.js'
 import { createPool } from '../db/pool.js'
 
-const EXPECTED_TABLES = 10
+const EXPECTED_TABLES = 15
 const EXPECTED_TABLE_NAMES = [
+  'organizers',
   'events',
   'categories',
   'booths',
@@ -30,6 +31,10 @@ const EXPECTED_TABLE_NAMES = [
   'check_ins',
   'booth_ratings',
   'recommendations',
+  'booth_categories',
+  'exhibitor_booths',
+  'email_verification_tokens',
+  'audit_logs',
 ] as const
 
 async function main() {

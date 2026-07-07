@@ -14,7 +14,7 @@
 - JWT による認証・認可
 - MySQL へのデータ読み書き
 - 推薦エンジンへのリクエスト中継と結果返却
-- WebSocket によるリアルタイム通知（Issue #8）
+- WebSocket によるリアルタイム通知
 - Google Forms Webhook の受信とブース情報の同期
 - Google Sheets へのデータエクスポート（イベント終了時）
 - DB スキーマ・マイグレーション管理
@@ -43,27 +43,42 @@
 ```
 src/
 ├── routes/v1/
-│   ├── auth.ts              # 登録・ログイン
+│   ├── auth.ts              # 参加者/運営登録・ログイン
 │   ├── booths.ts            # ブース一覧・詳細
 │   ├── checkins.ts          # チェックイン・評価
 │   ├── recommendations.ts   # 推薦取得・選択
 │   ├── survey.ts            # アンケート設問・回答
 │   ├── ops.ts               # Webhook・エクスポート
-│   └── admin/               # 運営 CRUD（Issue #8）
+│   ├── admin/               # 運営 CRUD（dashboard・analytics・categories・
+│   │                         #   admin-booths・survey-questions・participants・
+│   │                         #   sample-data・event-data・audit-logs・events）
+│   └── organizer/            # オーガナイザー（auth・events・staff）
 ├── db/
-│   ├── client.ts          # DbClient インターフェース
+│   ├── client.ts          # DbClient / DbConnection インターフェース
 │   ├── pool.ts            # mysql2 直接接続
 │   ├── http-proxy.ts      # さくらラッパー API 経由
 │   └── parse-mysql-url.ts
 ├── lib/
 │   ├── datetime.ts
 │   ├── jwt.ts
-│   └── response.ts
+│   ├── response.ts
+│   ├── audit.ts            # 監査ログ記録ヘルパー
+│   ├── url.ts              # 参加者/運営 URL 生成
+│   ├── json-array.ts
+│   ├── safe-compare.ts     # API キーのタイミングセーフ比較
+│   ├── event-data/          # イベントデータ全削除
+│   └── sample-data/         # サンプルデータ生成・削除
 ├── plugins/
-│   └── auth.ts
+│   ├── auth.ts
+│   └── socket.ts
 ├── scripts/
-│   ├── db-migrate.ts        # CREATE TABLE 実行
+│   ├── db-migrate.ts        # 空 DB への CREATE TABLE 実行（db/create-tables.sql）
+│   ├── db-check.ts          # DB 接続・テーブル数確認
 │   ├── seed-dev.ts          # 開発用データ投入
+│   ├── seed-prod.ts         # 本番向け初期データ投入
+│   ├── seed-sample.ts       # サンプルデータ投入
+│   ├── clear-sample.ts      # サンプルデータ削除
+│   ├── clear-event.ts       # イベントデータ全削除
 │   └── sakura-proxy-mock.ts # さくらラッパー API のローカルモック
 ├── types/
 │   └── fastify.d.ts
@@ -73,11 +88,16 @@ src/
 
 db/
 ├── migrations/
-│   └── 01_initial_schema.sql
-└── create-tables.sql
+│   ├── 01_initial_schema.sql
+│   ├── 02_add_user_role.sql
+│   ├── 03_organizer_self_management.sql
+│   ├── 04_booth_categories.sql
+│   ├── 05_exhibitor_booths.sql
+│   ├── 06_booth_rating_comments.sql
+│   ├── 07_email_verification.sql
+│   └── 08_event_survey_url.sql
+└── create-tables.sql          # 空 DB への `npm run db:migrate` はこちらを使う（15 テーブル）
 ```
-
-> **Note:** 現時点では運営向けエンドポイントの一部（dashboard）のみ `routes/v1/admin/` へ分離済み。運営 CRUD の残りは Issue #8 で追加予定。
 
 ## ローカル開発
 

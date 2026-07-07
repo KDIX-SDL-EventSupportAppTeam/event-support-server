@@ -6,11 +6,11 @@ import mysql from 'mysql2/promise'
 import { loadConfig } from '../config.js'
 import { parseMysqlUrl } from '../db/parse-mysql-url.js'
 
-const EXPECTED_TABLES = 10
-const MIGRATION_FILE = '01_initial_schema.sql'
+const EXPECTED_TABLES = 15
+const MIGRATION_FILE = 'create-tables.sql'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..')
-const sqlPath = join(repoRoot, 'db/migrations', MIGRATION_FILE)
+const sqlPath = join(repoRoot, 'db', MIGRATION_FILE)
 
 /** `USE dbname;` は DATABASE_URL の DB 名と衝突するため除去する */
 function prepareMigrationSql(raw: string): string {
@@ -30,6 +30,13 @@ async function tableCount(conn: mysql.Connection, schema: string): Promise<numbe
 
 async function main() {
   const { databaseUrl } = loadConfig()
+  if (!databaseUrl) {
+    console.error(
+      'db-migrate は DATABASE_URL による直接接続専用です（さくらプロキシ経由の SAKURA_PROXY_URL では実行できません）。' +
+        '.env に DATABASE_URL を設定するか、対象 DB に対して mysql CLI で db/create-tables.sql を直接実行してください。',
+    )
+    process.exit(1)
+  }
   const db = parseMysqlUrl(databaseUrl)
   const sql = prepareMigrationSql(readFileSync(sqlPath, 'utf8'))
 

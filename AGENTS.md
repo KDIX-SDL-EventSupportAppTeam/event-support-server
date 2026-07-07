@@ -13,7 +13,10 @@
 | `SAKURA_PROXY_KEY` | プロキシ使用時 ✅ | ラッパー API 認証キー（`X-Proxy-Key` ヘッダー。本番は Secret Manager） |
 | `JWT_SECRET` | ✅ | JWT 署名キー（本番は 32 文字以上のランダム文字列） |
 | `WEBHOOK_API_KEY` | 本番 ✅ | Google Apps Script から受け取る Webhook 認証キー（開発は空でも可） |
-| `ADMIN_REGISTRATION_KEY` | 本番 ✅ | 運営アカウント登録（`POST /auth/register/admin`）の `X-Admin-Key` 検証キー |
+| `ADMIN_REGISTRATION_KEY` | ✅ | 運営アカウント登録（`POST /auth/register/admin`）の `X-Admin-Key` 検証キー。開発でも必須 |
+| `FRONTEND_BASE_URL` | — | イベント作成時に発行する参加者/運営 URL のベース。未設定時は `CORS_ORIGIN` の先頭オリジンを使用する |
+| `ORGANIZER_REGISTRATION_KEY` | invite 時 ✅ | オーガナイザー登録（`POST /organizer/auth/register`）の `X-Organizer-Key` 検証キー |
+| `ORGANIZER_SIGNUP_MODE` | — | `invite`（既定・キー必須）\| `open`（誰でも登録可） |
 | `RECOMMENDER_URL` | — | 推薦エンジンの URL（未設定・失敗時は内部ランダム推薦にフォールバック） |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
 | `PORT` | — | リッスンポート（既定: `3000`。Cloud Run では `$PORT` が自動注入される） |
@@ -74,15 +77,29 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | GET | `/api/v1/events/:event_id/recommendations` | Bearer | 推薦取得（`RECOMMENDER_URL` 設定時は外部推薦、未設定/失敗時はランダム） |
 | POST | `/api/v1/events/:event_id/recommendations/:recommendation_id/select` | Bearer | 推薦選択 |
 | POST | `/api/v1/webhook/booths/sync` | `X-Api-Key` | ブース情報同期（Google Forms） |
-| GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（`role: admin`） | 運営ダッシュボード（簡易集計） |
-| GET | `/api/v1/admin/events/:event_id/analytics/{booths,participants,checkins,recommendations}` | Bearer（`role: admin`） | 分析データ取得 |
-| CRUD | `/api/v1/admin/events/:event_id/{categories,booths,survey-questions}` ほか | Bearer（`role: admin`） | カテゴリ/ブース/設問の運営 CRUD・参加者一覧・サンプルデータ生成/削除 |
+| POST | `/api/v1/organizer/auth/register` | `X-Organizer-Key`（invite 時） | オーガナイザー登録 |
+| POST | `/api/v1/organizer/auth/login` | — | オーガナイザーログイン・JWT 発行 |
+| GET | `/api/v1/organizer/events` | Bearer（organizer） | 所有イベント一覧（統計・URL 付き、`date_start DESC`） |
+| GET | `/api/v1/organizer/events/:event_id` | Bearer（organizer、所有イベントのみ） | イベント詳細（非所有・不存在は 403） |
+| POST | `/api/v1/organizer/events` | Bearer（organizer） | イベント作成 + 初期管理者自動発行 + 参加者/運営 URL 発行 |
+| GET | `/api/v1/organizer/events/:event_id/staff` | Bearer（organizer、所有イベントのみ） | 運営スタッフ一覧（招待順） |
+| POST | `/api/v1/organizer/events/:event_id/staff` | Bearer（organizer、所有イベントのみ） | 運営スタッフ招待（manager/viewer） |
+| PATCH | `/api/v1/organizer/events/:event_id/staff/:user_id` | Bearer（organizer、所有イベントのみ） | スタッフのロール変更（最後の manager ガード） |
+| DELETE | `/api/v1/organizer/events/:event_id/staff/:user_id` | Bearer（organizer、所有イベントのみ） | スタッフ削除（最後の manager ガード） |
+| GET | `/api/v1/events/:event_id/public` | — | 公開イベント情報（名前・日程・会場のみ） |
+| GET / PATCH | `/api/v1/admin/events/:event_id` | Bearer（manager。GET は viewer も可） | イベント情報取得・更新 |
+| GET | `/api/v1/admin/events/:event_id/audit-logs` | Bearer（staff = manager+viewer） | 監査ログ一覧（ページネーション付き） |
+| DELETE | `/api/v1/admin/events/:event_id/event-data` | Bearer（manager、確認文字列必須） | イベントデータ全削除 |
+| POST / DELETE | `/api/v1/admin/events/:event_id/sample-data` | Bearer（manager） | サンプルデータ生成・削除 |
+| GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（staff） | 運営ダッシュボード（簡易集計） |
+| GET | `/api/v1/admin/events/:event_id/analytics/{booths,participants,checkins,recommendations}` | Bearer（staff） | 分析データ取得 |
+| CRUD | `/api/v1/admin/events/:event_id/{categories,booths,survey-questions}` ほか | Bearer（manager。GET 系は staff） | カテゴリ/ブース/設問の運営 CRUD・参加者一覧 |
 
-運営 CRUD の各エンドポイントは `src/routes/v1/admin/` 配下に分割（`app.ts` の登録順を参照）。
+運営 CRUD の各エンドポイントは `src/routes/v1/admin/` 配下に分割、オーガナイザー系は `src/routes/v1/organizer/` 配下（`app.ts` の登録順を参照）。
 
 ### WebSocket（socket.io）
 
-- 接続時に JWT（`auth.token`）で認証し、`event:<event_id>`（全員）/ `event:<event_id>:admin`（運営のみ）ルームへ参加
+- 接続時に JWT（`auth.token`）で認証し、`event:<event_id>`（全員）/ `event:<event_id>:admin`（`manager` または `viewer` のみ）ルームへ参加
 - サーバー → クライアントのイベント:
   - `checkin:new` — チェックイン発生時に運営ルームへ配信
   - `rating:new` — 評価送信時に運営ルームへ配信
@@ -97,21 +114,25 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 ```
 POST /api/v1/auth/login → JWT 発行（payload: { sub, event_id, display_name, role }）
+POST /api/v1/organizer/auth/login → 主催者 JWT 発行（payload: { sub, scope: 'organizer' }）
         ↓
 以降のリクエストに Authorization: Bearer <token> を付与
         ↓
 requireBearerAuth         → トークンの署名・有効期限を検証
 requireEventMatchesJwt    → URL の :event_id と JWT の event_id が一致するか検証
+requireManager            → role: manager（旧 admin 含む）を要求
+requireStaff              → role: manager または viewer を要求
+requireOrganizer          → 主催者 JWT（scope: 'organizer'）を検証
 ```
 
-運営向けエンドポイントは JWT の `role: admin` を検証する（`requireAdminRole` への共通化は Issue #8 予定）。  
+`requireAdmin` は `requireManager` の後方互換エイリアス。  
 ペイロードの詳細は [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) § 認証・ユーザーを参照。
 
 ---
 
 ## DB
 
-スキーマの正は `db/migrations/01_initial_schema.sql`（10 テーブル）。  
+完全なスキーマの正は `db/create-tables.sql`（**15 テーブル**）。増分は `db/migrations/`（8 ファイル）。  
 起動手順・Docker init と `db:migrate` の使い分けは [README.md § ローカル開発](./README.md#ローカル開発) を参照。  
 設計の解説は [docs/legacy/designs/database.md](./docs/legacy/designs/database.md) を参照。
 
@@ -120,7 +141,7 @@ requireEventMatchesJwt    → URL の :event_id と JWT の event_id が一致�
 docker exec -it event-support-mysql \
   mysql -u app -pappsecret event_support \
   -NBe "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='event_support';"
-# 10 が返ること
+# 15 が返ること
 ```
 
 さくら等への引き渡し時: `db/create-tables.sql` を渡す（先頭の `USE` を実 DB 名に書き換えて全文実行）。
@@ -239,6 +260,8 @@ Cursor はユーザーの指示に従ってコードを書く。技術詳細は�
 - [x] さくら上のラッパー API 設置と Cloud Run 本番接続（完了）
 - [x] `routes/v1/admin/` の運営 CRUD（categories/booths/survey-questions/participants/sample-data/event-data）（完了）
 - [x] WebSocket（socket.io）実装 — `checkin:new` / `rating:new` 配信（完了）
+- [x] 2026-07-02 コードレビュー是正（`.sdd/2026-07-02-code-review/`）: B-1〜B-9 のバグ修正・ドキュメント同期（完了）
 - [ ] `RECOMMENDER_URL` 連携の API 契約（request/response スキーマ）を `event-support-recommender` と固定化
 - [ ] `ops.ts` から webhook / admin / export の責務分離
 - [ ] Google Sheets エクスポート API の実装
+- [ ] `GET /organizer/events` の Phase 2 実装（現状は空配列を返すスタブ）

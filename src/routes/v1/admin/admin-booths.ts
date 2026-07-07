@@ -117,22 +117,28 @@ export async function adminBoothRoutes(app: FastifyInstance) {
         params.push(body.manual_code.trim().toUpperCase())
       }
 
-      params.push(req.params.booth_id, req.params.event_id)
-      try {
-        const [result] = await app.db.execute(
-          `UPDATE booths SET ${fields.join(', ')} WHERE id = ? AND event_id = ?`,
-          params,
-        )
-        const affected = (result as { affectedRows?: number }).affectedRows ?? 0
-        if (!affected) {
-          return sendFail(reply, 404, 'NOT_FOUND', 'ブースが見つかりません')
+      const [existingRows] = await app.db.query(
+        'SELECT id FROM booths WHERE id = ? AND event_id = ? LIMIT 1',
+        [req.params.booth_id, req.params.event_id],
+      )
+      if (!(existingRows as { id: string }[])[0]) {
+        return sendFail(reply, 404, 'NOT_FOUND', 'ブースが見つかりません')
+      }
+
+      if (fields.length) {
+        params.push(req.params.booth_id, req.params.event_id)
+        try {
+          await app.db.execute(
+            `UPDATE booths SET ${fields.join(', ')} WHERE id = ? AND event_id = ?`,
+            params,
+          )
+        } catch (e: unknown) {
+          const err = e as { code?: string }
+          if (err.code === 'ER_DUP_ENTRY') {
+            return sendFail(reply, 409, 'CONFLICT', 'manual_code が既に使われています')
+          }
+          throw e
         }
-      } catch (e: unknown) {
-        const err = e as { code?: string }
-        if (err.code === 'ER_DUP_ENTRY') {
-          return sendFail(reply, 409, 'CONFLICT', 'manual_code が既に使われています')
-        }
-        throw e
       }
 
       await replaceBoothTags(app, req.params.booth_id, body.tags)

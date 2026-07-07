@@ -90,11 +90,16 @@ export async function recommendationRoutes(app: FastifyInstance) {
       const { event_id, recommendation_id } = req.params
       const uid = req.jwtUser!.sub
       const [rows] = await app.db.query(
-        `SELECT id FROM recommendations WHERE id = ? AND user_id = ? AND event_id = ? LIMIT 1`,
+        `SELECT id, offered_booth_ids FROM recommendations WHERE id = ? AND user_id = ? AND event_id = ? LIMIT 1`,
         [recommendation_id, uid, event_id],
       )
-      if (!(rows as { id: string }[]).length) {
+      const rec = (rows as { id: string; offered_booth_ids: unknown }[])[0]
+      if (!rec) {
         return sendFail(reply, 404, 'NOT_FOUND', '推薦が見つかりません')
+      }
+      const offeredBoothIds = parseJsonStringArray(rec.offered_booth_ids)
+      if (!offeredBoothIds.includes(parsed.data.selected_booth_id)) {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', '提示された推薦に含まれないブースです')
       }
       await app.db.execute(
         `UPDATE recommendations SET selected_booth_id = ? WHERE id = ?`,

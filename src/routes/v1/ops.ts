@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../lib/response.js'
+import { safeCompare } from '../../lib/safe-compare.js'
 
 const webhookBody = z.object({
   event_id: z.string().uuid(),
@@ -25,7 +26,7 @@ export async function webhookRoutes(app: FastifyInstance) {
   app.post('/webhook/booths/sync', async (req, reply) => {
     const key = req.headers['x-api-key']
     const expected = app.config.webhookApiKey
-    if (!expected || key !== expected) {
+    if (!expected || !safeCompare(key, expected)) {
       return sendFail(reply, 401, 'UNAUTHORIZED', 'APIキーが不正です')
     }
     const parsed = webhookBody.safeParse(req.body)

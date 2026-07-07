@@ -64,14 +64,17 @@ export async function adminCategoryRoutes(app: FastifyInstance) {
       if (!parsed.success) {
         return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
       }
-      const [result] = await app.db.execute(
+      const [existingRows] = await app.db.query(
+        'SELECT id FROM categories WHERE id = ? AND event_id = ? LIMIT 1',
+        [req.params.category_id, req.params.event_id],
+      )
+      if (!(existingRows as { id: string }[])[0]) {
+        return sendFail(reply, 404, 'NOT_FOUND', 'カテゴリが見つかりません')
+      }
+      await app.db.execute(
         'UPDATE categories SET name = ? WHERE id = ? AND event_id = ?',
         [parsed.data.name, req.params.category_id, req.params.event_id],
       )
-      const affected = (result as { affectedRows?: number }).affectedRows ?? 0
-      if (!affected) {
-        return sendFail(reply, 404, 'NOT_FOUND', 'カテゴリが見つかりません')
-      }
       await insertAuditLog(app.db, {
         eventId: req.params.event_id,
         actorId: req.jwtUser!.sub,

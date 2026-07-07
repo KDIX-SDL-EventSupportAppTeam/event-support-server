@@ -22,6 +22,7 @@ import { checkinRoutes } from './routes/v1/checkins.js'
 import { webhookRoutes } from './routes/v1/ops.js'
 import { recommendationRoutes } from './routes/v1/recommendations.js'
 import { surveyRoutes } from './routes/v1/survey.js'
+import { eventsPublicRoutes } from './routes/v1/events-public.js'
 import { registerSocketIO } from './plugins/socket.js'
 
 export async function buildApp(config: AppConfig, db: DbClient) {
@@ -48,6 +49,7 @@ export async function buildApp(config: AppConfig, db: DbClient) {
     async (v1) => {
       await v1.register(authRoutes, { prefix: '/auth' })
       await v1.register(surveyRoutes)
+      await v1.register(eventsPublicRoutes)
       await v1.register(boothRoutes)
       await v1.register(checkinRoutes)
       await v1.register(recommendationRoutes)
