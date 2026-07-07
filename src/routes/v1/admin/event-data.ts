@@ -1,31 +1,29 @@
 import type { FastifyInstance } from 'fastify'
-import { z } from 'zod'
-import { clearAllEventData } from '../../../lib/event-data/clear-all.js'
-import { sendFail, sendOk } from '../../../lib/response.js'
+import { sendFail } from '../../../lib/response.js'
 import { requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
 
-const clearBody = z.object({
-  confirm: z.literal('DELETE_ALL_EVENT_DATA'),
-})
-
+/**
+ * イベントデータ全削除（チェックイン・回答・ブース等の一括消去）。
+ *
+ * 破壊的操作のため現在は**封印（無効化）**している。manager を含め、
+ * この API からの実行はできず 403 を返す。
+ * 方針: 将来は主催者(organizer)専用機能として再設計する
+ *   （組織側の認証・イベント所有者確認を伴う別エンドポイントに移す）。
+ * 実削除ロジックは `lib/event-data/clear-all.ts` に温存してある。
+ */
 export async function adminEventDataRoutes(app: FastifyInstance) {
   const pre = [requireManager, requireEventMatchesJwt]
 
   app.delete<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/event-data',
     { preHandler: pre },
-    async (req, reply) => {
-      const parsed = clearBody.safeParse(req.body ?? {})
-      if (!parsed.success) {
-        return sendFail(reply, 422, 'VALIDATION_ERROR', '確認文字列が不正です')
-      }
-      try {
-        const result = await clearAllEventData(app.db, req.params.event_id)
-        return sendOk(reply, { cleared: result.deleted })
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'イベントデータの削除に失敗しました'
-        return sendFail(reply, 500, 'INTERNAL_ERROR', msg)
-      }
+    async (_req, reply) => {
+      return sendFail(
+        reply,
+        403,
+        'FORBIDDEN',
+        'イベントデータの全削除は現在無効化されています（主催者専用機能として再設計予定）',
+      )
     },
   )
 }
