@@ -14,6 +14,11 @@ const envSchema = z.object({
   FRONTEND_BASE_URL: z.string().optional(),
   ORGANIZER_REGISTRATION_KEY: z.string().optional(),
   ORGANIZER_SIGNUP_MODE: z.enum(['invite', 'open']).default('invite'),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  MAIL_FROM: z.string().optional().default('PRoToFES <no-reply@example.com>'),
 })
 
 export type AppConfig = {
@@ -29,6 +34,11 @@ export type AppConfig = {
   frontendBaseUrl: string | undefined
   organizerRegistrationKey: string | undefined
   organizerSignupMode: 'invite' | 'open'
+  smtpHost: string | undefined
+  smtpPort: number
+  smtpUser: string | undefined
+  smtpPass: string | undefined
+  mailFrom: string
 }
 
 export function loadConfig(): AppConfig {
@@ -63,5 +73,10 @@ export function loadConfig(): AppConfig {
     frontendBaseUrl: e.FRONTEND_BASE_URL,
     organizerRegistrationKey: e.ORGANIZER_REGISTRATION_KEY,
     organizerSignupMode: e.ORGANIZER_SIGNUP_MODE,
+    smtpHost: e.SMTP_HOST,
+    smtpPort: e.SMTP_PORT,
+    smtpUser: e.SMTP_USER,
+    smtpPass: e.SMTP_PASS,
+    mailFrom: e.MAIL_FROM,
   }
 }

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { isoToMysqlUtc, utcMysqlNow } from '../../lib/datetime.js'
 import { sendFail, sendOk } from '../../lib/response.js'
-import { requireBearerAuth, requireEventMatchesJwt } from '../../plugins/auth.js'
+import { requireBearerAuth, requireEventMatchesJwt, requireVerifiedEmail } from '../../plugins/auth.js'
 
 const checkinBody = z.discriminatedUnion('method', [
   z.object({
@@ -25,7 +25,7 @@ export async function checkinRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { event_id: string } }>(
     '/events/:event_id/checkins',
-    { preHandler: pre },
+    { preHandler: [requireBearerAuth, requireEventMatchesJwt, requireVerifiedEmail] },
     async (req, reply) => {
       const parsed = checkinBody.safeParse(req.body)
       if (!parsed.success) {

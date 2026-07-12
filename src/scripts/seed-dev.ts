@@ -68,13 +68,18 @@ async function ensureDevUser(pool: ReturnType<typeof createPool>) {
     'SELECT id FROM users WHERE event_id = ? AND email = ? LIMIT 1',
     [EVENT_ID, DEV_USER_EMAIL.toLowerCase()],
   )
-  if ((existing as { id: string }[]).length) {
+  const existingRows = existing as { id: string }[]
+  if (existingRows.length) {
     console.log('Seed: dev user already exists:', DEV_USER_EMAIL)
+    await pool.execute(
+      `UPDATE users SET email_verified_at = UTC_TIMESTAMP() WHERE id = ? AND email_verified_at IS NULL`,
+      [existingRows[0].id],
+    )
     return
   }
   const hash = await bcrypt.hash(DEV_USER_PASSWORD, 10)
   await pool.execute(
-    `INSERT INTO users (id, event_id, email, password_hash, display_name) VALUES (?,?,?,?,?)`,
+    `INSERT INTO users (id, event_id, email, password_hash, display_name, email_verified_at) VALUES (?,?,?,?,?,UTC_TIMESTAMP())`,
     [DEV_USER_ID, EVENT_ID, DEV_USER_EMAIL.toLowerCase(), hash, DEV_USER_DISPLAY_NAME],
   )
   console.log('Seed: dev user created:', DEV_USER_EMAIL, '/', DEV_USER_PASSWORD)
