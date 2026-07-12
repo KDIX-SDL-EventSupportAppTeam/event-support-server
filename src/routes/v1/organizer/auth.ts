@@ -26,6 +26,10 @@ type OrganizerRow = {
 
 export async function organizerAuthRoutes(app: FastifyInstance) {
   app.post('/organizer/auth/register', async (req, reply) => {
+    if (app.config.organizerSignupMode === 'disabled') {
+      return sendFail(reply, 410, 'GONE', 'オーガナイザー登録は現在受け付けていません')
+    }
+
     if (app.config.organizerSignupMode === 'invite') {
       const key = req.headers['x-organizer-key']
       if (!app.config.organizerRegistrationKey || !safeCompare(key, app.config.organizerRegistrationKey)) {
