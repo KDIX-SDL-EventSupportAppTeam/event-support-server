@@ -10,6 +10,7 @@ const patchEventBody = z.object({
   date_start: z.string().optional(),
   date_end: z.string().optional(),
   venue: z.string().max(500).nullable().optional(),
+  survey_url: z.string().url().max(2048).regex(/^https?:\/\//).nullable().optional(),
 })
 
 export async function adminEventRoutes(app: FastifyInstance) {
@@ -21,7 +22,7 @@ export async function adminEventRoutes(app: FastifyInstance) {
     { preHandler: readPre },
     async (req, reply) => {
       const [rows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
          FROM events WHERE id = ? LIMIT 1`,
         [req.params.event_id],
       )
@@ -31,6 +32,7 @@ export async function adminEventRoutes(app: FastifyInstance) {
         date_start: string
         date_end: string
         venue: string | null
+        survey_url: string | null
         created_at: string
       }[])[0]
       if (!e) {
@@ -43,6 +45,7 @@ export async function adminEventRoutes(app: FastifyInstance) {
           date_start: `${String(e.date_start).replace(' ', 'T')}Z`,
           date_end: `${String(e.date_end).replace(' ', 'T')}Z`,
           venue: e.venue,
+          survey_url: e.survey_url,
           created_at: `${String(e.created_at).replace(' ', 'T')}Z`,
         },
       })
@@ -85,6 +88,10 @@ export async function adminEventRoutes(app: FastifyInstance) {
         fields.push('venue = ?')
         params.push(body.venue)
       }
+      if (body.survey_url !== undefined) {
+        fields.push('survey_url = ?')
+        params.push(body.survey_url)   // null ならそのまま NULL で保存（未設定に戻す）
+      }
       if (!fields.length) {
         return sendFail(reply, 422, 'VALIDATION_ERROR', '更新項目がありません')
       }
@@ -101,7 +108,7 @@ export async function adminEventRoutes(app: FastifyInstance) {
       await app.db.execute(`UPDATE events SET ${fields.join(', ')} WHERE id = ?`, params)
 
       const [rows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
          FROM events WHERE id = ? LIMIT 1`,
         [req.params.event_id],
       )
@@ -111,6 +118,7 @@ export async function adminEventRoutes(app: FastifyInstance) {
         date_start: string
         date_end: string
         venue: string | null
+        survey_url: string | null
         created_at: string
       }[])[0]
       return sendOk(reply, {
@@ -120,6 +128,7 @@ export async function adminEventRoutes(app: FastifyInstance) {
           date_start: `${String(e.date_start).replace(' ', 'T')}Z`,
           date_end: `${String(e.date_end).replace(' ', 'T')}Z`,
           venue: e.venue,
+          survey_url: e.survey_url,
           created_at: `${String(e.created_at).replace(' ', 'T')}Z`,
         },
       })

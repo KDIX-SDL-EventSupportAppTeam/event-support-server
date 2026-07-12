@@ -140,6 +140,7 @@
 | 固定設問 | `fixed_questions` | 全イベント共通。コードで定義（年齢層・職業・業種）。`survey_questions` テーブルには入らない |
 | カスタム設問 | `custom_questions` | 運営がイベントごとに設定。`survey_questions` テーブルで管理 |
 | アンケート回答 | `survey_answer` | `user_survey_answers` テーブルで管理。固定設問はカラム、カスタムは JSON カラムに保存 |
+| アンケートURL | `survey_url` | イベント終了時アンケート等の外部フォーム（Google フォーム）URL。`events.survey_url`。未設定は NULL |
 | 年齢層 | `age_range` | `user_survey_answers.age_range` |
 | 職業 | `occupation` | `user_survey_answers.occupation` |
 | 業種 | `industry` | `user_survey_answers.industry` |
