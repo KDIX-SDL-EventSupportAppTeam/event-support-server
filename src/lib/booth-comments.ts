@@ -34,6 +34,13 @@ export async function selectBoothComments(
 ): Promise<{ rows: BoothCommentRow[]; total: number }> {
   const hiddenFilter = includeHidden ? '' : ' AND is_hidden = 0'
 
+  // LIMIT / OFFSET はプレースホルダにせず、検証済み整数を直接埋め込む。
+  // さくらプロキシ（プリペアドステートメント経路）では LIMIT のバインドが失敗して
+  // 500 になるため（audit-logs #63 と同じ地雷）。呼び出し側は commentsQuery
+  // （zod int/min/max）を通した値を渡すが、共有ライブラリなので念のため整数へクランプする。
+  const safeLimit = Math.min(Math.max(Math.trunc(limit) || 1, 1), 50)
+  const safeOffset = Math.max(Math.trunc(offset) || 0, 0)
+
   const [countRows] = await db.query(
     `SELECT COUNT(*) AS total FROM booth_ratings
      WHERE event_id = ? AND booth_id = ? AND comment IS NOT NULL${hiddenFilter}`,
@@ -46,8 +53,8 @@ export async function selectBoothComments(
      LEFT JOIN users u ON u.id = br.user_id
      WHERE br.event_id = ? AND br.booth_id = ? AND br.comment IS NOT NULL${hiddenFilter}
      ORDER BY br.rated_at DESC, br.id DESC
-     LIMIT ? OFFSET ?`,
-    [eventId, boothId, limit, offset],
+     LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+    [eventId, boothId],
   )
   return {
     rows: rows as BoothCommentRow[],

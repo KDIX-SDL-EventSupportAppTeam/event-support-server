@@ -268,19 +268,39 @@ describe('selectBoothComments の includeHidden 切り替え（D3）', () => {
     expect(log.every((sql) => !/is_hidden = 0/.test(sql))).toBe(true)
   })
 
-  it('limit/offset をプレースホルダで正しく渡す', async () => {
+  it('limit/offset は直埋めし、プレースホルダは event_id/booth_id のみ（さくら地雷対策）', async () => {
     const seenParams: unknown[][] = []
-    const db = makeDb([
-      { match: /SELECT COUNT\(\*\) AS total/, rows: [{ total: 0 }] },
-      {
-        match: /SELECT br\.id/,
-        rows: (params) => {
-          seenParams.push(params)
-          return []
+    const log: string[] = []
+    const db = makeDb(
+      [
+        { match: /SELECT COUNT\(\*\) AS total/, rows: [{ total: 0 }] },
+        {
+          match: /SELECT br\.id/,
+          rows: (params) => {
+            seenParams.push(params)
+            return []
+          },
         },
-      },
-    ])
+      ],
+      log,
+    )
     await selectBoothComments(db, EVENT_ID, BOOTH_ID, 20, 40, true)
-    expect(seenParams[0]).toEqual([EVENT_ID, BOOTH_ID, 20, 40])
+    expect(seenParams[0]).toEqual([EVENT_ID, BOOTH_ID])
+    const listSql = log[1]
+    expect(listSql).toContain('LIMIT 20 OFFSET 40')
+    expect(listSql).not.toContain('LIMIT ?')
+  })
+
+  it('limit/offset の範囲外値は安全にクランプされる（共有ライブラリの防御）', async () => {
+    const log: string[] = []
+    const db = makeDb(
+      [
+        { match: /SELECT COUNT\(\*\) AS total/, rows: [{ total: 0 }] },
+        { match: /SELECT br\.id/, rows: [] },
+      ],
+      log,
+    )
+    await selectBoothComments(db, EVENT_ID, BOOTH_ID, 999, -5, true)
+    expect(log[1]).toContain('LIMIT 50 OFFSET 0')
   })
 })
