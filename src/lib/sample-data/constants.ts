@@ -11,12 +11,21 @@ CREATE TABLE IF NOT EXISTS booth_categories (
 ) ENGINE=InnoDB;
 `.trim()
 
+/**
+ * さくらプロキシ経由では information_schema への参照が拒否されることがある。
+ * 参照に失敗した場合は false を返す（booth_categories は booths 削除の
+ * CASCADE でも消えるため、false 側に倒しても安全）。
+ */
 export async function hasBoothCategoriesTable(db: DbClient): Promise<boolean> {
-  const [rows] = await db.query(
-    `SELECT COUNT(*) AS c FROM information_schema.tables
-     WHERE table_schema = DATABASE() AND table_name = 'booth_categories'`,
-  )
-  return Number((rows as { c: number }[])[0]?.c ?? 0) > 0
+  try {
+    const [rows] = await db.query(
+      `SELECT COUNT(*) AS c FROM information_schema.tables
+       WHERE table_schema = DATABASE() AND table_name = 'booth_categories'`,
+    )
+    return Number((rows as { c: number }[])[0]?.c ?? 0) > 0
+  } catch {
+    return false
+  }
 }
 
 /**
