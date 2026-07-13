@@ -14,6 +14,8 @@ const BOOTH_C = '20000000-0000-4000-8000-000000000023'
 const Q1 = '20000000-0000-4000-8000-000000000031'
 const DEV_USER_ID = '20000000-0000-4000-8000-000000000041'
 const EXHIBITOR_USER_ID = '20000000-0000-4000-8000-000000000042'
+const ORGANIZER_ID = '20000000-0000-4000-8000-000000000051'
+const ADMIN_USER_ID = '20000000-0000-4000-8000-000000000061'
 
 /** docs/tests/fixtures/dummy-login.md・frontend の DEV_API_* と同期 */
 const DEV_USER_EMAIL = 'dev@example.com'
@@ -24,6 +26,48 @@ const DEV_USER_DISPLAY_NAME = '開発用参加者'
 const EXHIBITOR_EMAIL = 'exhibitor@example.com'
 const EXHIBITOR_PASSWORD = 'password123'
 const EXHIBITOR_DISPLAY_NAME = '開発用出展者'
+
+const ORGANIZER_EMAIL = 'organizer@example.com'
+const ORGANIZER_PASSWORD = 'password123'
+const ORGANIZER_DISPLAY_NAME = '開発用オーガナイザー'
+
+const ADMIN_EMAIL = 'admin@example.com'
+const ADMIN_PASSWORD = 'password123'
+const ADMIN_DISPLAY_NAME = '開発用運営'
+
+async function ensureDevOrganizer(pool: ReturnType<typeof createPool>) {
+  const [existing] = await pool.query(
+    'SELECT id FROM organizers WHERE email = ? LIMIT 1',
+    [ORGANIZER_EMAIL.toLowerCase()],
+  )
+  if ((existing as { id: string }[]).length) {
+    console.log('Seed: organizer already exists:', ORGANIZER_EMAIL)
+    return
+  }
+  const hash = await bcrypt.hash(ORGANIZER_PASSWORD, 10)
+  await pool.execute(
+    `INSERT INTO organizers (id, email, password_hash, display_name) VALUES (?,?,?,?)`,
+    [ORGANIZER_ID, ORGANIZER_EMAIL.toLowerCase(), hash, ORGANIZER_DISPLAY_NAME],
+  )
+  console.log('Seed: organizer created:', ORGANIZER_EMAIL, '/', ORGANIZER_PASSWORD)
+}
+
+async function ensureDevAdmin(pool: ReturnType<typeof createPool>) {
+  const [existing] = await pool.query(
+    'SELECT id FROM users WHERE event_id = ? AND email = ? LIMIT 1',
+    [EVENT_ID, ADMIN_EMAIL.toLowerCase()],
+  )
+  if ((existing as { id: string }[]).length) {
+    console.log('Seed: admin user already exists:', ADMIN_EMAIL)
+    return
+  }
+  const hash = await bcrypt.hash(ADMIN_PASSWORD, 10)
+  await pool.execute(
+    `INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)`,
+    [ADMIN_USER_ID, EVENT_ID, ADMIN_EMAIL.toLowerCase(), hash, ADMIN_DISPLAY_NAME, 'manager'],
+  )
+  console.log('Seed: admin(manager) created:', ADMIN_EMAIL, '/', ADMIN_PASSWORD)
+}
 
 async function ensureDevUser(pool: ReturnType<typeof createPool>) {
   const [existing] = await pool.query(
@@ -81,16 +125,22 @@ async function main() {
   const [existing] = await pool.query('SELECT id FROM events WHERE id = ? LIMIT 1', [EVENT_ID])
   if ((existing as { id: string }[]).length) {
     console.log('Seed: event already exists, skip inserts:', EVENT_ID)
+    await ensureDevOrganizer(pool)
+    await ensureDevAdmin(pool)
     await ensureDevUser(pool)
     await ensureExhibitorUser(pool)
     await pool.end()
     return
   }
 
+  // organizer を先に作成してから events.organizer_id に紐付ける
+  await ensureDevOrganizer(pool)
+
   await pool.query(
-    `INSERT INTO events (id, name, date_start, date_end, venue) VALUES (?,?,?,?,?)`,
+    `INSERT INTO events (id, organizer_id, name, date_start, date_end, venue) VALUES (?,?,?,?,?,?)`,
     [
       EVENT_ID,
+      ORGANIZER_ID,
       '開発用イベント（ローカル）',
       '2026-06-01 00:00:00',
       '2026-12-31 23:59:59',
@@ -165,13 +215,16 @@ async function main() {
     ],
   )
 
+  await ensureDevAdmin(pool)
   await ensureDevUser(pool)
   await ensureExhibitorUser(pool)
 
   console.log('Seed OK. event_id =', EVENT_ID)
   console.log('  Booths manual codes: DEV001, DEV002, DEV003')
-  console.log('  Login:', DEV_USER_EMAIL, '/', DEV_USER_PASSWORD)
-  console.log('  Exhibitor login:', EXHIBITOR_EMAIL, '/', EXHIBITOR_PASSWORD)
+  console.log('  Organizer :', ORGANIZER_EMAIL, '/', ORGANIZER_PASSWORD)
+  console.log('  Admin(mgr):', ADMIN_EMAIL, '/', ADMIN_PASSWORD)
+  console.log('  Participant:', DEV_USER_EMAIL, '/', DEV_USER_PASSWORD)
+  console.log('  Exhibitor :', EXHIBITOR_EMAIL, '/', EXHIBITOR_PASSWORD)
   await pool.end()
 }
 
