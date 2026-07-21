@@ -16,6 +16,7 @@ type EventRow = {
   date_start: string
   date_end: string
   venue: string | null
+  survey_url: string | null
   created_at: string
 }
 
@@ -83,6 +84,7 @@ function toEventPayload(
     date_start: toIso(row.date_start),
     date_end: toIso(row.date_end),
     venue: row.venue,
+    survey_url: row.survey_url,
     created_at: toIso(row.created_at),
     stats,
     urls: buildEventUrls(app.config, row.id),
@@ -94,6 +96,7 @@ const createEventBody = z.object({
   date_start: z.string().min(1),
   date_end: z.string().min(1),
   venue: z.string().max(500).optional(),
+  survey_url: z.string().url().max(2048).regex(/^https?:\/\//).nullable().optional(),
   initial_manager: z.object({
     email: z.string().email(),
     password: z.string().min(8).max(200),
@@ -111,7 +114,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const organizerId = req.organizerUser!.sub
       const [rows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
          FROM events WHERE organizer_id = ?
          ORDER BY date_start DESC`,
         [organizerId],
@@ -141,7 +144,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       const { event_id } = req.params
 
       const [rows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
          FROM events WHERE id = ? AND organizer_id = ? LIMIT 1`,
         [event_id, organizerId],
       )
@@ -186,8 +189,8 @@ export async function organizerEventRoutes(app: FastifyInstance) {
           await conn.beginTransaction()
 
           await conn.execute(
-            'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue) VALUES (?,?,?,?,?,?)',
-            [eventId, organizerId, body.name, body.date_start, body.date_end, body.venue ?? null],
+            'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue, survey_url) VALUES (?,?,?,?,?,?,?)',
+            [eventId, organizerId, body.name, body.date_start, body.date_end, body.venue ?? null, body.survey_url ?? null],
           )
 
           await conn.execute(
@@ -220,8 +223,8 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       } else {
         // getConnection 非対応の場合は順次実行し、失敗時は補償削除する（さくらプロキシ環境等）
         await app.db.execute(
-          'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue) VALUES (?,?,?,?,?,?)',
-          [eventId, organizerId, body.name, body.date_start, body.date_end, body.venue ?? null],
+          'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue, survey_url) VALUES (?,?,?,?,?,?,?)',
+          [eventId, organizerId, body.name, body.date_start, body.date_end, body.venue ?? null, body.survey_url ?? null],
         )
 
         try {
@@ -247,7 +250,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       }
 
       const [eventRows] = await app.db.query(
-        'SELECT id, name, date_start, date_end, venue FROM events WHERE id = ? LIMIT 1',
+        'SELECT id, name, date_start, date_end, venue, survey_url FROM events WHERE id = ? LIMIT 1',
         [eventId],
       )
       const event = (eventRows as {
@@ -256,6 +259,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
         date_start: string
         date_end: string
         venue: string | null
+        survey_url: string | null
       }[])[0]
 
       const token = await signAccessToken(

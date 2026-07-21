@@ -73,8 +73,8 @@ describe('GET /organizer/events（一覧）', () => {
       {
         match: /FROM events\s+WHERE organizer_id = \?\s+ORDER BY date_start DESC/,
         rows: [
-          { id: 'e1', name: 'Fes A', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: '会場A', created_at: '2026-07-01 00:00:00' },
-          { id: 'e2', name: 'Fes B', date_start: '2026-07-01 01:00:00', date_end: '2026-07-01 09:00:00', venue: null, created_at: '2026-06-01 00:00:00' },
+          { id: 'e1', name: 'Fes A', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: '会場A', survey_url: null, created_at: '2026-07-01 00:00:00' },
+          { id: 'e2', name: 'Fes B', date_start: '2026-07-01 01:00:00', date_end: '2026-07-01 09:00:00', venue: null, survey_url: null, created_at: '2026-06-01 00:00:00' },
         ],
       },
       { match: /FROM users\s+WHERE role = 'participant'/, rows: [{ event_id: 'e1', c: 40 }] },
@@ -89,6 +89,7 @@ describe('GET /organizer/events（一覧）', () => {
     expect(data.events[0]).toMatchObject({
       id: 'e1',
       date_start: '2026-08-01T01:00:00Z',
+      survey_url: null,
       stats: { participants: 40, booths: 18, checkins: 123 },
     })
     // 集計に現れないイベントは 0 で埋められる
@@ -234,14 +235,14 @@ describe('DELETE /organizer/events/:id/staff/:uid（削除）', () => {
 })
 
 describe('GET /events/:id/public（公開イベント情報）', () => {
-  it('5 フィールドのみ返す', async () => {
+  it('6 フィールドのみ返す', async () => {
     const db = makeDb([
-      { match: /FROM events WHERE id = \? LIMIT 1/, rows: [{ id: 'e1', name: 'Fes A', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: '会場A' }] },
+      { match: /FROM events WHERE id = \? LIMIT 1/, rows: [{ id: 'e1', name: 'Fes A', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: '会場A', survey_url: null }] },
     ])
     const app = await buildTestApp(db)
     const res = await app.inject({ method: 'GET', url: '/api/v1/events/e1/public' })
     expect(res.statusCode).toBe(200)
-    expect(Object.keys(res.json().data.event).sort()).toEqual(['date_end', 'date_start', 'id', 'name', 'venue'])
+    expect(Object.keys(res.json().data.event).sort()).toEqual(['date_end', 'date_start', 'id', 'name', 'survey_url', 'venue'])
     await app.close()
   })
 
@@ -250,6 +251,90 @@ describe('GET /events/:id/public（公開イベント情報）', () => {
     const app = await buildTestApp(db)
     const res = await app.inject({ method: 'GET', url: '/api/v1/events/nope/public' })
     expect(res.statusCode).toBe(404)
+    await app.close()
+  })
+})
+
+describe('POST /organizer/events の survey_url バリデーション', () => {
+  const validBody = {
+    name: '58検証',
+    date_start: '2026-08-01T10:00',
+    date_end: '2026-08-01T18:00',
+    initial_manager: { email: 'mgr@example.com', password: 'password123' },
+  }
+
+  it('有効な URL は 201 で作成され、INSERT の SQL に survey_url が含まれる', async () => {
+    const log: string[] = []
+    const db = makeDb(
+      [
+        ...writeHandlers,
+        {
+          match: /^SELECT id, name/,
+          rows: [{ id: 'e1', name: '58検証', date_start: '2026-08-01 10:00:00', date_end: '2026-08-01 18:00:00', venue: null, survey_url: 'https://forms.gle/abc123' }],
+        },
+        { match: /^SELECT date_end/, rows: [{ date_end: '2026-08-01 18:00:00' }] },
+      ],
+      log,
+    )
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: { ...validBody, survey_url: 'https://forms.gle/abc123' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().data.event.survey_url).toBe('https://forms.gle/abc123')
+    expect(log.some((sql) => /INSERT INTO events/.test(sql) && /survey_url/.test(sql))).toBe(true)
+    await app.close()
+  })
+
+  it('"not-a-url" は 422', async () => {
+    const db = makeDb([])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: { ...validBody, survey_url: 'not-a-url' },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+    await app.close()
+  })
+
+  it('"javascript:alert(1)" は 422', async () => {
+    const db = makeDb([])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: { ...validBody, survey_url: 'javascript:alert(1)' },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+    await app.close()
+  })
+
+  it('survey_url キーを省略しても 201 で作成される（後方互換）', async () => {
+    const db = makeDb([
+      ...writeHandlers,
+      {
+        match: /^SELECT id, name/,
+        rows: [{ id: 'e2', name: '58検証', date_start: '2026-08-01 10:00:00', date_end: '2026-08-01 18:00:00', venue: null, survey_url: null }],
+      },
+      { match: /^SELECT date_end/, rows: [{ date_end: '2026-08-01 18:00:00' }] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().data.event.survey_url).toBeNull()
     await app.close()
   })
 })
