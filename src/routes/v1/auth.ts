@@ -39,9 +39,10 @@ type UserRow = {
 /** ユーザー不在時に本物と同程度の時間をかけるためのダミーハッシュ（既知の平文なし） */
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(randomUUID(), 10)
 
-function resolveRole(role: string | null | undefined): 'manager' | 'viewer' | 'participant' {
+function resolveRole(role: string | null | undefined): 'manager' | 'viewer' | 'participant' | 'exhibitor' {
   if (role === 'manager') return 'manager'
   if (role === 'viewer') return 'viewer'
+  if (role === 'exhibitor') return 'exhibitor'
   return 'participant'
 }
 

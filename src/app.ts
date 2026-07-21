@@ -11,13 +11,16 @@ import { adminCategoryRoutes } from './routes/v1/admin/categories.js'
 import { adminBoothRoutes } from './routes/v1/admin/admin-booths.js'
 import { adminSurveyQuestionRoutes } from './routes/v1/admin/survey-questions.js'
 import { adminParticipantRoutes } from './routes/v1/admin/participants.js'
+import { adminExhibitorRoutes } from './routes/v1/admin/exhibitors.js'
 import { adminAnalyticsRoutes } from './routes/v1/admin/analytics.js'
 import { adminSampleDataRoutes } from './routes/v1/admin/sample-data.js'
-import { adminEventDataRoutes } from './routes/v1/admin/event-data.js'
 import { adminAuditLogRoutes } from './routes/v1/admin/audit-logs.js'
+import { adminBoothCommentRoutes } from './routes/v1/admin/booth-comments.js'
 import { organizerAuthRoutes } from './routes/v1/organizer/auth.js'
 import { organizerEventRoutes } from './routes/v1/organizer/events.js'
 import { organizerStaffRoutes } from './routes/v1/organizer/staff.js'
+import { organizerEventDataRoutes } from './routes/v1/organizer/event-data.js'
+import { exhibitorRoutes } from './routes/v1/exhibitor.js'
 import { boothRoutes } from './routes/v1/booths.js'
 import { checkinRoutes } from './routes/v1/checkins.js'
 import { webhookRoutes } from './routes/v1/ops.js'
@@ -53,6 +56,7 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(surveyRoutes)
       await v1.register(eventsPublicRoutes)
       await v1.register(boothRoutes)
+      await v1.register(exhibitorRoutes)
       await v1.register(checkinRoutes)
       await v1.register(recommendationRoutes)
       await v1.register(webhookRoutes)
@@ -62,13 +66,15 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(adminBoothRoutes)
       await v1.register(adminSurveyQuestionRoutes)
       await v1.register(adminParticipantRoutes)
+      await v1.register(adminExhibitorRoutes)
       await v1.register(adminAnalyticsRoutes)
       await v1.register(adminSampleDataRoutes)
-      await v1.register(adminEventDataRoutes)
       await v1.register(adminAuditLogRoutes)
+      await v1.register(adminBoothCommentRoutes)
       await v1.register(organizerAuthRoutes)
       await v1.register(organizerEventRoutes)
       await v1.register(organizerStaffRoutes)
+      await v1.register(organizerEventDataRoutes)
     },
     { prefix: '/api/v1' },
   )

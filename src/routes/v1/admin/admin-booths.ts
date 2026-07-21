@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../../lib/response.js'
-import { requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { requireManager, requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
 import { insertAuditLog } from '../../../lib/audit.js'
 
 const boothBody = z.object({
@@ -12,6 +12,20 @@ const boothBody = z.object({
   manual_code: z.string().min(1).max(6),
   tags: z.array(z.string().min(1).max(255)).optional(),
 })
+
+/** GET 一覧のソート指定（#55 §4-2）。zod 通過値のみを SORT_SQL のキーに使う。 */
+export const boothListQuery = z.object({
+  sort: z.enum(['checkin_count', 'avg_rating', 'name']).default('checkin_count'),
+  order: z.enum(['asc', 'desc']).default('desc'),
+})
+
+/** zod 通過値をキーに引く定数マップ（リクエスト文字列を直接 SQL に連結しない）。 */
+export const SORT_SQL: Record<'checkin_count' | 'avg_rating' | 'name', (dir: 'ASC' | 'DESC') => string> = {
+  checkin_count: (dir) => `checkin_count ${dir}`,
+  avg_rating: (dir) => `(avg_rating IS NULL), avg_rating ${dir}`, // NULL は常に末尾
+  name: (dir) => `b.name ${dir}`,
+}
+export const DIR_SQL = { asc: 'ASC', desc: 'DESC' } as const
 
 async function replaceBoothTags(
   app: FastifyInstance,
@@ -30,6 +44,43 @@ async function replaceBoothTags(
 
 export async function adminBoothRoutes(app: FastifyInstance) {
   const pre = [requireManager, requireEventMatchesJwt]
+
+  app.get<{ Params: { event_id: string }; Querystring: Record<string, string> }>(
+    '/admin/events/:event_id/booths',
+    { preHandler: [requireStaff, requireEventMatchesJwt] },
+    async (req, reply) => {
+      const parsed = boothListQuery.safeParse(req.query)
+      const q = parsed.success ? parsed.data : { sort: 'checkin_count' as const, order: 'desc' as const }
+      const orderBy = `${SORT_SQL[q.sort](DIR_SQL[q.order])}, b.name ASC`
+
+      const [rows] = await app.db.query(
+        `SELECT b.id, b.name,
+           (SELECT COUNT(*)           FROM check_ins ci     WHERE ci.booth_id = b.id) AS checkin_count,
+           (SELECT AVG(br.rating)     FROM booth_ratings br  WHERE br.booth_id = b.id) AS avg_rating,
+           (SELECT COUNT(br2.comment) FROM booth_ratings br2 WHERE br2.booth_id = b.id) AS comment_count
+         FROM booths b
+         WHERE b.event_id = ?
+         ORDER BY ${orderBy}`,
+        [req.params.event_id],
+      )
+
+      const booths = (rows as {
+        id: string
+        name: string
+        checkin_count: number
+        avg_rating: number | null
+        comment_count: number
+      }[]).map((b) => ({
+        id: b.id,
+        name: b.name,
+        checkin_count: Number(b.checkin_count) || 0,
+        avg_rating: b.avg_rating == null ? null : Math.round(Number(b.avg_rating) * 100) / 100,
+        comment_count: Number(b.comment_count) || 0,
+      }))
+
+      return sendOk(reply, { booths })
+    },
+  )
 
   app.post<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/booths',

@@ -8,7 +8,8 @@ import { sendFail, sendOk } from '../../lib/response.js'
  * 認証付きの `/events/*`（booths 等）とは preHandler 構成が異なるため、
  * 誤って認証を外さないようファイルを分離している（.sdd 01-api.md 5 参照）。
  *
- * 返してよいのは id / name / date_start / date_end / venue の 5 フィールドのみ。
+ * 返してよいのは id / name / date_start / date_end / venue / survey_url の 6 フィールドのみ。
+ * survey_url は参加者に踏ませるための公開値なので認証不要でよい。
  * UUID が推測不能であることを認可の代わりとする（URL を知る人 = 招待された人）。
  */
 export async function eventsPublicRoutes(app: FastifyInstance) {
@@ -16,7 +17,7 @@ export async function eventsPublicRoutes(app: FastifyInstance) {
     '/events/:event_id/public',
     async (req, reply) => {
       const [rows] = await app.db.query(
-        'SELECT id, name, date_start, date_end, venue FROM events WHERE id = ? LIMIT 1',
+        'SELECT id, name, date_start, date_end, venue, survey_url FROM events WHERE id = ? LIMIT 1',
         [req.params.event_id],
       )
       const e = (rows as {
@@ -25,6 +26,7 @@ export async function eventsPublicRoutes(app: FastifyInstance) {
         date_start: string
         date_end: string
         venue: string | null
+        survey_url: string | null
       }[])[0]
       if (!e) {
         return sendFail(reply, 404, 'NOT_FOUND', 'イベントが見つかりません')
@@ -36,6 +38,7 @@ export async function eventsPublicRoutes(app: FastifyInstance) {
           date_start: `${String(e.date_start).replace(' ', 'T')}Z`,
           date_end: `${String(e.date_end).replace(' ', 'T')}Z`,
           venue: e.venue,
+          survey_url: e.survey_url,
         },
       })
     },

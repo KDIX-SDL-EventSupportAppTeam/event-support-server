@@ -13,7 +13,7 @@ const envSchema = z.object({
   ADMIN_REGISTRATION_KEY: z.string().min(1),
   FRONTEND_BASE_URL: z.string().optional(),
   ORGANIZER_REGISTRATION_KEY: z.string().optional(),
-  ORGANIZER_SIGNUP_MODE: z.enum(['invite', 'open']).default('invite'),
+  ORGANIZER_SIGNUP_MODE: z.enum(['invite', 'open', 'disabled']).default('invite'),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().default(587),
   SMTP_USER: z.string().optional(),
@@ -33,7 +33,7 @@ export type AppConfig = {
   adminRegistrationKey: string
   frontendBaseUrl: string | undefined
   organizerRegistrationKey: string | undefined
-  organizerSignupMode: 'invite' | 'open'
+  organizerSignupMode: 'invite' | 'open' | 'disabled'
   smtpHost: string | undefined
   smtpPort: number
   smtpUser: string | undefined

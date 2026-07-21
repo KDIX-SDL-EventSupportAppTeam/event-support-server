@@ -16,7 +16,7 @@
 | `ADMIN_REGISTRATION_KEY` | ✅ | 運営アカウント登録（`POST /auth/register/admin`）の `X-Admin-Key` 検証キー。開発でも必須 |
 | `FRONTEND_BASE_URL` | — | イベント作成時に発行する参加者/運営 URL のベース。未設定時は `CORS_ORIGIN` の先頭オリジンを使用する |
 | `ORGANIZER_REGISTRATION_KEY` | invite 時 ✅ | オーガナイザー登録（`POST /organizer/auth/register`）の `X-Organizer-Key` 検証キー |
-| `ORGANIZER_SIGNUP_MODE` | — | `invite`（既定・キー必須）\| `open`（誰でも登録可） |
+| `ORGANIZER_SIGNUP_MODE` | — | `invite`（既定・キー必須）\| `open`（誰でも登録可）\| `disabled`（登録停止・410、本番推奨） |
 | `RECOMMENDER_URL` | — | 推薦エンジンの URL（未設定・失敗時は内部ランダム推薦にフォールバック） |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
 | `PORT` | — | リッスンポート（既定: `3000`。Cloud Run では `$PORT` が自動注入される） |
@@ -80,7 +80,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | GET | `/api/v1/events/:event_id/booths/:booth_id` | Bearer | ブース詳細 |
 | POST | `/api/v1/events/:event_id/checkins` | Bearer | チェックイン（QR / 手動コード） |
 | GET | `/api/v1/events/:event_id/checkins` | Bearer | 自分のチェックイン履歴 |
-| POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating` | Bearer | 評価送信 |
+| POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating` | Bearer | 評価送信（+comment。空白のみは NULL 正規化、再送信は 409） |
 | GET | `/api/v1/events/:event_id/recommendations` | Bearer | 推薦取得（`RECOMMENDER_URL` 設定時は外部推薦、未設定/失敗時はランダム） |
 | POST | `/api/v1/events/:event_id/recommendations/:recommendation_id/select` | Bearer | 推薦選択 |
 | POST | `/api/v1/webhook/booths/sync` | `X-Api-Key` | ブース情報同期（Google Forms） |
@@ -93,10 +93,16 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | POST | `/api/v1/organizer/events/:event_id/staff` | Bearer（organizer、所有イベントのみ） | 運営スタッフ招待（manager/viewer） |
 | PATCH | `/api/v1/organizer/events/:event_id/staff/:user_id` | Bearer（organizer、所有イベントのみ） | スタッフのロール変更（最後の manager ガード） |
 | DELETE | `/api/v1/organizer/events/:event_id/staff/:user_id` | Bearer（organizer、所有イベントのみ） | スタッフ削除（最後の manager ガード） |
-| GET | `/api/v1/events/:event_id/public` | — | 公開イベント情報（名前・日程・会場のみ） |
+| DELETE | `/api/v1/organizer/events/:event_id/event-data` | Bearer（organizer、所有イベントのみ、確認文字列必須） | イベントデータ全削除（監査ログ記録） |
+| GET | `/api/v1/events/:event_id/public` | — | 公開イベント情報（名前・日程・会場・アンケートURL） |
+| POST | `/api/v1/admin/events/:event_id/exhibitors/bulk` | Bearer（manager） | 出展者アカウント一括登録（行単位の成功/失敗を返す） |
+| GET | `/api/v1/events/:event_id/exhibitor/booths` | Bearer | 出展者の担当ブース一覧（exhibitor 以外は空で返す） |
+| GET | `/api/v1/events/:event_id/exhibitor/booths/:booth_id/stats` | Bearer（担当ブースのみ、DB 認可） | 出展者向け集計（チェックイン数・時間帯別・評価分布・コメント） |
+| GET | `/api/v1/events/:event_id/exhibitor/booths/:booth_id/comments` | Bearer（担当ブースのみ、DB 認可） | 出展者向けコメント一覧（limit/offset。匿名・is_hidden 除外） |
 | GET / PATCH | `/api/v1/admin/events/:event_id` | Bearer（manager。GET は viewer も可） | イベント情報取得・更新 |
 | GET | `/api/v1/admin/events/:event_id/audit-logs` | Bearer（staff = manager+viewer） | 監査ログ一覧（ページネーション付き） |
-| DELETE | `/api/v1/admin/events/:event_id/event-data` | Bearer（manager、確認文字列必須） | イベントデータ全削除 |
+| GET | `/api/v1/admin/events/:event_id/booths/:booth_id/comments` | Bearer（staff = manager+viewer） | 運営向けコメント一覧（limit/offset。`is_hidden`・表示名を含む） |
+| GET | `/api/v1/admin/events/:event_id/booths` | Bearer（staff = manager+viewer） | 運営向けブース一覧（`sort=checkin_count\|avg_rating\|name`・`order=asc\|desc`、既定 `checkin_count desc`。不正値は既定値にフォールバック） |
 | POST / DELETE | `/api/v1/admin/events/:event_id/sample-data` | Bearer（manager） | サンプルデータ生成・削除 |
 | GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（staff） | 運営ダッシュボード（簡易集計） |
 | GET | `/api/v1/admin/events/:event_id/analytics/{booths,participants,checkins,recommendations}` | Bearer（staff） | 分析データ取得 |
@@ -134,6 +140,8 @@ requireOrganizer          → 主催者 JWT（scope: 'organizer'）を検証
 
 `requireAdmin` は `requireManager` の後方互換エイリアス。  
 ペイロードの詳細は [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) § 認証・ユーザーを参照。
+
+出展者（`role: 'exhibitor'`）の認可は JWT に依存せず、リクエストごとに `users.role` と `exhibitor_booths` を DB で確認する（`src/lib/exhibitor.ts`）。一括登録で既存参加者に後付けでロールを付与するケースがあり、発行済み JWT が古いままでも正しく判定するため。
 
 ---
 

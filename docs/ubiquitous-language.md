@@ -108,7 +108,7 @@
 | JWT トークン | `token` | ログイン・登録時に発行するアクセストークン |
 | JWT ペイロード（参加者/運営） | — | `{ sub: user_id, event_id, display_name, role }`。イベント終了 +24h 有効 |
 | JWT ペイロード（主催者） | — | `{ sub: organizer_id, scope: 'organizer' }`。`event_id` を持たない。30 日有効 |
-| ロール | `role` | JWT に含まれる権限種別。`participant`（参加者）/ `manager`（運営管理者）/ `viewer`（運営閲覧者）。旧 `admin` は `manager` の後方互換値 |
+| ロール | `role` | JWT に含まれる権限種別。`participant`（参加者）/ `manager`（運営管理者）/ `viewer`（運営閲覧者）/ `exhibitor`（出展者）。旧 `admin` は `manager` の後方互換値。出展者の認可は JWT でなくリクエスト時に DB（`users.role` + `exhibitor_booths`）を参照する |
 | Bearer 認証 | — | `Authorization: Bearer <token>` ヘッダーによる認証方式 |
 | `requireBearerAuth` | — | JWT の署名・有効期限を検証する preHandler |
 | `requireEventMatchesJwt` | — | URL の `:event_id` と JWT の `event_id` の一致を検証する preHandler |
@@ -130,7 +130,7 @@
 | スタッフ招待 | — | 主催者がイベントに運営スタッフ（manager/viewer）を email・ロール指定で追加すること |
 | スタッフ管理 | — | 主催者がイベントのスタッフを一覧・ロール変更・削除すること（招待は「スタッフ招待」）。監査 action は `staff.role_change` / `staff.remove` |
 | 開催ステータス | — | イベントの時間的状態（準備中 / 開催中 / 終了）。`date_start`/`date_end` と現在時刻から導出する。DB には保存せずフロントエンドで算出する |
-| 監査ログ / Audit Log | `audit_logs` | 誰が・いつ・何をしたかの操作証跡。`actor_role` に `manager` / `viewer` / `organizer` が入る。action は `booth.*` / `category.*` / `survey_question.*` / `staff.invite` / `staff.role_change` / `staff.remove` |
+| 監査ログ / Audit Log | `audit_logs` | 誰が・いつ・何をしたかの操作証跡。`actor_role` に `manager` / `viewer` / `organizer` が入る。action は `booth.*` / `category.*` / `survey_question.*` / `staff.invite` / `staff.role_change` / `staff.remove` / `event_data.clear` / `exhibitor.bulk_register` |
 | 参加者 URL / 運営 URL | — | イベント作成時に発行される、参加者登録画面・運営ログイン画面への入口リンク。`FRONTEND_BASE_URL` から生成 |
 
 ---
@@ -143,6 +143,7 @@
 | 固定設問 | `fixed_questions` | 全イベント共通。コードで定義（年齢層・職業・業種）。`survey_questions` テーブルには入らない |
 | カスタム設問 | `custom_questions` | 運営がイベントごとに設定。`survey_questions` テーブルで管理 |
 | アンケート回答 | `survey_answer` | `user_survey_answers` テーブルで管理。固定設問はカラム、カスタムは JSON カラムに保存 |
+| アンケートURL | `survey_url` | イベント終了時アンケート等の外部フォーム（Google フォーム）URL。`events.survey_url`。未設定は NULL |
 | 年齢層 | `age_range` | `user_survey_answers.age_range` |
 | 職業 | `occupation` | `user_survey_answers.occupation` |
 | 業種 | `industry` | `user_survey_answers.industry` |
@@ -203,6 +204,8 @@
 | `booth_categories` | ブースとカテゴリの多対多 |
 | `organizers` | 主催者 |
 | `audit_logs` | 監査ログ |
+| `exhibitor_booths` | 出展者と担当ブースの多対多 |
+| `email_verification_tokens` | メールアドレス確認トークン |
 
 ---
 
