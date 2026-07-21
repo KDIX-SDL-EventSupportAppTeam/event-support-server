@@ -120,7 +120,7 @@ export async function organizerStaffRoutes(app: FastifyInstance) {
     },
   )
 
-  // スタッフ一覧（role != 'participant'、招待順）
+  // スタッフ一覧（role IN ('manager','viewer','admin')、招待順。exhibitor は対象外）
   app.get<{ Params: { event_id: string } }>(
     '/organizer/events/:event_id/staff',
     { preHandler: pre },
@@ -134,7 +134,7 @@ export async function organizerStaffRoutes(app: FastifyInstance) {
 
       const [rows] = await app.db.query(
         `SELECT id, email, display_name, role, created_at
-         FROM users WHERE event_id = ? AND role != 'participant'
+         FROM users WHERE event_id = ? AND role IN ('manager','viewer','admin')
          ORDER BY created_at ASC`,
         [event_id],
       )
@@ -163,7 +163,7 @@ export async function organizerStaffRoutes(app: FastifyInstance) {
 
       const [rows] = await app.db.query(
         `SELECT id, email, display_name, role, created_at
-         FROM users WHERE id = ? AND event_id = ? AND role != 'participant' LIMIT 1`,
+         FROM users WHERE id = ? AND event_id = ? AND role IN ('manager','viewer','admin') LIMIT 1`,
         [user_id, event_id],
       )
       const target = (rows as StaffRow[])[0]
@@ -227,7 +227,7 @@ export async function organizerStaffRoutes(app: FastifyInstance) {
 
       const [rows] = await app.db.query(
         `SELECT id, email, display_name, role, created_at
-         FROM users WHERE id = ? AND event_id = ? AND role != 'participant' LIMIT 1`,
+         FROM users WHERE id = ? AND event_id = ? AND role IN ('manager','viewer','admin') LIMIT 1`,
         [user_id, event_id],
       )
       const target = (rows as StaffRow[])[0]
@@ -241,7 +241,7 @@ export async function organizerStaffRoutes(app: FastifyInstance) {
       }
 
       await app.db.execute(
-        "DELETE FROM users WHERE id = ? AND event_id = ? AND role != 'participant'",
+        "DELETE FROM users WHERE id = ? AND event_id = ? AND role IN ('manager','viewer','admin')",
         [user_id, event_id],
       )
 

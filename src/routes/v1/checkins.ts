@@ -18,7 +18,10 @@ const checkinBody = z.discriminatedUnion('method', [
   }),
 ])
 
-const ratingBody = z.object({ rating: z.number().int().min(1).max(5) })
+const ratingBody = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(500).optional(),
+})
 
 export async function checkinRoutes(app: FastifyInstance) {
   const pre = [requireBearerAuth, requireEventMatchesJwt]
@@ -177,12 +180,14 @@ export async function checkinRoutes(app: FastifyInstance) {
         return sendFail(reply, 409, 'CONFLICT', 'このチェックインには既に評価があります')
       }
 
+      const comment = parsed.data.comment?.trim() || null // 空文字・空白のみ → null（COUNT(comment)/IS NOT NULL の判定を単純にする）
+
       const rid = randomUUID()
       try {
         await app.db.execute(
-          `INSERT INTO booth_ratings (id, user_id, booth_id, event_id, checkin_id, rating)
-           VALUES (?,?,?,?,?,?)`,
-          [rid, uid, ci.booth_id, event_id, checkin_id, parsed.data.rating],
+          `INSERT INTO booth_ratings (id, user_id, booth_id, event_id, checkin_id, rating, comment)
+           VALUES (?,?,?,?,?,?,?)`,
+          [rid, uid, ci.booth_id, event_id, checkin_id, parsed.data.rating, comment],
         )
       } catch (e: unknown) {
         const err = e as { code?: string }
@@ -196,6 +201,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         booth_id: ci.booth_id,
         booth_name: ci.booth_name,
         rating: parsed.data.rating,
+        comment,
         user_display_name: req.jwtUser!.display_name,
       })
 
