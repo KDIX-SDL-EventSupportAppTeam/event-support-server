@@ -118,7 +118,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
   it('最後の manager を viewer にすると 409', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
       { match: /COUNT\(\*\) AS c FROM users\s+WHERE event_id = \? AND role IN \('manager','admin'\) AND id != \?/, rows: [{ c: 0 }] },
       ...writeHandlers,
     ])
@@ -132,7 +132,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
   it('participant は対象にできず 404', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [] },
       ...writeHandlers,
     ])
     const app = await buildTestApp(db)
@@ -144,7 +144,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
   it('他の manager が居れば viewer への変更が成功する', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
       { match: /COUNT\(\*\) AS c FROM users/, rows: [{ c: 1 }] },
       ...writeHandlers,
     ])
@@ -159,7 +159,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
     const log: string[] = []
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
       ...writeHandlers,
     ], log)
     const app = await buildTestApp(db)
@@ -175,7 +175,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
     const log: string[] = []
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'v1', email: 'v@x.com', display_name: '閲覧', role: 'viewer', created_at: '2026-07-02 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'v1', email: 'v@x.com', display_name: '閲覧', role: 'viewer', created_at: '2026-07-02 00:00:00' }] },
       // COUNT が呼ばれたら 0（誤って呼ばれた場合 409 になり検出できる）
       { match: /COUNT\(\*\) AS c FROM users/, rows: [{ c: 0 }] },
       ...writeHandlers,
@@ -191,7 +191,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
     const log: string[] = []
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'a1', email: 'a@x.com', display_name: '旧管理', role: 'admin', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'a1', email: 'a@x.com', display_name: '旧管理', role: 'admin', created_at: '2026-07-01 00:00:00' }] },
       ...writeHandlers,
     ], log)
     const app = await buildTestApp(db)
@@ -210,7 +210,7 @@ describe('DELETE /organizer/events/:id/staff/:uid（削除）', () => {
   it('最後の manager は削除できず 409', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
       { match: /COUNT\(\*\) AS c FROM users/, rows: [{ c: 0 }] },
       ...writeHandlers,
     ])
@@ -223,7 +223,7 @@ describe('DELETE /organizer/events/:id/staff/:uid（削除）', () => {
   it('viewer は manager 数に影響しないので削除できる', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'v1', email: 'v@x.com', display_name: '閲覧', role: 'viewer', created_at: '2026-07-02 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'v1', email: 'v@x.com', display_name: '閲覧', role: 'viewer', created_at: '2026-07-02 00:00:00' }] },
       ...writeHandlers,
     ])
     const app = await buildTestApp(db)
