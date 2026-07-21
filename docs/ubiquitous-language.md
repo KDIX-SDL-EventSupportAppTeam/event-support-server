@@ -127,7 +127,7 @@
 | スタッフ招待 | — | 主催者がイベントに運営スタッフ（manager/viewer）を email・ロール指定で追加すること |
 | スタッフ管理 | — | 主催者がイベントのスタッフを一覧・ロール変更・削除すること（招待は「スタッフ招待」）。監査 action は `staff.role_change` / `staff.remove` |
 | 開催ステータス | — | イベントの時間的状態（準備中 / 開催中 / 終了）。`date_start`/`date_end` と現在時刻から導出する。DB には保存せずフロントエンドで算出する |
-| 監査ログ / Audit Log | `audit_logs` | 誰が・いつ・何をしたかの操作証跡。`actor_role` に `manager` / `viewer` / `organizer` が入る。action は `booth.*` / `category.*` / `survey_question.*` / `staff.invite` / `staff.role_change` / `staff.remove` / `exhibitor.bulk_register` |
+| 監査ログ / Audit Log | `audit_logs` | 誰が・いつ・何をしたかの操作証跡。`actor_role` に `manager` / `viewer` / `organizer` が入る。action は `booth.*` / `category.*` / `survey_question.*` / `staff.invite` / `staff.role_change` / `staff.remove` / `event_data.clear` / `exhibitor.bulk_register` |
 | 参加者 URL / 運営 URL | — | イベント作成時に発行される、参加者登録画面・運営ログイン画面への入口リンク。`FRONTEND_BASE_URL` から生成 |
 
 ---

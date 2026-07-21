@@ -46,7 +46,7 @@ async function assertEventExists(db: DbClient, eventId: string): Promise<void> {
   }
 }
 
-/** イベント配下の全データを削除する（events 行と admin ユーザーは残す） */
+/** イベント配下の全データを削除する（events 行・運営/出展者アカウント・organizer・audit_logs は残す。organizer 専用ルートから呼ばれる） */
 export async function clearAllEventData(db: DbClient, eventId: string): Promise<EventDataClearResult> {
   await assertEventExists(db, eventId)
   const hasBoothCategories = await hasBoothCategoriesTable(db)
@@ -64,7 +64,7 @@ export async function clearAllEventData(db: DbClient, eventId: string): Promise<
 
   const [boothRes] = await db.execute('DELETE FROM booths WHERE event_id = ?', [eventId])
   const [userRes] = await db.execute(
-    `DELETE FROM users WHERE event_id = ? AND role = 'participant'`,
+    `DELETE FROM users WHERE event_id = ? AND role IN ('participant', 'exhibitor')`,
     [eventId],
   )
   const [sqRes] = await db.execute('DELETE FROM survey_questions WHERE event_id = ?', [eventId])

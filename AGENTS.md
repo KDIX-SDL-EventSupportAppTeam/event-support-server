@@ -86,6 +86,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | POST | `/api/v1/organizer/events/:event_id/staff` | Bearer（organizer、所有イベントのみ） | 運営スタッフ招待（manager/viewer） |
 | PATCH | `/api/v1/organizer/events/:event_id/staff/:user_id` | Bearer（organizer、所有イベントのみ） | スタッフのロール変更（最後の manager ガード） |
 | DELETE | `/api/v1/organizer/events/:event_id/staff/:user_id` | Bearer（organizer、所有イベントのみ） | スタッフ削除（最後の manager ガード） |
+| DELETE | `/api/v1/organizer/events/:event_id/event-data` | Bearer（organizer、所有イベントのみ、確認文字列必須） | イベントデータ全削除（監査ログ記録） |
 | GET | `/api/v1/events/:event_id/public` | — | 公開イベント情報（名前・日程・会場のみ） |
 | POST | `/api/v1/admin/events/:event_id/exhibitors/bulk` | Bearer（manager） | 出展者アカウント一括登録（行単位の成功/失敗を返す） |
 | GET | `/api/v1/events/:event_id/exhibitor/booths` | Bearer | 出展者の担当ブース一覧（exhibitor 以外は空で返す） |
@@ -95,7 +96,6 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | GET | `/api/v1/admin/events/:event_id/audit-logs` | Bearer（staff = manager+viewer） | 監査ログ一覧（ページネーション付き） |
 | GET | `/api/v1/admin/events/:event_id/booths/:booth_id/comments` | Bearer（staff = manager+viewer） | 運営向けコメント一覧（limit/offset。`is_hidden`・表示名を含む） |
 | GET | `/api/v1/admin/events/:event_id/booths` | Bearer（staff = manager+viewer） | 運営向けブース一覧（`sort=checkin_count\|avg_rating\|name`・`order=asc\|desc`、既定 `checkin_count desc`。不正値は既定値にフォールバック） |
-| DELETE | `/api/v1/admin/events/:event_id/event-data` | Bearer（manager、確認文字列必須） | イベントデータ全削除 |
 | POST / DELETE | `/api/v1/admin/events/:event_id/sample-data` | Bearer（manager） | サンプルデータ生成・削除 |
 | GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（staff） | 運営ダッシュボード（簡易集計） |
 | GET | `/api/v1/admin/events/:event_id/analytics/{booths,participants,checkins,recommendations}` | Bearer（staff） | 分析データ取得 |
