@@ -5,6 +5,7 @@ import type { AppConfig } from '../../src/config.js'
 import type { DbClient } from '../../src/db/client.js'
 import { adminExhibitorRoutes } from '../../src/routes/v1/admin/exhibitors.js'
 import { exhibitorRoutes } from '../../src/routes/v1/exhibitor.js'
+import { adminBoothCommentRoutes } from '../../src/routes/v1/admin/booth-comments.js'
 import { verifyAccessToken } from '../../src/lib/jwt.js'
 
 const JWT_SECRET = 'test-secret'
@@ -54,6 +55,7 @@ async function buildTestApp(db: DbClient): Promise<FastifyInstance> {
     async (v1) => {
       await v1.register(adminExhibitorRoutes)
       await v1.register(exhibitorRoutes)
+      await v1.register(adminBoothCommentRoutes)
     },
     { prefix: '/api/v1' },
   )
@@ -71,6 +73,9 @@ function signToken(payload: { sub: string; event_id: string; display_name?: stri
 }
 const managerAuth = () => ({
   authorization: `Bearer ${signToken({ sub: 'mgr-1', event_id: EVENT_ID, role: 'manager' })}`,
+})
+const viewerAuth = () => ({
+  authorization: `Bearer ${signToken({ sub: 'vwr-1', event_id: EVENT_ID, role: 'viewer' })}`,
 })
 const participantAuth = (sub = 'p-1') => ({
   authorization: `Bearer ${signToken({ sub, event_id: EVENT_ID, role: 'participant' })}`,
@@ -398,6 +403,191 @@ describe('GET /events/:event_id/exhibitor/booths', () => {
       is_exhibitor: true,
       booths: [{ id: BOOTH_ID, name: 'ブースA' }],
     })
+    await app.close()
+  })
+})
+
+describe('GET /events/:event_id/exhibitor/booths/:booth_id/comments（#54 D1/D2/D4）', () => {
+  it('担当外ブースは403 FORBIDDEN（stats と同じ assertExhibitorOwnsBooth を再利用）', async () => {
+    const db = makeDb([{ match: /FROM exhibitor_booths eb/, rows: [] }])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/exhibitor/booths/${BOOTH_ID}/comments`,
+      headers: exhibitorAuth(),
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error.code).toBe('FORBIDDEN')
+    await app.close()
+  })
+
+  it('participant ロールも同じ403に潰れる（列挙攻撃対策。#53 stats と統一）', async () => {
+    const db = makeDb([{ match: /FROM exhibitor_booths eb/, rows: [] }])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/exhibitor/booths/${BOOTH_ID}/comments`,
+      headers: participantAuth(),
+    })
+    expect(res.statusCode).toBe(403)
+    await app.close()
+  })
+
+  it('担当ブースは200・is_hidden/user_display_name を含まず匿名で返す（D4）', async () => {
+    const db = makeDb([
+      { match: /FROM exhibitor_booths eb/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
+      { match: /SELECT COUNT\(\*\) AS total/, rows: [{ total: 1 }] },
+      {
+        match: /SELECT br\.id/,
+        rows: [
+          {
+            id: 'r1',
+            rating: 5,
+            comment: '良かった',
+            is_hidden: 0,
+            user_display_name: '田中',
+            rated_at: '2026-07-07 01:00:00',
+          },
+        ],
+      },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/exhibitor/booths/${BOOTH_ID}/comments`,
+      headers: exhibitorAuth(),
+    })
+    expect(res.statusCode).toBe(200)
+    const { data } = res.json()
+    expect(data.booth).toEqual({ id: BOOTH_ID, name: 'ブースA' })
+    expect(data.comments).toEqual([
+      { id: 'r1', rating: 5, comment: '良かった', rated_at: '2026-07-07T01:00:00Z' },
+    ])
+    expect(data.comments[0]).not.toHaveProperty('is_hidden')
+    expect(data.comments[0]).not.toHaveProperty('user_display_name')
+    expect(data.pagination).toEqual({ limit: 20, offset: 0, total: 1, has_more: false })
+    await app.close()
+  })
+
+  it('selectBoothComments は includeHidden=false で呼ばれる（is_hidden=0のみ集計）', async () => {
+    const log: string[] = []
+    const db = makeDb(
+      [
+        { match: /FROM exhibitor_booths eb/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
+        { match: /SELECT COUNT\(\*\) AS total/, rows: [{ total: 0 }] },
+        { match: /SELECT br\.id/, rows: [] },
+      ],
+      log,
+    )
+    const app = await buildTestApp(db)
+    await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/exhibitor/booths/${BOOTH_ID}/comments`,
+      headers: exhibitorAuth(),
+    })
+    expect(log.some((sql) => /is_hidden = 0/.test(sql))).toBe(true)
+    await app.close()
+  })
+})
+
+describe('GET /admin/events/:event_id/booths/:booth_id/comments（#54 D5）', () => {
+  it('participant ロールは403（requireStaff）', async () => {
+    const db = makeDb([])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/events/${EVENT_ID}/booths/${BOOTH_ID}/comments`,
+      headers: participantAuth(),
+    })
+    expect(res.statusCode).toBe(403)
+    await app.close()
+  })
+
+  it('存在しないブースは404 NOT_FOUND', async () => {
+    const db = makeDb([{ match: /SELECT id, name FROM booths WHERE id = \?/, rows: [] }])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/events/${EVENT_ID}/booths/${BOOTH_ID}/comments`,
+      headers: managerAuth(),
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error.code).toBe('NOT_FOUND')
+    await app.close()
+  })
+
+  it('manager は200・各要素に is_hidden(boolean) と user_display_name を含む', async () => {
+    const db = makeDb([
+      { match: /SELECT id, name FROM booths WHERE id = \?/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
+      { match: /SELECT COUNT\(\*\) AS total/, rows: [{ total: 1 }] },
+      {
+        match: /SELECT br\.id/,
+        rows: [
+          {
+            id: 'r1',
+            rating: 5,
+            comment: '良かった',
+            is_hidden: 1,
+            user_display_name: '田中',
+            rated_at: '2026-07-07 01:00:00',
+          },
+        ],
+      },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/events/${EVENT_ID}/booths/${BOOTH_ID}/comments`,
+      headers: managerAuth(),
+    })
+    expect(res.statusCode).toBe(200)
+    const { data } = res.json()
+    expect(data.comments).toEqual([
+      {
+        id: 'r1',
+        rating: 5,
+        comment: '良かった',
+        is_hidden: true,
+        user_display_name: '田中',
+        rated_at: '2026-07-07T01:00:00Z',
+      },
+    ])
+    await app.close()
+  })
+
+  it('viewer も200（requireStaff は manager/viewer の両方を許可）', async () => {
+    const db = makeDb([
+      { match: /SELECT id, name FROM booths WHERE id = \?/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
+      { match: /SELECT COUNT\(\*\) AS total/, rows: [{ total: 0 }] },
+      { match: /SELECT br\.id/, rows: [] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/events/${EVENT_ID}/booths/${BOOTH_ID}/comments`,
+      headers: viewerAuth(),
+    })
+    expect(res.statusCode).toBe(200)
+    await app.close()
+  })
+
+  it('selectBoothComments は includeHidden=true で呼ばれる（is_hidden=1の行も返す）', async () => {
+    const log: string[] = []
+    const db = makeDb(
+      [
+        { match: /SELECT id, name FROM booths WHERE id = \?/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
+        { match: /SELECT COUNT\(\*\) AS total/, rows: [{ total: 0 }] },
+        { match: /SELECT br\.id/, rows: [] },
+      ],
+      log,
+    )
+    const app = await buildTestApp(db)
+    await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/events/${EVENT_ID}/booths/${BOOTH_ID}/comments`,
+      headers: managerAuth(),
+    })
+    expect(log.every((sql) => !/is_hidden = 0/.test(sql))).toBe(true)
     await app.close()
   })
 })

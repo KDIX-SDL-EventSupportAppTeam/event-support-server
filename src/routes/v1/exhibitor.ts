@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt } from '../../plugins/auth.js'
 import { assertExhibitorOwnsBooth, getExhibitorBoothIds } from '../../lib/exhibitor.js'
+import { commentsQuery, selectBoothComments } from '../../lib/booth-comments.js'
 
 const toIsoDatetime = (v: string): string => `${String(v).replace(' ', 'T')}Z`
 
@@ -108,6 +109,40 @@ export async function exhibitorRoutes(app: FastifyInstance) {
           distribution,
         },
         comments,
+      })
+    },
+  )
+
+  // 出展者向けコメント一覧（自ブース限定・is_hidden=0のみ・匿名。運営向けは admin/booth-comments.ts）
+  app.get<{
+    Params: { event_id: string; booth_id: string }
+    Querystring: Record<string, string>
+  }>(
+    '/events/:event_id/exhibitor/booths/:booth_id/comments',
+    { preHandler: pre },
+    async (req, reply) => {
+      const { event_id: eventId, booth_id: boothId } = req.params
+      const userId = req.jwtUser!.sub
+
+      const booth = await assertExhibitorOwnsBooth(app.db, userId, eventId, boothId)
+      if (!booth) {
+        return sendFail(reply, 403, 'FORBIDDEN', 'このブースのコメントを閲覧する権限がありません')
+      }
+
+      const parsedQuery = commentsQuery.safeParse(req.query)
+      const { limit, offset } = parsedQuery.success ? parsedQuery.data : { limit: 20, offset: 0 }
+
+      const { rows, total } = await selectBoothComments(app.db, eventId, boothId, limit, offset, false)
+
+      return sendOk(reply, {
+        booth,
+        comments: rows.map((r) => ({
+          id: r.id,
+          rating: r.rating,
+          comment: r.comment,
+          rated_at: toIsoDatetime(r.rated_at),
+        })),
+        pagination: { limit, offset, total, has_more: offset + rows.length < total },
       })
     },
   )
