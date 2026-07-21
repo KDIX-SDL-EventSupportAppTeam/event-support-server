@@ -20,6 +20,11 @@
 | `RECOMMENDER_URL` | — | 推薦エンジンの URL（未設定・失敗時は内部ランダム推薦にフォールバック） |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
 | `PORT` | — | リッスンポート（既定: `3000`。Cloud Run では `$PORT` が自動注入される） |
+| `SMTP_HOST` | — | 確認メール送信用 SMTP ホスト。未設定時はログ出力モード（実送信せず確認URLをサーバログに出す） |
+| `SMTP_PORT` | — | SMTP ポート（既定: `587`。`465` のみ暗黙TLS、それ以外は STARTTLS） |
+| `SMTP_USER` | — | SMTP 認証ユーザー |
+| `SMTP_PASS` | — | SMTP 認証パスワード |
+| `MAIL_FROM` | — | 確認メールの送信元（既定: `PRoToFES <no-reply@example.com>`） |
 
 > `DATABASE_URL` と `SAKURA_PROXY_URL` の**どちらか一方**は必須。本番（さくら Standard）は外部から MySQL 直接接続不可のため、通常は `SAKURA_PROXY_URL` + `SAKURA_PROXY_KEY` を使う。
 
@@ -67,6 +72,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | POST | `/api/v1/auth/register` | — | 参加者登録 |
 | POST | `/api/v1/auth/register/admin` | `X-Admin-Key` | 運営アカウント登録 |
 | POST | `/api/v1/auth/login` | — | ログイン・JWT 発行 |
+| GET | `/api/v1/auth/verify-email` | — | メールアドレス確認（トークン照合・`users.email_verified_at` 更新） |
+| POST | `/api/v1/auth/resend-verification` | Bearer | 確認メール再送 |
 | GET | `/api/v1/events/:event_id/survey/questions` | Bearer | アンケート設問取得 |
 | POST | `/api/v1/events/:event_id/survey/answers` | Bearer | アンケート回答送信 |
 | GET | `/api/v1/events/:event_id/booths` | Bearer | ブース一覧（カテゴリフィルタ可） |

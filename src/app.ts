@@ -3,6 +3,7 @@ import cors from '@fastify/cors'
 import type { AppConfig } from './config.js'
 import type { DbClient } from './db/client.js'
 import { sendFail } from './lib/response.js'
+import { createMailer } from './lib/mailer.js'
 import { authRoutes } from './routes/v1/auth.js'
 import { adminRoutes } from './routes/v1/admin/dashboard.js'
 import { adminEventRoutes } from './routes/v1/admin/events.js'
@@ -32,6 +33,7 @@ export async function buildApp(config: AppConfig, db: DbClient) {
   const app = Fastify({ logger: true })
   app.decorate('config', config)
   app.decorate('db', db)
+  app.decorate('mailer', createMailer(config, app.log))
 
   await app.register(cors, {
     origin: config.corsOrigin.split(',').map((s) => s.trim()),

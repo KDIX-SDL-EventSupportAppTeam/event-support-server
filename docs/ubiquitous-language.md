@@ -116,6 +116,9 @@
 | `requireStaff` | — | `role: manager` または `viewer`（= 運営）を要求する preHandler |
 | `requireOrganizer` | — | 主催者 JWT（`scope: 'organizer'`）を検証する preHandler |
 | `requireAdmin` | — | `requireManager` の後方互換エイリアス |
+| メール確認 | `email_verified` / `email_verified_at` | 参加者が登録メール内の確認URLを踏んで本人確認を完了したこと。`users.email_verified_at`（DATETIME NULL）が非NULLになる |
+| 確認トークン | `email_verification_tokens` | メール確認用の一時トークン（64桁hex・有効期限24h）。`email_verification_tokens` テーブルで管理。有効なトークンは常に最大1個（発行時に既存を削除） |
+| `requireVerifiedEmail` | — | `role: participant` かつ `email_verified_at IS NULL` の場合に 403 `EMAIL_NOT_VERIFIED` を返す preHandler。manager/viewer 等は対象外 |
 
 ---
 
@@ -217,3 +220,7 @@
 | 競合 | `CONFLICT` | 二重チェックイン・重複登録（`ER_DUP_ENTRY`）の場合 |
 | バリデーションエラー | `VALIDATION_ERROR` | zod パース失敗など入力値が不正な場合 |
 | サーバーエラー | `INTERNAL_ERROR` | 予期しない例外が発生した場合 |
+| トークン無効 | `TOKEN_INVALID` | メール確認トークンが存在しない・使用済みの場合（`GET /auth/verify-email`） |
+| トークン期限切れ | `TOKEN_EXPIRED` | メール確認トークンの有効期限が切れている場合（`GET /auth/verify-email`） |
+| メール未確認 | `EMAIL_NOT_VERIFIED` | 未確認の participant がチェックイン等の制限対象操作を行った場合 |
+| 確認済み | `ALREADY_VERIFIED` | 確認済みユーザーが確認メール再送を要求した場合（`POST /auth/resend-verification`） |
