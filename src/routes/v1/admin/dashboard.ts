@@ -10,7 +10,7 @@ export async function adminRoutes(app: FastifyInstance) {
     { preHandler: pre },
     async (req, reply) => {
       const eventId = req.params.event_id
-      const [r1, r2, r3, r4] = await Promise.all([
+      const [r1, r2, r3, r4, r5] = await Promise.all([
         app.db.query('SELECT COUNT(*) AS c FROM users WHERE event_id = ?', [eventId]),
         app.db.query('SELECT COUNT(*) AS c FROM check_ins WHERE event_id = ?', [eventId]),
         app.db.query(
@@ -38,6 +38,30 @@ export async function adminRoutes(app: FastifyInstance) {
            ORDER BY time_slot ASC`,
           [eventId],
         ),
+        // ビンゴ段階解放の運用指標（docs/.sdd/06-api/admin-api.md §3）。participant のみ集計（E11）。
+        app.db.query(
+          `SELECT
+             (SELECT COUNT(*) FROM bingo_cards WHERE event_id = ?) AS card_count,
+             (SELECT COUNT(*) FROM bingo_cards WHERE event_id = ? AND status = 'UNLOCKED') AS unlocked_count,
+             (SELECT COUNT(*) FROM check_ins ci JOIN users u ON u.id = ci.user_id
+                WHERE ci.event_id = ? AND u.role = 'participant') AS participant_checkin_count,
+             (SELECT COUNT(*) FROM booth_ratings br JOIN users u ON u.id = br.user_id
+                WHERE br.event_id = ? AND u.role = 'participant') AS participant_rating_count,
+             (SELECT COUNT(*) FROM check_ins ci
+                JOIN bingo_cards k ON k.event_id = ci.event_id AND k.user_id = ci.user_id AND k.status = 'UNLOCKED'
+                JOIN users u ON u.id = ci.user_id
+                WHERE ci.event_id = ? AND ci.cell_id IS NULL AND u.role = 'participant'
+                  AND ci.checked_in_at >= k.unlocked_at) AS off_card_after_unlock,
+             (SELECT COUNT(*) FROM check_ins ci
+                JOIN bingo_cards k ON k.event_id = ci.event_id AND k.user_id = ci.user_id AND k.status = 'UNLOCKED'
+                JOIN users u ON u.id = ci.user_id
+                WHERE ci.event_id = ? AND u.role = 'participant'
+                  AND ci.checked_in_at >= k.unlocked_at) AS checkins_after_unlock,
+             (SELECT AVG(TIMESTAMPDIFF(SECOND, created_at, unlocked_at))
+                FROM bingo_cards WHERE event_id = ? AND status = 'UNLOCKED') AS avg_unlock_seconds
+          `,
+          [eventId, eventId, eventId, eventId, eventId, eventId, eventId],
+        ),
       ])
       const p = Number((r1[0] as { c: number }[])[0]?.c ?? 0)
       const ch = Number((r2[0] as { c: number }[])[0]?.c ?? 0)
@@ -56,6 +80,32 @@ export async function adminRoutes(app: FastifyInstance) {
         time_slot: t.time_slot,
         count: Number(t.count) || 0,
       }))
+      const bingoRow = (r5[0] as {
+        card_count: number
+        unlocked_count: number
+        participant_checkin_count: number
+        participant_rating_count: number
+        off_card_after_unlock: number
+        checkins_after_unlock: number
+        avg_unlock_seconds: number | string | null
+      }[])[0]
+      const cardCount = Number(bingoRow?.card_count) || 0
+      const unlockedCount = Number(bingoRow?.unlocked_count) || 0
+      const participantCheckinCount = Number(bingoRow?.participant_checkin_count) || 0
+      const participantRatingCount = Number(bingoRow?.participant_rating_count) || 0
+      const offCardAfterUnlock = Number(bingoRow?.off_card_after_unlock) || 0
+      const checkinsAfterUnlock = Number(bingoRow?.checkins_after_unlock) || 0
+      const bingo = {
+        card_count: cardCount,
+        unlock_rate: cardCount ? Math.round((unlockedCount / cardCount) * 1000) / 1000 : 0,
+        avg_unlock_seconds: bingoRow?.avg_unlock_seconds != null ? Math.round(Number(bingoRow.avg_unlock_seconds)) : null,
+        rating_collection_rate: participantCheckinCount
+          ? Math.round((participantRatingCount / participantCheckinCount) * 1000) / 1000
+          : 0,
+        off_card_visit_rate: checkinsAfterUnlock
+          ? Math.round((offCardAfterUnlock / checkinsAfterUnlock) * 1000) / 1000
+          : 0,
+      }
       return sendOk(reply, {
         summary: {
           total_participants: p,
@@ -64,6 +114,7 @@ export async function adminRoutes(app: FastifyInstance) {
         },
         booths,
         checkin_timeline,
+        bingo,
       })
     },
   )
