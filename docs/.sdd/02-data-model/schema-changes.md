@@ -3,7 +3,9 @@
 既存 13 テーブル + `event_app_access`（2026-08-17 の作業指示分）に対する追加・変更。
 **主キーは全て `CHAR(36)` UUID、アプリ側 `randomUUID()` 採番**（[D-6](../01-concept/decisions.md)）。DATETIME は UTC 保存・表示時に JST(+9) 変換。
 
-> MySQL 5.7（本番さくら）と 8.0（ローカル docker）の両方で動く DDL にすること。`ADD COLUMN IF NOT EXISTS` は 8.0 非対応なので、既存マイグレーション 02/03 と同じくストアドプロシージャで冪等化する。
+> **対象は MySQL 8.0.16 以上。** `db/create-tables.sql` 冒頭が前提として明記しており、CHECK 制約も使用している。`ADD COLUMN IF NOT EXISTS` は 8.0 でも非対応なので、既存マイグレーション 02/03 と同じくストアドプロシージャで冪等化する。
+>
+> ★ さくら本番の実バージョンは未確認。8.0.16 未満だった場合は CHECK 制約と `ROW_NUMBER()` が使えないため、着手前に `SELECT VERSION()` で確認すること。
 
 ---
 
@@ -65,25 +67,46 @@ CREATE TABLE bingo_cells (
 - 中央マス: `EMPTY` → `ACHIEVED`（**`booth_id` は `ACHIEVED` になる瞬間に後出しで書き込まれる**）。ただしボーナスマスは配布時点で `ACHIEVED`
 - 外側マス: `LOCKED` →（解放時に `booth_id` 確定）→ `EMPTY` → `ACHIEVED`
 
-## 新規 3: `booth_attributes`
+## 既存変更 0: `booths`（出展者ヒアリングの2項目）
 
-出展者フォームから取り込むブースの事実タグ。既存の `booth_tags` / `booth_categories` とは別物（あちらは表示用ラベル・分類）。
+出展者フォームから取り込むブースの事実タグ。**専用テーブルは作らず、`booths` に列を足す。**
 
 ```sql
-CREATE TABLE booth_attributes (
-  booth_id        CHAR(36) PRIMARY KEY,
-  genre           VARCHAR(32) NOT NULL,                          -- 8択から必ず1つ
-  duration_band   ENUM('SHORT','MID','LONG') NOT NULL,           -- 〜3分 / 3-10分 / 10分〜
-  knowledge_level ENUM('NONE','HELPFUL','REQUIRED') NOT NULL,    -- 不要 / あると楽しい / 前提
-  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (booth_id) REFERENCES booths(id) ON DELETE CASCADE
-);
+ALTER TABLE booths
+  ADD COLUMN duration_band   ENUM('SHORT','MID','LONG')        NULL,  -- 〜3分 / 3-10分 / 10分〜
+  ADD COLUMN knowledge_level ENUM('NONE','HELPFUL','REQUIRED') NULL;  -- 不要 / あると楽しい / 前提
 ```
 
-**出展者には「評価」ではなく「事実」だけを聞く。**盛る動機がなく、本人が確実に知っている項目に限定する。**ジャンルは必ず1つだけ。**複数選択を許すとタグ過多化が起き、ベクトル空間で全方向に近いブースが生まれて識別力が失われる。
+### ジャンルは既存の `categories` を使う（新規カラムを作らない）
 
-> 未登録のブースがあっても機能は止めないこと。属性が無いブースは推薦の条件属性を評価できないだけで、割当候補からは外さない。
+企画書の `booth_attributes.genre`（8択から1つ）は、**既存の `categories` + `booths.category_id` と同じものである。**
+
+- `categories` はイベントごとに運営が定義する分類、`booths.category_id` は単一参照。すでに「8択から必ず1つ」の器になっている
+- したがって `genre` 列は作らない。`booths.category_id` をジャンルとして使う
+- `category_id` は DB 上 NULL 許容のままにする。既存データと運営の入力順序で詰まるため、**必須バリデーションは管理画面と取り込み処理のアプリ層でのみ掛ける**
+
+### 複数選択を許さない
+
+**`booth_categories`（多対多）はジャンル用途では使わない。** サンプルデータ生成でしか使われていないので、ジャンルの経路としては封じる。
+
+複数選択を許すとタグ過多化が起き、ベクトル空間で全方向に近いブースが生まれて識別力が失われる。加えて、集客に有利と分かれば関係の薄いジャンルまで付けられ、「何にでも推薦されるブース」ができる。
+
+`booth_tags`（自由タグ）は表示用ラベルとして現状のまま残すが、**推薦の条件属性には使わない。** 自由入力は下記の設計原則に反する。
+
+### 暫定のジャンル8択
+
+`categories` の行として投入する。運営が管理画面から差し替えられるので、スキーマ変更なしで後から直せる。**この値は暫定であり確定ではない。**
+
+```
+ソフトウェア / ハードウェア・電子工作 / ゲーム / 映像・音響
+デザイン・アート / AI・データ / 研究発表 / 飲食・物販
+```
+
+### 設計原則
+
+**出展者には「評価」ではなく「事実」だけを聞く。** 盛る動機がなく、本人が確実に知っている項目に限定する。「うちは技術的に高度です」「初心者向けです」は評価であり、盛られるか自己認識がズレる。
+
+> 未登録のブースがあっても機能は止めないこと。`duration_band` / `knowledge_level` / `category_id` が NULL のブースは推薦の条件属性を評価できないだけで、**割当候補からは外さない。**
 
 ## 新規 4: `cell_assignment_logs`
 
@@ -125,7 +148,7 @@ ALTER TABLE check_ins
 
 ```sql
 ALTER TABLE booth_ratings
-  ADD COLUMN prompt_context ENUM('NEXT_CHECKIN','MANUAL','EXIT') NOT NULL DEFAULT 'MANUAL',
+  ADD COLUMN prompt_context ENUM('NEXT_CHECKIN','MANUAL') NOT NULL DEFAULT 'MANUAL',
   ADD COLUMN scale          TINYINT NOT NULL DEFAULT 5;
 ```
 
@@ -133,7 +156,7 @@ ALTER TABLE booth_ratings
 - `scale` にはその評価を記録した時点の段階数を入れる。既存行は5段階なので DEFAULT 5 が正しい backfill になる
 - `UNIQUE KEY uq_rating_per_checkin (checkin_id)` は既存。維持
 
-## 既存変更 3: `booths`
+## 既存変更 3: `booths`（`is_active`）
 
 ```sql
 ALTER TABLE booths ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1;
@@ -152,10 +175,11 @@ ALTER TABLE booths ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1;
 | 企画書の項目 | 判断 |
 |---|---|
 | `pre_survey_responses` | **作らない。**既存 `survey_questions` / `user_survey_answers` を使う（[D-8](../01-concept/decisions.md)） |
+| `booth_attributes` | **作らない。**ジャンルは既存 `categories` / `booths.category_id`、残り2項目は `booths` の列として持つ（[D-13](../01-concept/decisions.md)） |
 | `users.is_staff` | **作らない。**既存 `users.role` を使う |
 | `recommendations` テーブルの拡張 | **触らない。**本機能の割当根拠は `cell_assignment_logs` に記録する |
 
 ## テーブル数
 
-14 → **18**（`bingo_cards` / `bingo_cells` / `booth_attributes` / `cell_assignment_logs`）。
+14 → **17**（`bingo_cards` / `bingo_cells` / `cell_assignment_logs`）。
 完了後に [AGENTS.md](../../../AGENTS.md) のテーブル数とエンドポイント表を更新すること。

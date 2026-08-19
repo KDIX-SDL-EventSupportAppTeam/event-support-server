@@ -52,7 +52,8 @@ LIMIT 1
 { "rating": 3, "context": "NEXT_CHECKIN" }
 ```
 
-`context` は `NEXT_CHECKIN` / `MANUAL` / `EXIT` のいずれか。**省略時は `MANUAL`。**
+`context` は `NEXT_CHECKIN` / `MANUAL` のいずれか。**省略時は `MANUAL`。**
+退場時アンケートの導線は存在しないため `EXIT` は用意しない。
 既存の重複チェック（`UNIQUE (checkin_id)`、INSERT 前 SELECT）はそのまま維持する。
 
 ## 監視

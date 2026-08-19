@@ -76,7 +76,7 @@
 { "rating": 3, "context": "NEXT_CHECKIN" }
 ```
 
-- `context` は `NEXT_CHECKIN` / `MANUAL` / `EXIT`。**省略時 `MANUAL`**
+- `context` は `NEXT_CHECKIN` / `MANUAL`。**省略時 `MANUAL`**
 - `rating` は `1..RATING_SCALE` を検証（zod は `z.number().int().min(1)` にし、上限は実行時に config から見る）
 - 重複時 409（既存挙動を維持）
 

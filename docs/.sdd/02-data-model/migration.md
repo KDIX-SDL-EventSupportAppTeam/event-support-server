@@ -14,7 +14,7 @@ MySQL 8.0 は `ADD COLUMN IF NOT EXISTS` に非対応。既存の `02_add_user_r
 
 1. `booths.is_active` 追加
 2. `bingo_cards` → `bingo_cells` → `cell_assignment_logs` の順に CREATE（FK 依存順）
-3. `booth_attributes` CREATE
+3. `booths` に `duration_band` / `knowledge_level` 追加
 4. `check_ins` に `visit_order` / `cell_id` / INDEX 追加（`cell_id` の FK は `bingo_cells` 作成後）
 5. `booth_ratings` に `prompt_context` / `scale` 追加、`rating` の CHECK 削除
 6. backfill（下記）
@@ -38,15 +38,15 @@ JOIN (
 SET ci.visit_order = t.vo;
 ```
 
-> MySQL 5.7 にはウィンドウ関数が無いためユーザー変数方式を使う。8.0 なら `ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY checked_in_at, id)` でよい。どちらでも結果は同じ。
+> 対象は MySQL 8.0 なので `ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY checked_in_at, id)` を使ってよい。上のユーザー変数方式は 5.7 互換が必要になった場合の代替。
 
 ### 既存参加者のカード
 
 **本番イベントは 2026-10-16 で、それ以前の参加者データはテスト用である。**既存ユーザーへのカード遡及生成は行わない。カードは「無ければ生成する」方式にするため（[03-card-lifecycle/signup.md](../03-card-lifecycle/signup.md)）、既存ユーザーも初回アクセス時に自動で作られる。
 
-### `booth_attributes`
+### 出展者ヒアリングの3項目
 
-出展者からの取得が未調整（[09-open-questions](../09-open-questions/open-questions.md) Q-6）。**空のまま本番に出ても機能が壊れないこと**を必ず確認する。
+ジャンル（`booths.category_id`）/ 所要時間（`booths.duration_band`）/ 事前知識（`booths.knowledge_level`）は、出展者からの取得が未調整（[09-open-questions](../09-open-questions/open-questions.md) Q-6）。**3項目すべてが NULL のまま本番に出ても機能が壊れないこと**を必ず確認する。
 
 ## ロールバック
 

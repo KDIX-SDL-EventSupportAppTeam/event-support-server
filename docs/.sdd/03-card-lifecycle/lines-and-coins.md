@@ -22,7 +22,7 @@ export const LINES: readonly (readonly number[])[] = [
 export function countCompletedLines(achieved: ReadonlySet<number>): number
 ```
 
-コイン付与は「**成立ライン総数を再計算し、4 でクリップした値**」を正とする。差分を加算していく実装にしない（オフラインキューの再送や解放処理の再実行で二重加算が起きるため）。
+コイン付与は「**成立ライン総数を再計算し、4 でクリップした値**」を正とする。差分を加算していく実装にしない（リトライや解放処理の再実行で二重加算が起きるため）。
 
 ```
 coins_earned = min(countCompletedLines(achieved), 4)

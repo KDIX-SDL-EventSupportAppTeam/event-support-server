@@ -6,8 +6,8 @@
 
 1. ブース解決（既存ロジック。QR は `booth_id`、手動は `manual_code`）。**`is_active = 0` のブースは 404 相当で拒否する**
 2. `ensureCard()`（[signup.md](signup.md)）でカードを取得。無ければここで作る
-3. **重複チェック** — `SELECT id FROM check_ins WHERE user_id=? AND booth_id=?`。既にあれば `ALREADY_VISITED` として**正常終了**（HTTP 409、`result: 'ALREADY_VISITED'`）。エラー扱いにしない（E1）
-4. **クールタイム判定** — [cooldown.md](cooldown.md)。抵触したら 429、残り秒数を返す
+3. **重複チェック** — `SELECT id FROM check_ins WHERE user_id=? AND booth_id=?`。既にあれば HTTP 409 + `result: 'ALREADY_VISITED'` を返してここで終了する。既存実装の 409 を維持するが、**フロントはこれをエラーではなく正常なお知らせとして扱う**（E1）
+4. **クールタイム判定** — [cooldown.md](cooldown.md)。**既定 `CHECKIN_COOLDOWN_SEC=0` では判定自体をスキップする。** 有効時に抵触したら 429、残り秒数を返す
 5. `visit_order` の採番 — `SELECT COALESCE(MAX(visit_order),0)+1 FROM check_ins WHERE user_id=? AND event_id=?`
 6. `check_ins` へ INSERT（`cell_id` は後述の割当後に UPDATE、または割当を先に決めてから INSERT する）
 7. **未評価の直近チェックインを `pending_rating` として算出する**（[04-rating](../04-rating/rating-collection.md)）。今作成したチェックイン自身は除く

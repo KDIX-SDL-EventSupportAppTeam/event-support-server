@@ -15,7 +15,7 @@
 | カード外訪問 | Off-Card Visit | カードのどのマスにも対応しないブースへのチェックイン。`check_ins.cell_id IS NULL` |
 | ライン | Line | 4行 + 4列 + 2対角 = 全10通り |
 | ガチャコイン | Gacha Coin | 1ライン成立につき1枚。**累計最大4枚**でクリップ |
-| クールタイム | Cooldown | 連続チェックインの最短間隔。既定60秒 |
+| クールタイム | Cooldown | 連続チェックインの最短間隔。**既定 0 秒＝無効**（[D-5](decisions.md)） |
 | 割当戦略 | Assignment Strategy | マスにブースを入れた根拠の識別子。`PURE` / `SERENDIPITY` / `RANDOM` / `FALLBACK_COVERAGE` 等。VARCHAR で持ち、値の追加でスキーマを壊さない |
 | 蓄積量 | Global Checkin Count | 割当を行った時点でのイベント全体の累計チェックイン件数。**「データ量が推薦精度を規定するか」の検証に使う中心変数** |
 
