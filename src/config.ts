@@ -9,6 +9,9 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(1),
   WEBHOOK_API_KEY: z.string().optional().default(''),
   RECOMMENDER_URL: z.string().optional().default(''),
+  RECOMMENDER_TIMEOUT_MS: z.coerce.number().int().min(1).default(1500),
+  CHECKIN_COOLDOWN_SEC: z.coerce.number().int().min(0).default(0),
+  RATING_SCALE: z.coerce.number().int().min(2).max(10).default(3),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   ADMIN_REGISTRATION_KEY: z.string().min(1),
   FRONTEND_BASE_URL: z.string().optional(),
@@ -29,6 +32,9 @@ export type AppConfig = {
   jwtSecret: string
   webhookApiKey: string
   recommenderUrl: string
+  recommenderTimeoutMs: number
+  checkinCooldownSec: number
+  ratingScale: number
   corsOrigin: string
   adminRegistrationKey: string
   frontendBaseUrl: string | undefined
@@ -68,6 +74,9 @@ export function loadConfig(): AppConfig {
     jwtSecret: e.JWT_SECRET,
     webhookApiKey: e.WEBHOOK_API_KEY,
     recommenderUrl: e.RECOMMENDER_URL,
+    recommenderTimeoutMs: e.RECOMMENDER_TIMEOUT_MS,
+    checkinCooldownSec: e.CHECKIN_COOLDOWN_SEC,
+    ratingScale: e.RATING_SCALE,
     corsOrigin: e.CORS_ORIGIN,
     adminRegistrationKey: e.ADMIN_REGISTRATION_KEY,
     frontendBaseUrl: e.FRONTEND_BASE_URL,

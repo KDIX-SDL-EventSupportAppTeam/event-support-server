@@ -40,6 +40,9 @@ class SocketIOFacade {
     io.on('connection', (socket) => {
       const user = socket.data.user as ReturnType<typeof verifyAccessToken>
       socket.join(`event:${user.event_id}`)
+      // ビンゴ解放通知（bingo:unlocked）用のユーザー個別 room。
+      // docs/.sdd/03-card-lifecycle/unlock.md
+      socket.join(`event:${user.event_id}:user:${user.sub}`)
       if (user.role === 'manager' || user.role === 'viewer') {
         socket.join(`event:${user.event_id}:admin`)
       }

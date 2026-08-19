@@ -4,6 +4,11 @@ import { z } from 'zod'
 import { isoToMysqlUtc, utcMysqlNow } from '../../lib/datetime.js'
 import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt, requireVerifiedEmail } from '../../plugins/auth.js'
+import { ensureCard } from '../../lib/bingo/ensureCard.js'
+import { assignCenterCell, isCenterComplete } from '../../lib/bingo/assignCenterCell.js'
+import { checkCooldown } from '../../lib/bingo/cooldown.js'
+import { unlockCard } from '../../lib/bingo/unlock.js'
+import { countCompletedLines, calcCoinsEarned } from '../../lib/bingo/lines.js'
 
 const checkinBody = z.discriminatedUnion('method', [
   z.object({
@@ -19,9 +24,40 @@ const checkinBody = z.discriminatedUnion('method', [
 ])
 
 const ratingBody = z.object({
-  rating: z.number().int().min(1).max(5),
+  rating: z.number().int().min(1),
   comment: z.string().max(500).optional(),
+  context: z.enum(['NEXT_CHECKIN', 'MANUAL']).optional().default('MANUAL'),
 })
+
+/** そのユーザー・イベントで未評価の最新チェックインを返す（D-10）。自分自身は除く。 */
+async function getPendingRating(
+  app: FastifyInstance,
+  eventId: string,
+  uid: string,
+  excludeCheckinId: string,
+): Promise<{ checkin_id: string; booth_id: string; booth_name: string } | null> {
+  const [rows] = await app.db.query(
+    `SELECT ci.id, ci.booth_id, b.name AS booth_name
+       FROM check_ins ci
+       JOIN booths b ON b.id = ci.booth_id
+       LEFT JOIN booth_ratings r ON r.checkin_id = ci.id
+      WHERE ci.user_id = ? AND ci.event_id = ? AND ci.id <> ? AND r.id IS NULL
+      ORDER BY ci.checked_in_at DESC
+      LIMIT 1`,
+    [uid, eventId, excludeCheckinId],
+  )
+  const row = (rows as { id: string; booth_id: string; booth_name: string }[])[0]
+  if (!row) return null
+  return { checkin_id: row.id, booth_id: row.booth_id, booth_name: row.booth_name }
+}
+
+async function getAchievedPositions(app: FastifyInstance, cardId: string): Promise<Set<number>> {
+  const [rows] = await app.db.query(
+    `SELECT position FROM bingo_cells WHERE card_id = ? AND state = 'ACHIEVED'`,
+    [cardId],
+  )
+  return new Set((rows as { position: number }[]).map((r) => r.position))
+}
 
 export async function checkinRoutes(app: FastifyInstance) {
   const pre = [requireBearerAuth, requireEventMatchesJwt]
@@ -51,7 +87,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         method = 'qr'
         boothId = body.booth_id
         const [b] = await app.db.query(
-          'SELECT id, name FROM booths WHERE id = ? AND event_id = ? LIMIT 1',
+          'SELECT id, name FROM booths WHERE id = ? AND event_id = ? AND is_active = 1 LIMIT 1',
           [boothId, eventId],
         )
         const row = (b as { id: string; name: string }[])[0]
@@ -63,7 +99,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         method = 'manual'
         const code = body.manual_code.trim().toUpperCase()
         const [b] = await app.db.query(
-          'SELECT id, name FROM booths WHERE event_id = ? AND UPPER(manual_code) = ? LIMIT 1',
+          'SELECT id, name FROM booths WHERE event_id = ? AND UPPER(manual_code) = ? AND is_active = 1 LIMIT 1',
           [eventId, code],
         )
         const row = (b as { id: string; name: string }[])[0]
@@ -74,9 +110,11 @@ export async function checkinRoutes(app: FastifyInstance) {
         boothName = row.name
       }
 
-      // さくらプロキシは重複キーエラーを 500 に潰してしまい ER_DUP_ENTRY を
-      // 受け取れないため、INSERT 前に重複を明示的に確認する（下の catch は
-      // ローカル mysql2 経路・競合時のフォールバック）
+      // カードは get-or-create（無ければここで作る。E6: アンケート未回答でも必ず成功する）
+      const card = await ensureCard(app.db, eventId, uid)
+
+      // E1: さくらプロキシは重複キーエラーを 500 に潰してしまい ER_DUP_ENTRY を
+      // 受け取れないため、INSERT 前に重複を明示的に確認する
       const [dupRows] = await app.db.query(
         'SELECT id FROM check_ins WHERE user_id = ? AND booth_id = ? LIMIT 1',
         [uid, boothId],
@@ -85,13 +123,27 @@ export async function checkinRoutes(app: FastifyInstance) {
         return sendFail(reply, 409, 'CONFLICT', 'このブースには既にチェックイン済みです')
       }
 
+      // E9: クールタイム判定（既定 CHECKIN_COOLDOWN_SEC=0 では判定自体をスキップする）
+      const cooldown = await checkCooldown(app.db, app.config.checkinCooldownSec, uid, eventId)
+      if (cooldown.blocked) {
+        return sendFail(reply, 429, 'COOLDOWN', `クールタイム中です（残り${cooldown.remainingSec}秒）`)
+      }
+
+      const [voRows] = await app.db.query(
+        'SELECT COALESCE(MAX(visit_order),0) AS m FROM check_ins WHERE user_id = ? AND event_id = ?',
+        [uid, eventId],
+      )
+      const visitOrder = Number((voRows as { m: number }[])[0]?.m ?? 0) + 1
+
+      const beforeAchieved = await getAchievedPositions(app, card.id)
+
       const id = randomUUID()
       const synced = utcMysqlNow()
       try {
         await app.db.execute(
-          `INSERT INTO check_ins (id, user_id, booth_id, event_id, checkin_method, checked_in_at, synced_at)
-           VALUES (?,?,?,?,?,?,?)`,
-          [id, uid, boothId, eventId, method, checkedMysql, synced],
+          `INSERT INTO check_ins (id, user_id, booth_id, event_id, checkin_method, checked_in_at, synced_at, visit_order, cell_id)
+           VALUES (?,?,?,?,?,?,?,?,NULL)`,
+          [id, uid, boothId, eventId, method, checkedMysql, synced, visitOrder],
         )
       } catch (e: unknown) {
         const err = e as { code?: string }
@@ -101,6 +153,57 @@ export async function checkinRoutes(app: FastifyInstance) {
         throw e
       }
 
+      let filledCell: { position: number } | null = null
+      let unlocked = false
+
+      if (card.status === 'CENTER_ONLY') {
+        // 後出し割当（checkin.md）: 中央マスの EMPTY を1つ選び、今チェックインしたブースを割り当てる
+        const assigned = await assignCenterCell(app.db, card.id, boothId)
+        if (assigned) {
+          filledCell = { position: assigned.position }
+          await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [assigned.cellId, id])
+
+          const complete = await isCenterComplete(app.db, card.id)
+          if (complete) {
+            const result = await unlockCard(app.db, app.config, eventId, uid, card.id)
+            unlocked = result.unlocked
+            if (unlocked) {
+              app.io.to(`event:${eventId}:user:${uid}`).emit('bingo:unlocked', {
+                card_id: card.id,
+                unlocked_at: result.unlockedAt ? `${result.unlockedAt.replace(' ', 'T')}Z` : null,
+              })
+            }
+          }
+        }
+        // assigned が null の場合、中央に EMPTY が無い（E3: ボーナスブース訪問等）。何もしない。
+      } else {
+        // 解放済み: 外側マスに一致するブースがあれば ACHIEVED にする。無ければカード外訪問（D-4）。
+        const [outerRows] = await app.db.query(
+          `SELECT id, position FROM bingo_cells WHERE card_id = ? AND booth_id = ? AND state = 'EMPTY' LIMIT 1`,
+          [card.id, boothId],
+        )
+        const outer = (outerRows as { id: string; position: number }[])[0]
+        if (outer) {
+          const now = utcMysqlNow()
+          const [result] = await app.db.execute(
+            `UPDATE bingo_cells SET state='ACHIEVED', achieved_at=? WHERE id=? AND state='EMPTY'`,
+            [now, outer.id],
+          )
+          const affected = (result as { affectedRows: number }).affectedRows
+          if (affected === 1) {
+            filledCell = { position: outer.position }
+            await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [outer.id, id])
+          }
+        }
+        // cell_id は NULL のまま（カード外訪問。研究データとして記録は必ず残す。評価は同じように求める D-12）
+      }
+
+      const afterAchieved = await getAchievedPositions(app, card.id)
+      const newLines = countCompletedLines(afterAchieved) - countCompletedLines(beforeAchieved)
+      const coinsEarned = calcCoinsEarned(afterAchieved)
+
+      const pendingRating = await getPendingRating(app, eventId, uid, id)
+
       app.io.to(`event:${eventId}:admin`).emit('checkin:new', {
         booth_id: boothId,
         booth_name: boothName,
@@ -109,9 +212,16 @@ export async function checkinRoutes(app: FastifyInstance) {
       })
 
       return sendOk(reply, {
+        result: 'OK',
         checkin_id: id,
         booth: { id: boothId, name: boothName },
         synced_at: `${synced.replace(' ', 'T')}Z`,
+        cooldown_remaining_sec: 0,
+        filled_cell: filledCell,
+        pending_rating: pendingRating,
+        unlocked,
+        new_lines: Math.max(newLines, 0),
+        coins_earned: coinsEarned,
       })
     },
   )
@@ -157,6 +267,10 @@ export async function checkinRoutes(app: FastifyInstance) {
       if (!parsed.success) {
         return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
       }
+      const ratingScale = app.config.ratingScale
+      if (parsed.data.rating > ratingScale) {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', `評価は1〜${ratingScale}の範囲で入力してください`)
+      }
       const { event_id, checkin_id } = req.params
       const uid = req.jwtUser!.sub
       const [rows] = await app.db.query(
@@ -185,9 +299,9 @@ export async function checkinRoutes(app: FastifyInstance) {
       const rid = randomUUID()
       try {
         await app.db.execute(
-          `INSERT INTO booth_ratings (id, user_id, booth_id, event_id, checkin_id, rating, comment)
-           VALUES (?,?,?,?,?,?,?)`,
-          [rid, uid, ci.booth_id, event_id, checkin_id, parsed.data.rating, comment],
+          `INSERT INTO booth_ratings (id, user_id, booth_id, event_id, checkin_id, rating, comment, prompt_context, scale)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+          [rid, uid, ci.booth_id, event_id, checkin_id, parsed.data.rating, comment, parsed.data.context, ratingScale],
         )
       } catch (e: unknown) {
         const err = e as { code?: string }
