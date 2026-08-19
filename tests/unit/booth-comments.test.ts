@@ -19,6 +19,9 @@ const config = {
   jwtSecret: JWT_SECRET,
   webhookApiKey: '',
   recommenderUrl: '',
+  recommenderTimeoutMs: 1500,
+  checkinCooldownSec: 0,
+  ratingScale: 3,
   corsOrigin: 'http://localhost:5173',
   adminRegistrationKey: 'k',
   frontendBaseUrl: 'https://front.example',
@@ -98,10 +101,10 @@ describe('POST rating の comment 正規化（§4-1）', () => {
       method: 'POST',
       url: `/api/v1/events/${EVENT_ID}/checkins/${CHECKIN_ID}/rating`,
       headers: participantAuth(),
-      payload: { rating: 4, comment: '   ' },
+      payload: { rating: 3, comment: '   ' },
     })
     expect(res.statusCode).toBe(200)
-    expect(insertParams[0]?.at(-1)).toBeNull()
+    expect(insertParams[0]?.at(-3)).toBeNull()
     await app.close()
   })
 
@@ -123,10 +126,10 @@ describe('POST rating の comment 正規化（§4-1）', () => {
       method: 'POST',
       url: `/api/v1/events/${EVENT_ID}/checkins/${CHECKIN_ID}/rating`,
       headers: participantAuth(),
-      payload: { rating: 4 },
+      payload: { rating: 3 },
     })
     expect(res.statusCode).toBe(200)
-    expect(insertParams[0]?.at(-1)).toBeNull()
+    expect(insertParams[0]?.at(-3)).toBeNull()
     await app.close()
   })
 
@@ -148,10 +151,10 @@ describe('POST rating の comment 正規化（§4-1）', () => {
       method: 'POST',
       url: `/api/v1/events/${EVENT_ID}/checkins/${CHECKIN_ID}/rating`,
       headers: participantAuth(),
-      payload: { rating: 4, comment: '  展示が分かりやすかった  ' },
+      payload: { rating: 3, comment: '  展示が分かりやすかった  ' },
     })
     expect(res.statusCode).toBe(200)
-    expect(insertParams[0]?.at(-1)).toBe('展示が分かりやすかった')
+    expect(insertParams[0]?.at(-3)).toBe('展示が分かりやすかった')
     await app.close()
   })
 
@@ -162,7 +165,7 @@ describe('POST rating の comment 正規化（§4-1）', () => {
       method: 'POST',
       url: `/api/v1/events/${EVENT_ID}/checkins/${CHECKIN_ID}/rating`,
       headers: participantAuth(),
-      payload: { rating: 4, comment: 'a'.repeat(501) },
+      payload: { rating: 3, comment: 'a'.repeat(501) },
     })
     expect(res.statusCode).toBe(422)
     expect(res.json().error.code).toBe('VALIDATION_ERROR')
@@ -187,10 +190,10 @@ describe('POST rating の comment 正規化（§4-1）', () => {
       method: 'POST',
       url: `/api/v1/events/${EVENT_ID}/checkins/${CHECKIN_ID}/rating`,
       headers: participantAuth(),
-      payload: { rating: 4, comment: 'a'.repeat(500) },
+      payload: { rating: 3, comment: 'a'.repeat(500) },
     })
     expect(res.statusCode).toBe(200)
-    expect(insertParams[0]?.at(-1)).toBe('a'.repeat(500))
+    expect(insertParams[0]?.at(-3)).toBe('a'.repeat(500))
     await app.close()
   })
 })
