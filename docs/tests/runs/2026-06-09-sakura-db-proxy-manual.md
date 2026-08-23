@@ -20,7 +20,7 @@
 
 ## なぜ
 
-[docs/archive/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md](../../orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md) の完了条件確認。
+[docs/archive/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md](../../archive/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md) の完了条件確認。
 
 ## 実行コマンド
 

@@ -91,7 +91,7 @@ YYYY-MM-DD-kebab-case-summary.md
 
 ## レガシー
 
-モノレポ時代の実行記録は [docs/archive/legacy/tests/](../archive/legacy/tests/) に退避済み（存在する場合）。新規記録は `docs/tests/runs/` に追加する。
+モノレポ時代の実行記録は [docs/archive/legacy/](../archive/legacy/) にある（参照のみ）。新規記録は `docs/tests/runs/` に追加する。
 
 ---
 

@@ -35,7 +35,7 @@
 - `SAKURA_PROXY_URL` / `PORT` / `CORS_ORIGIN` / `RECOMMENDER_URL` は `--set-env-vars` で渡す
 - 本番（さくら Standard）では `SAKURA_PROXY_URL` 経由が前提。`DATABASE_URL` は Cloud Run から不要（ラッパー API がさくら内から MySQL に接続）
 - 値はリポジトリにコミットしない（`.env` は `.gitignore` 済み）
-- 詳細手順: [docs/operations/cloud-run.md](./docs/operations/cloud-run.md)
+- 詳細手順: [docs/operations/cloud-run.md](../operations/cloud-run.md)
 
 ### シークレットの生成コマンド
 
