@@ -47,7 +47,7 @@
 
 ## Q-4 事前アンケートの設問の最終形
 
-**暫定: `feat/pre-survey-and-app-access-gate` ブランチの8問。**
+**暫定: 現在フロントの `src/features/presurvey/config/questions.ts` にある8問（develop にマージ済み）。**
 
 設計目標は「精細な個人プロファイル」ではなく、
 **少ない設問で参加者を数グループに明確に割ること**。

@@ -24,8 +24,8 @@
 
 | 要素 | 状態 |
 |---|---|
-| フロント5画面（Entry / SignUp / SignIn / Form / Thanks） | **モック実装済み**（localStorage ベース。`feat/pre-survey-and-app-access-gate` ブランチ） |
-| 設問定義 | フロントにハードコード（8問） |
+| フロント5画面（Entry / SignUp / SignIn / Form / Thanks） | **モック実装済み**（localStorage ベース。develop にマージ済み） |
+| 設問定義 | フロントにハードコード（8問）。**サーバー配信へ移行する**（[P-11](01-concept.md)） |
 | サーバー実装 | **未着手** |
 | `survey_questions` / `user_survey_answers` テーブル | 既存。そのまま使う |
 | `event_app_access` テーブル | 未作成 |
