@@ -212,7 +212,7 @@
 
 ---
 
-## ビンゴカード段階解放方式（docs/.sdd/）
+## ビンゴカード段階解放方式（docs/archive/2026-08-bingo-staged-unlock/）
 
 | 用語 | 英名 | 定義 |
 |------|------|------|
@@ -231,7 +231,7 @@
 | 割当戦略 | Assignment Strategy | マスにブースを入れた根拠の識別子。`PURE` / `SERENDIPITY` / `RANDOM` / `FALLBACK_COVERAGE` 等。VARCHAR で持ち、値の追加でスキーマを壊さない |
 | 蓄積量 | Global Checkin Count | 割当を行った時点でのイベント全体の累計チェックイン件数 |
 
-詳細な設計判断は [docs/.sdd/README.md](./.sdd/README.md) を正本とする。既存の「推薦 / Recommendation」（`recommendations` テーブル）は別系統として残し、本機能の割当根拠は `cell_assignment_logs` に記録する（両者を混ぜない）。
+詳細な設計判断は [docs/archive/2026-08-bingo-staged-unlock/README.md](./.sdd/README.md) を正本とする。既存の「推薦 / Recommendation」（`recommendations` テーブル）は別系統として残し、本機能の割当根拠は `cell_assignment_logs` に記録する（両者を混ぜない）。
 
 ---
 

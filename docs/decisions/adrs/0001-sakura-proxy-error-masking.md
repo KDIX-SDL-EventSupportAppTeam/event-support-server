@@ -39,5 +39,5 @@ mysql2 前提の重複検知が**プロキシ経由では一切機能しない**
 
 ## 関連
 
-- [http-proxy.ts](../../src/db/http-proxy.ts) — 型正規化（boolean→0/1, Date→DATETIME）もここに集約
-- [さくら DB プロキシ実装メモ](../orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)
+- [http-proxy.ts](../../../src/db/http-proxy.ts) — 型正規化（boolean→0/1, Date→DATETIME）もここに集約
+- [さくら DB プロキシ実装メモ](../../archive/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)

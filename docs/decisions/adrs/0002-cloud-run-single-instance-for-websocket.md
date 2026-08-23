@@ -44,5 +44,5 @@ Cloud Run を **1 インスタンスに固定**し、WebSocket 用の設定を `
 
 ## 関連
 
-- [socket.ts](../../src/plugins/socket.ts) — ルーム参加（`event:<id>` / `event:<id>:admin`）
-- [Cloud Run デプロイ手順](../deploy/cloud-run.md)
+- [socket.ts](../../../src/plugins/socket.ts) — ルーム参加（`event:<id>` / `event:<id>:admin`）
+- [Cloud Run デプロイ手順](../../operations/cloud-run.md)

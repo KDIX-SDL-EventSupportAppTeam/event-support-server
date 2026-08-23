@@ -14,7 +14,7 @@
 - **さくら上のラッパー API** が設置済み（`src/scripts/sakura-proxy-mock.ts` をベースに先生が HTTPS で公開）
 - DB スキーマ適用済み（さくら DB 上で `db/create-tables.sql` 等を実行済み）
 
-> さくら Standard は外部から MySQL 直接接続不可。Cloud Run は `SAKURA_PROXY_URL` 経由でラッパー API を呼ぶ（[完了メモ](../orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)）。
+> さくら Standard は外部から MySQL 直接接続不可。Cloud Run は `SAKURA_PROXY_URL` 経由でラッパー API を呼ぶ（[完了メモ](../archive/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)）。
 
 ---
 
@@ -103,7 +103,7 @@ gcloud builds submit --tag $IMAGE:latest .
 `<FRONTEND_ORIGIN>` をフロントの本番 URL に差し替える（複数ならカンマ区切り）。
 
 > 通常は CI（`cloudbuild.yaml`）でデプロイする。下記は手動デプロイ時の参照。
-> **WebSocket 関連の 4 設定は必須**（理由は [ADR 0002](../adrs/0002-cloud-run-single-instance-for-websocket.md)）。
+> **WebSocket 関連の 4 設定は必須**（理由は [ADR 0002](../decisions/adrs/0002-cloud-run-single-instance-for-websocket.md)）。
 > `gcloud run deploy` は毎回これらを上書きするため、必ず付けること。
 
 ```bash
@@ -126,7 +126,7 @@ gcloud run deploy $SERVICE \
 | フラグ | 理由 |
 |--------|------|
 | `--min-instances=1` | コールドスタートによる WebSocket 接続断を防ぐ |
-| `--max-instances=1` | socket.io がインメモリ管理のため複数インスタンスだと配信が届かない（[ADR 0002](../adrs/0002-cloud-run-single-instance-for-websocket.md)） |
+| `--max-instances=1` | socket.io がインメモリ管理のため複数インスタンスだと配信が届かない（[ADR 0002](../decisions/adrs/0002-cloud-run-single-instance-for-websocket.md)） |
 | `--session-affinity` | 同一クライアントを同一インスタンスへルーティング |
 | `--timeout=3600` | WebSocket がデフォルト 300 秒で切れるのを防ぐ |
 
@@ -184,7 +184,7 @@ firebase deploy --only hosting --project event-support-app
 ## 注意点・既知の落とし穴
 
 - **さくら Standard の MySQL**: Cloud Run から 3306 直接接続は不可。ラッパー API（HTTPS）経由のみ
-- **ラッパー API はエラーを 500 に潰す**: MySQL のエラーコードが取れないため、一意制約は INSERT 前に SELECT で確認する（[ADR 0001](../adrs/0001-sakura-proxy-error-masking.md)）
-- **WebSocket は 1 インスタンス固定が前提**: `--max-instances=1` 等が無いとリアルタイム配信が届かない（[ADR 0002](../adrs/0002-cloud-run-single-instance-for-websocket.md)）
+- **ラッパー API はエラーを 500 に潰す**: MySQL のエラーコードが取れないため、一意制約は INSERT 前に SELECT で確認する（[ADR 0001](../decisions/adrs/0001-sakura-proxy-error-masking.md)）
+- **WebSocket は 1 インスタンス固定が前提**: `--max-instances=1` 等が無いとリアルタイム配信が届かない（[ADR 0002](../decisions/adrs/0002-cloud-run-single-instance-for-websocket.md)）
 - **ラッパー API の HTTPS**: 本番は必ず HTTPS。ローカルモック（`npm run proxy:mock`）は HTTP の開発専用
 - **DB スキーマの適用**: さくら DB 上で `db/create-tables.sql` を実行。`db:check` / `db:seed:prod` は **ローカルまたはさくら内** から実行
