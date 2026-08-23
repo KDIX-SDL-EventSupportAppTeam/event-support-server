@@ -78,9 +78,12 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 | POST | `/api/v1/events/:event_id/survey/answers` | Bearer | アンケート回答送信 |
 | GET | `/api/v1/events/:event_id/booths` | Bearer | ブース一覧（カテゴリフィルタ可） |
 | GET | `/api/v1/events/:event_id/booths/:booth_id` | Bearer | ブース詳細 |
-| POST | `/api/v1/events/:event_id/checkins` | Bearer | チェックイン（QR / 手動コード） |
+| POST | `/api/v1/events/:event_id/checkins` | Bearer | チェックイン（QR / 手動コード）。ビンゴの後出し割当・解放・ライン判定・`pending_rating` を含む |
 | GET | `/api/v1/events/:event_id/checkins` | Bearer | 自分のチェックイン履歴 |
-| POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating` | Bearer | 評価送信（+comment。空白のみは NULL 正規化、再送信は 409） |
+| POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating` | Bearer | 評価送信（+comment、`context`。空白のみは NULL 正規化、再送信は 409。`rating` は `1..RATING_SCALE`） |
+| GET | `/api/v1/events/:event_id/bingo/card` | Bearer | ビンゴカード取得（無ければ生成。`status='UNLOCKED'` の self-healing を含む） |
+| PATCH | `/api/v1/events/:event_id/admin/booths/:booth_id/active` | Bearer（manager） | ブースの当日中止・復帰切り替え |
+| POST | `/api/v1/events/:event_id/admin/bingo/reassign` | Bearer（manager） | 中止ブースが割当済みマスに残っている場合の差し替え救済 |
 | GET | `/api/v1/events/:event_id/recommendations` | Bearer | 推薦取得（`RECOMMENDER_URL` 設定時は外部推薦、未設定/失敗時はランダム） |
 | POST | `/api/v1/events/:event_id/recommendations/:recommendation_id/select` | Bearer | 推薦選択 |
 | POST | `/api/v1/webhook/booths/sync` | `X-Api-Key` | ブース情報同期（Google Forms） |
@@ -113,9 +116,11 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ### WebSocket（socket.io）
 
 - 接続時に JWT（`auth.token`）で認証し、`event:<event_id>`（全員）/ `event:<event_id>:admin`（`manager` または `viewer` のみ）ルームへ参加
+- ユーザー個別ルーム `event:<event_id>:user:<user_id>` にも自動参加する（ビンゴ解放通知の配信先）
 - サーバー → クライアントのイベント:
   - `checkin:new` — チェックイン発生時に運営ルームへ配信
   - `rating:new` — 評価送信時に運営ルームへ配信
+  - `bingo:unlocked` — 中央4マス完成による解放時にユーザー個別ルームへ配信（`{ card_id, unlocked_at }`。正の経路はチェックインレスポンスの `unlocked: true`、socket は取りこぼし対策の副経路）
 - 配信が複数インスタンスで届かない問題を避けるため Cloud Run は 1 インスタンス固定（[ADR 0002](./docs/adrs/0002-cloud-run-single-instance-for-websocket.md)）
 
 > 一意制約（チェックイン/評価/メール）は、さくらプロキシがエラーを 500 に潰す都合上 INSERT 前に SELECT で重複確認する（[ADR 0001](./docs/adrs/0001-sakura-proxy-error-masking.md)）。
@@ -147,17 +152,21 @@ requireOrganizer          → 主催者 JWT（scope: 'organizer'）を検証
 
 ## DB
 
-完全なスキーマの正は `db/create-tables.sql`（**15 テーブル**）。増分は `db/migrations/`（8 ファイル）。  
+完全なスキーマの正は `db/create-tables.sql`（**18 テーブル**）。増分は `db/migrations/`（9 ファイル）。  
 起動手順・Docker init と `db:migrate` の使い分けは [README.md § ローカル開発](./README.md#ローカル開発) を参照。  
-設計の解説は [docs/legacy/designs/database.md](./docs/legacy/designs/database.md) を参照。
+設計の解説は [docs/legacy/designs/database.md](./docs/legacy/designs/database.md)、ビンゴ段階解放方式の設計は [docs/.sdd/](./docs/.sdd/README.md) を参照。
 
 ```bash
 # テーブル数確認
 docker exec -it event-support-mysql \
   mysql -u app -pappsecret event_support \
   -NBe "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='event_support';"
-# 15 が返ること
+# 18 が返ること
 ```
+
+### ビンゴカード段階解放方式（追加分）
+
+`bingo_cards` / `bingo_cells` / `cell_assignment_logs` の3テーブルを追加。既存 `booths` に `is_active` / `duration_band` / `knowledge_level`、`check_ins` に `visit_order` / `cell_id`、`booth_ratings` に `prompt_context` / `scale` を追加（`rating` の `CHECK` は削除）。関連の環境変数: `RATING_SCALE`（既定3）・`CHECKIN_COOLDOWN_SEC`（既定0=無効）・`RECOMMENDER_TIMEOUT_MS`（既定1500）。詳細は [docs/.sdd/02-data-model/schema-changes.md](./docs/.sdd/02-data-model/schema-changes.md)。
 
 さくら等への引き渡し時: `db/create-tables.sql` を渡す（先頭の `USE` を実 DB 名に書き換えて全文実行）。
 

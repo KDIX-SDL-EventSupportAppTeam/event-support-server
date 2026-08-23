@@ -23,6 +23,8 @@ import { organizerEventDataRoutes } from './routes/v1/organizer/event-data.js'
 import { exhibitorRoutes } from './routes/v1/exhibitor.js'
 import { boothRoutes } from './routes/v1/booths.js'
 import { checkinRoutes } from './routes/v1/checkins.js'
+import { bingoRoutes } from './routes/v1/bingo.js'
+import { adminBingoRoutes } from './routes/v1/admin/bingo.js'
 import { webhookRoutes } from './routes/v1/ops.js'
 import { recommendationRoutes } from './routes/v1/recommendations.js'
 import { surveyRoutes } from './routes/v1/survey.js'
@@ -58,6 +60,8 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(boothRoutes)
       await v1.register(exhibitorRoutes)
       await v1.register(checkinRoutes)
+      await v1.register(bingoRoutes)
+      await v1.register(adminBingoRoutes)
       await v1.register(recommendationRoutes)
       await v1.register(webhookRoutes)
       await v1.register(adminRoutes)

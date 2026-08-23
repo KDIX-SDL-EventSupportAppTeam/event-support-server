@@ -95,8 +95,9 @@ db/
 │   ├── 05_exhibitor_booths.sql
 │   ├── 06_booth_rating_comments.sql
 │   ├── 07_email_verification.sql
-│   └── 08_event_survey_url.sql
-└── create-tables.sql          # 空 DB への `npm run db:migrate` はこちらを使う（15 テーブル）
+│   ├── 08_event_survey_url.sql
+│   └── 09_bingo_staged_unlock.sql
+└── create-tables.sql          # 空 DB への `npm run db:migrate` はこちらを使う（18 テーブル）
 ```
 
 ## ローカル開発
