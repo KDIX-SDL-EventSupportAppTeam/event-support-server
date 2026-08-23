@@ -62,7 +62,7 @@
   - `checkin:new` — チェックイン発生時に運営ルームへ配信
   - `rating:new` — 評価送信時に運営ルームへ配信
   - `bingo:unlocked` — 中央4マス完成による解放時にユーザー個別ルームへ配信（`{ card_id, unlocked_at }`。正の経路はチェックインレスポンスの `unlocked: true`、socket は取りこぼし対策の副経路）
-- 配信が複数インスタンスで届かない問題を避けるため Cloud Run は 1 インスタンス固定（[ADR 0002](./docs/decisions/adrs/0002-cloud-run-single-instance-for-websocket.md)）
+- 配信が複数インスタンスで届かない問題を避けるため Cloud Run は 1 インスタンス固定（[ADR 0002](../decisions/adrs/0002-cloud-run-single-instance-for-websocket.md)）
 
-> 一意制約（チェックイン/評価/メール）は、さくらプロキシがエラーを 500 に潰す都合上 INSERT 前に SELECT で重複確認する（[ADR 0001](./docs/decisions/adrs/0001-sakura-proxy-error-masking.md)）。
-> 詳細は [docs/archive/legacy/designs/api.md](./docs/archive/legacy/designs/api.md) を参照。
+> 一意制約（チェックイン/評価/メール）は、さくらプロキシがエラーを 500 に潰す都合上 INSERT 前に SELECT で重複確認する（[ADR 0001](../decisions/adrs/0001-sakura-proxy-error-masking.md)）。
+> 詳細は [docs/archive/legacy/designs/api.md](../archive/legacy/designs/api.md) を参照。

@@ -21,6 +21,6 @@ requireOrganizer          → 主催者 JWT（scope: 'organizer'）を検証
 ```
 
 `requireAdmin` は `requireManager` の後方互換エイリアス。  
-ペイロードの詳細は [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) § 認証・ユーザーを参照。
+ペイロードの詳細は [docs/ubiquitous-language.md](../ubiquitous-language.md) § 認証・ユーザーを参照。
 
 出展者（`role: 'exhibitor'`）の認可は JWT に依存せず、リクエストごとに `users.role` と `exhibitor_booths` を DB で確認する（`src/lib/exhibitor.ts`）。一括登録で既存参加者に後付けでロールを付与するケースがあり、発行済み JWT が古いままでも正しく判定するため。
