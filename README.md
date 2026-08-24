@@ -117,7 +117,7 @@ npm run proxy:mock        # ターミナル A: http://localhost:3001
 SAKURA_PROXY_URL=http://localhost:3001 npm run dev   # ターミナル B
 ```
 
-詳細: [docs/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md](./docs/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)
+詳細: [docs/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md](./docs/archive/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)
 
 > **DB スキーマ:** `docker compose up` 初回（空ボリューム）では `db/migrations/` が MySQL init で自動適用される。  
 > `npm run db:migrate` は **Docker 未使用時**、または **init 前の空 DB** 向け。Docker 初回 init 済みなら不要（実行すると「既にテーブルあり」で終了する）。
@@ -141,7 +141,8 @@ curl http://localhost:3000/health
 | 種別 | パス |
 |------|------|
 | 技術詳細 | [AGENTS.md](./AGENTS.md) — 環境変数・エンドポイント・認証・DB・テスト・ドキュメント運用 |
-| AI エージェント | [CLAUDE.md](./CLAUDE.md) · [docs/cursor/README.md](./docs/cursor/README.md) |
+| ドキュメント全体 | [docs/README.md](./docs/README.md) |
+| 規約（Git・実装・テスト） | [docs/rules/](./docs/rules/README.md) |
 | ドメイン用語 | [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) |
 | テスト | [tests/README.md](./tests/README.md) · [docs/tests/README.md](./docs/tests/README.md) |
-| 詳細設計（移行元） | [docs/legacy/designs/](./docs/legacy/designs/) |
+| 詳細設計（移行元・参照のみ） | [docs/archive/legacy/designs/](./docs/archive/legacy/designs/) |

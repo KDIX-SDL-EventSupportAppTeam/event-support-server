@@ -356,6 +356,6 @@ CREATE TABLE IF NOT EXISTS booth_categories (
 
 ## 関連ドキュメント
 
-- [docs/orders/README.md](../orders/README.md) — 作業指示・依頼メモ
-- [docs/deploy/cloud-run.md](./cloud-run.md) — Cloud Run デプロイ手順
+- [docs/archive/orders/README.md](../archive/orders/README.md) — 作業指示・依頼メモ
+- [docs/operations/cloud-run.md](./cloud-run.md) — Cloud Run デプロイ手順
 - [AGENTS.md](../../AGENTS.md) — 環境変数一覧

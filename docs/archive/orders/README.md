@@ -24,5 +24,5 @@ YYYY-MM-DD-状態-kebab-case-summary.md
 
 ## 関連
 
-- [AGENTS.md](../../AGENTS.md) — 「次にやること」
-- [docs/legacy/orders/](../legacy/orders/) — モノレポ移行元（参照のみ）
+- [docs/specs/pre-survey/](../../specs/pre-survey/README.md) — 事前アンケートの現行仕様（この order を引き継いだ正本）
+- [../legacy/orders/](../legacy/orders/) — モノレポ移行元

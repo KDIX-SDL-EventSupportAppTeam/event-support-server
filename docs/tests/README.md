@@ -91,7 +91,7 @@ YYYY-MM-DD-kebab-case-summary.md
 
 ## レガシー
 
-モノレポ時代の実行記録は [docs/legacy/tests/](../legacy/tests/) に退避済み（存在する場合）。新規記録は `docs/tests/runs/` に追加する。
+モノレポ時代の実行記録は [docs/archive/legacy/](../archive/legacy/) にある（参照のみ）。新規記録は `docs/tests/runs/` に追加する。
 
 ---
 
@@ -99,4 +99,4 @@ YYYY-MM-DD-kebab-case-summary.md
 
 - [tests/README.md](../../tests/README.md) — テストコードの置き場所・コマンド
 - [AGENTS.md](../../AGENTS.md) — エージェント向けテスト規約
-- [docs/adrs/](../adrs/) — 設計判断（テスト方針の ADR はここへ）
+- [docs/decisions/adrs/](../decisions/adrs/) — 設計判断（テスト方針の ADR はここへ）

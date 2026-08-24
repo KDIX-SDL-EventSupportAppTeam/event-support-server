@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 設計上の重要な判断を短い ADR として残す。  
-新規 ADR は **`docs/legacy/adrs/` ではなく本ディレクトリ** に追加する。
+新規 ADR は **`docs/archive/legacy/adrs/` ではなく本ディレクトリ** に追加する。
 
 ## ファイル名
 
@@ -27,5 +27,5 @@ NNNN-kebab-case-title.md
 
 ## 関連
 
-- [AGENTS.md](../../AGENTS.md) — ドキュメント運用
-- [docs/legacy/adrs/](../legacy/adrs/) — モノレポ移行元（参照のみ）
+- [AGENTS.md](../../../AGENTS.md) — ドキュメント運用
+- [docs/archive/legacy/adrs/](../../archive/legacy/adrs/) — モノレポ移行元（参照のみ）

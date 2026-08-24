@@ -1,7 +1,7 @@
 # 開発用ログイン・event_id
 
-`npm run db:seed` 投入データと [src/scripts/seed-dev.ts](../../src/scripts/seed-dev.ts) の定数。  
-フロントエンド接続確認は [AGENTS.md](../../AGENTS.md) § フロントエンドとの接続確認 を参照。
+`npm run db:seed` 投入データと [src/scripts/seed-dev.ts](../../../src/scripts/seed-dev.ts) の定数。  
+フロントエンド接続確認は [README.md](../../../README.md) § ローカル開発 を参照。
 
 ## 参加者（開発用）
 
