@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { sendFail, sendOk } from '../../lib/response.js'
+import { fetchAppAccessRow, resolveEffectiveAccess } from '../../lib/app-access.js'
 
 /**
  * 公開イベント情報（認証なし）。
@@ -31,6 +32,10 @@ export async function eventsPublicRoutes(app: FastifyInstance) {
       if (!e) {
         return sendFail(reply, 404, 'NOT_FOUND', 'イベントが見つかりません')
       }
+
+      const accessRow = await fetchAppAccessRow(app.db, req.params.event_id)
+      const effective = resolveEffectiveAccess(accessRow)
+
       return sendOk(reply, {
         event: {
           id: e.id,
@@ -39,6 +44,12 @@ export async function eventsPublicRoutes(app: FastifyInstance) {
           date_end: `${String(e.date_end).replace(' ', 'T')}Z`,
           venue: e.venue,
           survey_url: e.survey_url,
+        },
+        app_access: {
+          is_open: effective.is_open,
+          mode: effective.mode,
+          app_opens_at: effective.app_opens_at,
+          pre_survey_closes_at: effective.pre_survey_closes_at,
         },
       })
     },
