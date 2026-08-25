@@ -241,6 +241,7 @@ describe('GET /events/:id/public（公開イベント情報）', () => {
   it('6 フィールドのみ返す', async () => {
     const db = makeDb([
       { match: /FROM events WHERE id = \? LIMIT 1/, rows: [{ id: 'e1', name: 'Fes A', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: '会場A', survey_url: null }] },
+      { match: /FROM event_app_access/, rows: [] },
     ])
     const app = await buildTestApp(db)
     const res = await app.inject({ method: 'GET', url: '/api/v1/events/e1/public' })

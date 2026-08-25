@@ -116,6 +116,7 @@ describe('DELETE /organizer/events/:event_id/event-data', () => {
       survey_answers: 2,
       ratings: 2,
       checkins: 2,
+      bingo_cards: 2,
       booth_tags: 2,
       booth_categories: 2,
       booths: 2,
@@ -124,6 +125,11 @@ describe('DELETE /organizer/events/:event_id/event-data', () => {
       categories: 2,
     })
     expect(log.some((sql) => /^DELETE FROM recommendations/.test(sql))).toBe(true)
+    // bingo_cards は booths より先に消す（bingo_cells.booth_id が ON DELETE RESTRICT のため）
+    const cardIdx = log.findIndex((sql) => /^DELETE FROM bingo_cards/.test(sql))
+    const boothIdx = log.findIndex((sql) => /^DELETE FROM booths/.test(sql))
+    expect(cardIdx).toBeGreaterThanOrEqual(0)
+    expect(cardIdx).toBeLessThan(boothIdx)
     expect(log.some((sql) => /^\s*INSERT INTO audit_logs/.test(sql))).toBe(true)
     await app.close()
   })
