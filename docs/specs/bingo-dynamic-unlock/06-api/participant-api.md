@@ -1,6 +1,6 @@
 ---
-状態: 確定
-最終更新: 2026-08-24
+状態: 実装済み
+最終更新: 2026-08-25
 ---
 
 # 参加者向け API
@@ -74,7 +74,11 @@
   "synced_at": "…Z",
   "cooldown_remaining_sec": 0,
   "filled_cell": { "position": 6 },
-  "unlocked_positions": [4, 7],
+  "unlocked_positions": [1, 13, 3, 12],
+  "unlocked_pairs": [
+    { "pair_key": "5-9", "released_positions": [1, 13] },
+    { "pair_key": "6-9", "released_positions": [3, 12] }
+  ],
   "new_lines": 0,
   "lines_completed": 0,
   "pending_rating": { "checkin_id": "…", "booth_id": "…", "booth_name": "…" }
@@ -85,12 +89,17 @@
 |---|---|
 | `filled_cell` | 今回のチェックインで埋まったマス。カード外訪問なら `null` |
 | `unlocked_positions` | **今回の解放で開放された外周 position の配列。** 解放が起きなければ空配列 |
+| `unlocked_pairs` | 同じ解放の**ペア単位の内訳**（`pair_key` と、そのペアで開放された position）。解放が起きなければ空配列 |
 | `new_lines` | 今回のチェックインで新たに成立したライン数 |
 | `lines_completed` | 成立ライン数の合計 |
 | `pending_rating` | 未回収の評価があれば非 `null`（[rating-collection.md](../04-rating/rating-collection.md)） |
 
 - `unlocked` という真偽値は**返さない。** 解放が複数回あるため、開放されたマスの配列を返す
 - `coins_earned` は返さない（[D-5](../01-concept/decisions.md)）
+- 中央3マス目・4マス目の達成では2ペア・3ペアが同時に成立し、`unlocked_positions` には
+  全ペア分が平坦に混ざる。**ペア単位の解放演出には `unlocked_pairs` を使うこと。**
+  対応表（[unlock-pairs.md](../03-card-lifecycle/unlock-pairs.md)）をフロントで複製して
+  逆引きしてはならない（正本はサーバー）
 
 ### エラー
 
@@ -140,7 +149,7 @@
 
 | room | イベント | payload |
 |---|---|---|
-| `event:{event_id}:user:{user_id}` | `bingo:unlocked` | `{ unlock_event_ids: [...], released_positions: [4,7], unlocked_at: "…Z" }` |
+| `event:{event_id}:user:{user_id}` | `bingo:unlocked` | `{ unlock_event_ids: [...], released_positions: [1,13,3,12], unlocked_pairs: [{ pair_key: "5-9", released_positions: [1,13] }], unlocked_at: "…Z" }` |
 | `event:{event_id}:admin` | `checkin:new` | `{ booth_id, booth_name, user_display_name, checked_in_at }` |
 | `event:{event_id}:admin` | `rating:new` | `{ booth_id, booth_name, rating, comment, user_display_name }` |
 
