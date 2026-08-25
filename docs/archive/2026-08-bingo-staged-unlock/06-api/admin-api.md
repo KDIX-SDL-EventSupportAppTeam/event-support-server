@@ -23,8 +23,7 @@ Body: { "from_booth_id": "…", "to_booth_id": "…" }
 
 - 該当イベントの `bingo_cells` のうち `booth_id = from_booth_id` かつ **`state <> 'ACHIEVED'`** の行を対象に差し替える
 - 差し替え先が既にそのカードに載っている場合はそのカードをスキップする（`UNIQUE (card_id, booth_id)` 違反を避ける）
-- `to_booth_id` は**同一イベントかつ `is_active = 1` のブースに限る**（不一致は 404）。`from_booth_id` と同一なら 422
-- 差し替えた件数を返す。`cell_assignment_logs` に `strategy='ADMIN_REASSIGN'` で記録するのは、**実際に差し替わったマスのみ**（競合で `ACHIEVED` になったマスにはログを残さない）
+- 差し替えた件数を返す。`cell_assignment_logs` に `strategy='ADMIN_REASSIGN'` で記録する
 - `manager` のみ。`audit_logs` に記録する
 
 > `to_booth_id` を省略した場合は[フォールバック規則](../05-recommender/fallback.md)でカードごとに個別選定する、という拡張が考えられるが**今回は実装しない**。運営が1ブースを指定する形で十分。

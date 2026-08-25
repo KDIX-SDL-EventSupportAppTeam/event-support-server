@@ -183,10 +183,3 @@ ALTER TABLE booths ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1;
 
 14 → **17**（`bingo_cards` / `bingo_cells` / `cell_assignment_logs`）。
 完了後に [AGENTS.md](../../../AGENTS.md) のテーブル数とエンドポイント表を更新すること。
-
-
-## イベントデータ全削除との関係
-
-`bingo_cells.booth_id` は `ON DELETE RESTRICT` のため、イベントデータ全削除
-（`src/lib/event-data/clear-all.ts`）では **`booths` を消す前に `bingo_cards` を削除する**。
-`bingo_cells` / `cell_assignment_logs` は `bingo_cards` から CASCADE で消える。
