@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { sendOk } from '../../../lib/response.js'
 import { requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { determinePhase, DEFAULT_PHASE_THRESHOLDS } from '../../../lib/bingo/phases.js'
 
 export async function adminRoutes(app: FastifyInstance) {
   const pre = [requireStaff, requireEventMatchesJwt]
@@ -10,7 +11,7 @@ export async function adminRoutes(app: FastifyInstance) {
     { preHandler: pre },
     async (req, reply) => {
       const eventId = req.params.event_id
-      const [r1, r2, r3, r4, r5] = await Promise.all([
+      const [r1, r2, r3, r4, r5, r6, r7] = await Promise.all([
         app.db.query('SELECT COUNT(*) AS c FROM users WHERE event_id = ?', [eventId]),
         app.db.query('SELECT COUNT(*) AS c FROM check_ins WHERE event_id = ?', [eventId]),
         app.db.query(
@@ -38,29 +39,38 @@ export async function adminRoutes(app: FastifyInstance) {
            ORDER BY time_slot ASC`,
           [eventId],
         ),
-        // ビンゴ段階解放の運用指標（docs/.sdd/06-api/admin-api.md §3）。participant のみ集計（E11）。
+        // ビンゴ段階解放の運用指標（docs/specs/bingo-dynamic-unlock/06-api/admin-api.md）。
+        // participant のみ集計（E11）。card_unlock_events / recommendation_scores を参照する（D-8: status は持たない）。
         app.db.query(
           `SELECT
-             (SELECT COUNT(*) FROM bingo_cards WHERE event_id = ?) AS card_count,
-             (SELECT COUNT(*) FROM bingo_cards WHERE event_id = ? AND status = 'UNLOCKED') AS unlocked_count,
              (SELECT COUNT(*) FROM check_ins ci JOIN users u ON u.id = ci.user_id
-                WHERE ci.event_id = ? AND u.role = 'participant') AS participant_checkin_count,
+                WHERE ci.event_id = ? AND u.role = 'participant') AS checkins,
              (SELECT COUNT(*) FROM booth_ratings br JOIN users u ON u.id = br.user_id
-                WHERE br.event_id = ? AND u.role = 'participant') AS participant_rating_count,
-             (SELECT COUNT(*) FROM check_ins ci
-                JOIN bingo_cards k ON k.event_id = ci.event_id AND k.user_id = ci.user_id AND k.status = 'UNLOCKED'
-                JOIN users u ON u.id = ci.user_id
-                WHERE ci.event_id = ? AND ci.cell_id IS NULL AND u.role = 'participant'
-                  AND ci.checked_in_at >= k.unlocked_at) AS off_card_after_unlock,
-             (SELECT COUNT(*) FROM check_ins ci
-                JOIN bingo_cards k ON k.event_id = ci.event_id AND k.user_id = ci.user_id AND k.status = 'UNLOCKED'
-                JOIN users u ON u.id = ci.user_id
-                WHERE ci.event_id = ? AND u.role = 'participant'
-                  AND ci.checked_in_at >= k.unlocked_at) AS checkins_after_unlock,
-             (SELECT AVG(TIMESTAMPDIFF(SECOND, created_at, unlocked_at))
-                FROM bingo_cards WHERE event_id = ? AND status = 'UNLOCKED') AS avg_unlock_seconds
+                WHERE br.event_id = ? AND u.role = 'participant') AS ratings
           `,
-          [eventId, eventId, eventId, eventId, eventId, eventId, eventId],
+          [eventId, eventId],
+        ),
+        // カードごとの解放回数から「1回目/2回目/3回目まで到達した人数」を求める。
+        // 2マス目達成で1ペア、3マス目達成で2ペア、4マス目達成で3ペアが同時に成立するため、
+        // 累計ペア数のしきい値は 1 / 3 / 6 になる（unlock-pairs.md）。
+        app.db.query(
+          `SELECT k.id AS card_id, COUNT(*) AS pair_count
+             FROM bingo_cards k
+             JOIN card_unlock_events e ON e.card_id = k.id AND e.pair_key <> 'PRESURVEY'
+            WHERE k.event_id = ?
+            GROUP BY k.id`,
+          [eventId],
+        ),
+        // 直近30分の解放のうち、推薦サービスが使えず fallback/self-heal になった割合
+        app.db.query(
+          `SELECT
+             SUM(CASE WHEN strategy IN ('FALLBACK_COVERAGE','SELF_HEAL') THEN 1 ELSE 0 END) AS fallback_count,
+             COUNT(*) AS total_count
+             FROM card_unlock_events e
+             JOIN bingo_cards k ON k.id = e.card_id
+            WHERE k.event_id = ? AND e.pair_key <> 'PRESURVEY'
+              AND e.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 MINUTE)`,
+          [eventId],
         ),
       ])
       const p = Number((r1[0] as { c: number }[])[0]?.c ?? 0)
@@ -80,31 +90,46 @@ export async function adminRoutes(app: FastifyInstance) {
         time_slot: t.time_slot,
         count: Number(t.count) || 0,
       }))
-      const bingoRow = (r5[0] as {
-        card_count: number
-        unlocked_count: number
-        participant_checkin_count: number
-        participant_rating_count: number
-        off_card_after_unlock: number
-        checkins_after_unlock: number
-        avg_unlock_seconds: number | string | null
-      }[])[0]
-      const cardCount = Number(bingoRow?.card_count) || 0
-      const unlockedCount = Number(bingoRow?.unlocked_count) || 0
-      const participantCheckinCount = Number(bingoRow?.participant_checkin_count) || 0
-      const participantRatingCount = Number(bingoRow?.participant_rating_count) || 0
-      const offCardAfterUnlock = Number(bingoRow?.off_card_after_unlock) || 0
-      const checkinsAfterUnlock = Number(bingoRow?.checkins_after_unlock) || 0
+      const bingoRow = (r5[0] as { checkins: number; ratings: number }[])[0]
+      const bingoCheckins = Number(bingoRow?.checkins) || 0
+      const bingoRatings = Number(bingoRow?.ratings) || 0
+      const ratingCollectionRate = bingoCheckins ? Math.round((bingoRatings / bingoCheckins) * 1000) / 1000 : 0
+
+      // recommender.current_phase は評価済み件数（決定表のサイズ = ratings）から判定する
+      const decisionTableSize = bingoRatings
+      const currentPhase = determinePhase(decisionTableSize)
+      const nextThreshold =
+        currentPhase === 'COVERAGE'
+          ? DEFAULT_PHASE_THRESHOLDS.similarityMin
+          : currentPhase === 'SIMILARITY'
+            ? DEFAULT_PHASE_THRESHOLDS.drsaMin
+            : null
+      const remainingToNext = nextThreshold != null ? Math.max(0, nextThreshold - decisionTableSize) : 0
+
+      const pairCounts = (r6[0] as { card_id: string; pair_count: number }[]).map((r) => Number(r.pair_count) || 0)
+      const unlocks = {
+        first: pairCounts.filter((n) => n >= 1).length,
+        second: pairCounts.filter((n) => n >= 3).length,
+        third: pairCounts.filter((n) => n >= 6).length,
+      }
+
+      const fallbackRow = (r7[0] as { fallback_count: number | null; total_count: number }[])[0]
+      const fallbackCount = Number(fallbackRow?.fallback_count) || 0
+      const fallbackTotal = Number(fallbackRow?.total_count) || 0
+      const fallbackRateLast30Min = fallbackTotal ? Math.round((fallbackCount / fallbackTotal) * 1000) / 1000 : 0
+
       const bingo = {
-        card_count: cardCount,
-        unlock_rate: cardCount ? Math.round((unlockedCount / cardCount) * 1000) / 1000 : 0,
-        avg_unlock_seconds: bingoRow?.avg_unlock_seconds != null ? Math.round(Number(bingoRow.avg_unlock_seconds)) : null,
-        rating_collection_rate: participantCheckinCount
-          ? Math.round((participantRatingCount / participantCheckinCount) * 1000) / 1000
-          : 0,
-        off_card_visit_rate: checkinsAfterUnlock
-          ? Math.round((offCardAfterUnlock / checkinsAfterUnlock) * 1000) / 1000
-          : 0,
+        checkins: bingoCheckins,
+        ratings: bingoRatings,
+        rating_collection_rate: ratingCollectionRate,
+        recommender: {
+          current_phase: currentPhase,
+          decision_table_size: decisionTableSize,
+          next_threshold: nextThreshold,
+          remaining_to_next: remainingToNext,
+        },
+        unlocks,
+        fallback_rate_last_30min: fallbackRateLast30Min,
       }
       return sendOk(reply, {
         summary: {

@@ -25,10 +25,13 @@ import { boothRoutes } from './routes/v1/booths.js'
 import { checkinRoutes } from './routes/v1/checkins.js'
 import { bingoRoutes } from './routes/v1/bingo.js'
 import { adminBingoRoutes } from './routes/v1/admin/bingo.js'
+import { gachaRoutes } from './routes/v1/gacha.js'
 import { webhookRoutes } from './routes/v1/ops.js'
-import { recommendationRoutes } from './routes/v1/recommendations.js'
 import { surveyRoutes } from './routes/v1/survey.js'
 import { eventsPublicRoutes } from './routes/v1/events-public.js'
+import { appAccessRoutes } from './routes/v1/app-access.js'
+import { organizerAppAccessRoutes } from './routes/v1/organizer/app-access.js'
+import { adminAppAccessRoutes } from './routes/v1/admin/app-access.js'
 import { registerSocketIO } from './plugins/socket.js'
 
 export async function buildApp(config: AppConfig, db: DbClient) {
@@ -57,12 +60,13 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(authRoutes, { prefix: '/auth' })
       await v1.register(surveyRoutes)
       await v1.register(eventsPublicRoutes)
+      await v1.register(appAccessRoutes)
       await v1.register(boothRoutes)
       await v1.register(exhibitorRoutes)
       await v1.register(checkinRoutes)
       await v1.register(bingoRoutes)
       await v1.register(adminBingoRoutes)
-      await v1.register(recommendationRoutes)
+      await v1.register(gachaRoutes)
       await v1.register(webhookRoutes)
       await v1.register(adminRoutes)
       await v1.register(adminEventRoutes)
@@ -75,10 +79,12 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(adminSampleDataRoutes)
       await v1.register(adminAuditLogRoutes)
       await v1.register(adminBoothCommentRoutes)
+      await v1.register(adminAppAccessRoutes)
       await v1.register(organizerAuthRoutes)
       await v1.register(organizerEventRoutes)
       await v1.register(organizerStaffRoutes)
       await v1.register(organizerEventDataRoutes)
+      await v1.register(organizerAppAccessRoutes)
     },
     { prefix: '/api/v1' },
   )

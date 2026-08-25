@@ -1,25 +1,22 @@
 import type { FastifyInstance } from 'fastify'
-import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { utcMysqlNow } from '../../../lib/datetime.js'
 import { sendFail, sendOk } from '../../../lib/response.js'
 import { requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
 import { insertAuditLog } from '../../../lib/audit.js'
+import { listFallbackCandidates, pickTopFallbackBoothIds } from '../../../lib/bingo/fallback.js'
 
 const activeBody = z.object({ is_active: z.boolean() })
-const reassignBody = z.object({
-  from_booth_id: z.string().uuid(),
-  to_booth_id: z.string().uuid(),
-})
+const reassignBody = z.object({ booth_id: z.string().uuid() })
 
 /**
- * 運営向けビンゴ関連エンドポイント（docs/.sdd/06-api/admin-api.md）。
+ * 運営向けビンゴ関連エンドポイント（docs/specs/bingo-dynamic-unlock/06-api/admin-api.md）。
  * ブース有効・無効切り替えと、当日中止ブースの割当済みマス差し替え救済。
  */
 export async function adminBingoRoutes(app: FastifyInstance) {
   const pre = [requireManager, requireEventMatchesJwt]
 
-  // 1. ブースの有効・無効切り替え（E5）
+  // 1. ブースの有効・無効切り替え
   app.patch<{ Params: { event_id: string; booth_id: string } }>(
     '/events/:event_id/admin/booths/:booth_id/active',
     { preHandler: pre },
@@ -50,7 +47,8 @@ export async function adminBingoRoutes(app: FastifyInstance) {
     },
   )
 
-  // 2. 割当済みマスのブース差し替え（E5）
+  // 2. 当日中止ブースが載っているマスの差し替え救済（docs/specs/.../06-api/admin-api.md）
+  //    対象: is_revealed=1 AND is_achieved=0 AND booth_id=booth_id のマス（達成済みのマスは触らない）
   app.post<{ Params: { event_id: string } }>(
     '/events/:event_id/admin/bingo/reassign',
     { preHandler: pre },
@@ -60,60 +58,60 @@ export async function adminBingoRoutes(app: FastifyInstance) {
         return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
       }
       const eventId = req.params.event_id
-      const { from_booth_id, to_booth_id } = parsed.data
+      const { booth_id: fromBoothId } = parsed.data
 
-      // 対象: from_booth_id が入っている、まだ ACHIEVED でないマス（該当イベントのカードに限る）
       const [targetRows] = await app.db.query(
         `SELECT c.id, c.card_id FROM bingo_cells c
            JOIN bingo_cards k ON k.id = c.card_id
-          WHERE k.event_id = ? AND c.booth_id = ? AND c.state <> 'ACHIEVED'`,
-        [eventId, from_booth_id],
+          WHERE k.event_id = ? AND c.booth_id = ? AND c.is_revealed = 1 AND c.is_achieved = 0`,
+        [eventId, fromBoothId],
       )
       const targets = targetRows as { id: string; card_id: string }[]
       if (targets.length === 0) {
-        return sendOk(reply, { reassigned_count: 0 })
+        return sendOk(reply, { affected_cards: 0, reassigned_cells: 0, cleared_cells: 0 })
       }
 
-      // 差し替え先が既にそのカードに載っている場合はスキップ（UNIQUE (card_id, booth_id) 違反回避）
-      const [conflictRows] = await app.db.query(
-        `SELECT card_id FROM bingo_cells WHERE booth_id = ? AND card_id IN (${targets.map(() => '?').join(',')})`,
-        [to_booth_id, ...targets.map((t) => t.card_id)],
-      )
-      const conflictCardIds = new Set((conflictRows as { card_id: string }[]).map((r) => r.card_id))
-      const applicable = targets.filter((t) => !conflictCardIds.has(t.card_id))
+      const now = utcMysqlNow()
+      const affectedCardIds = new Set<string>()
+      let reassignedCells = 0
+      let clearedCells = 0
 
-      let reassignedCount = 0
-      if (applicable.length > 0) {
-        const now = utcMysqlNow()
-        const ids = applicable.map((t) => t.id)
-        const [result] = await app.db.execute(
-          `UPDATE bingo_cells SET booth_id = ?, assigned_at = ?
-             WHERE id IN (${ids.map(() => '?').join(',')}) AND state <> 'ACHIEVED'`,
-          [to_booth_id, now, ...ids],
-        )
-        reassignedCount = (result as { affectedRows: number }).affectedRows
+      // カードごとに処理する（除外集合＝そのカードに既に載っているブース、がカード単位で異なるため）
+      const targetsByCard = new Map<string, { id: string; card_id: string }[]>()
+      for (const t of targets) {
+        const list = targetsByCard.get(t.card_id) ?? []
+        list.push(t)
+        targetsByCard.set(t.card_id, list)
+      }
 
-        // cell_assignment_logs へ記録（strategy='ADMIN_REASSIGN'）
-        const [gcRows] = await app.db.query(
-          `SELECT COUNT(*) AS c FROM check_ins ci JOIN users u ON u.id = ci.user_id
-            WHERE ci.event_id = ? AND u.role = 'participant'`,
-          [eventId],
+      for (const [cardId, cells] of targetsByCard) {
+        const [cardBoothRows] = await app.db.query(
+          `SELECT booth_id FROM bingo_cells WHERE card_id = ? AND booth_id IS NOT NULL`,
+          [cardId],
         )
-        const globalCheckinCount = Number((gcRows as { c: number }[])[0]?.c ?? 0)
-        const placeholders = ids.map(() => '(?,?,?,?,?,?)').join(',')
-        const values = ids.flatMap((cellId) => [
-          randomUUID(),
-          cellId,
-          'ADMIN_REASSIGN',
-          null,
-          JSON.stringify({ kind: 'admin_reassign', from_booth_id, to_booth_id }),
-          globalCheckinCount,
-        ])
-        await app.db.execute(
-          `INSERT INTO cell_assignment_logs (id, cell_id, strategy, score, reason_payload, global_checkin_count)
-           VALUES ${placeholders}`,
-          values,
-        )
+        const excludeSet = new Set((cardBoothRows as { booth_id: string }[]).map((r) => r.booth_id))
+
+        for (const cell of cells) {
+          const fallbackCandidates = await listFallbackCandidates(app.db, eventId, [...excludeSet])
+          const [replacementId] = pickTopFallbackBoothIds(fallbackCandidates, 1)
+          const replacement = replacementId ?? null
+          if (replacement) excludeSet.add(replacement)
+
+          const [result] = await app.db.execute(
+            `UPDATE bingo_cells SET booth_id = ?, assigned_at = ?
+               WHERE id = ? AND is_revealed = 1 AND is_achieved = 0`,
+            [replacement, now, cell.id],
+          )
+          const affected = (result as { affectedRows: number }).affectedRows
+          if (affected !== 1) continue // 差し替え前に達成された等、競合でスキップ
+
+          affectedCardIds.add(cardId)
+          if (replacement) {
+            reassignedCells += 1
+          } else {
+            clearedCells += 1
+          }
+        }
       }
 
       await insertAuditLog(app.db, {
@@ -122,11 +120,20 @@ export async function adminBingoRoutes(app: FastifyInstance) {
         actorRole: req.jwtUser!.role ?? 'manager',
         action: 'bingo.reassign',
         targetType: 'booth',
-        targetId: from_booth_id,
-        detail: { from_booth_id, to_booth_id, reassigned_count: reassignedCount },
+        targetId: fromBoothId,
+        detail: {
+          booth_id: fromBoothId,
+          affected_cards: affectedCardIds.size,
+          reassigned_cells: reassignedCells,
+          cleared_cells: clearedCells,
+        },
       })
 
-      return sendOk(reply, { reassigned_count: reassignedCount })
+      return sendOk(reply, {
+        affected_cards: affectedCardIds.size,
+        reassigned_cells: reassignedCells,
+        cleared_cells: clearedCells,
+      })
     },
   )
 }
