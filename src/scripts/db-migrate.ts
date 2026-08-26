@@ -6,7 +6,7 @@ import mysql from 'mysql2/promise'
 import { loadConfig } from '../config.js'
 import { parseMysqlUrl } from '../db/parse-mysql-url.js'
 
-const EXPECTED_TABLES = 18
+const EXPECTED_TABLES = 20
 const MIGRATION_FILE = 'create-tables.sql'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..')
