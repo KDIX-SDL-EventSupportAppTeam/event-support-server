@@ -3,7 +3,7 @@
 -- =============================================================================
 --
 -- 【このファイルがすること】
---   既存の15テーブルを「データごと全削除」してから、新しいテーブル構成で
+--   既存テーブルを「データごと全削除」してから、新しいテーブル構成で
 --   作り直します。実行すると **中に入っているデータはすべて消えます**。
 --   バックアップが必要な場合は、実行前に必ずダンプを取得してください。
 --
@@ -16,18 +16,19 @@
 --   1. 下の「USE」の行で、実際のデータベース名に書き換える。
 --      （phpMyAdmin 等で対象 DB を選択済みの場合は、USE 行を削除しても構いません。）
 --   2. このファイル全文を SQL 実行画面に貼り付けて実行する。
---   3. 末尾の確認用 SELECT で、テーブル数が 15 であることを確認する。
---      （15 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
+--   3. 末尾の確認用 SELECT で、テーブル数が 20 であることを確認する。
+--      （20 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
 --
--- 【削除 → 再作成されるテーブル（18）】
---   events, categories, booths, booth_tags, users, survey_questions,
---   user_survey_answers, check_ins, booth_ratings, recommendations,
---   booth_categories, organizers, audit_logs, exhibitor_booths,
---   email_verification_tokens, bingo_cards, bingo_cells, cell_assignment_logs
+-- 【削除 → 再作成されるテーブル（20）】
+--   organizers, events, categories, booths, booth_tags, users, survey_questions,
+--   user_survey_answers, bingo_cards, bingo_cells, check_ins, booth_ratings,
+--   card_unlock_events, recommendation_scores, gacha_coin_uses, booth_categories,
+--   exhibitor_booths, email_verification_tokens, audit_logs, event_app_access
 --
 -- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 09_*.sql（内容を同期すること）
 -- 設計書: docs/designs/database.md §11、主催者自己管理機能: .sdd/02-data-model.md
--- ビンゴカード段階解放方式: docs/.sdd/02-data-model/schema-changes.md
+-- ビンゴカード動的段階解放方式: docs/specs/bingo-dynamic-unlock/02-data-model/schema-changes.md
+-- 事前アンケート／アプリ公開ゲート: docs/specs/pre-survey/02-data-model.md
 -- =============================================================================
 
 SET NAMES utf8mb4;
@@ -40,14 +41,18 @@ USE `your_database_name`;
 -- 外部キー制約があるため、参照先→参照元の逆順で DROP する
 -- =============================================================================
 SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS gacha_coin_uses;
+DROP TABLE IF EXISTS recommendation_scores;
+DROP TABLE IF EXISTS card_unlock_events;
 DROP TABLE IF EXISTS cell_assignment_logs;
+DROP TABLE IF EXISTS recommendations;
 DROP TABLE IF EXISTS bingo_cells;
 DROP TABLE IF EXISTS bingo_cards;
+DROP TABLE IF EXISTS event_app_access;
 DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS email_verification_tokens;
 DROP TABLE IF EXISTS exhibitor_booths;
 DROP TABLE IF EXISTS booth_categories;
-DROP TABLE IF EXISTS recommendations;
 DROP TABLE IF EXISTS booth_ratings;
 DROP TABLE IF EXISTS check_ins;
 DROP TABLE IF EXISTS user_survey_answers;
@@ -138,6 +143,9 @@ CREATE TABLE survey_questions (
   options        JSON      NOT NULL,
   display_order  INT,
   is_required    BOOLEAN   DEFAULT FALSE,
+  answer_type    VARCHAR(20) NOT NULL DEFAULT 'single',
+  question_key   VARCHAR(50) NULL,
+  CHECK (answer_type IN ('single','multi','text')),
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
 
@@ -150,17 +158,17 @@ CREATE TABLE user_survey_answers (
   industry        VARCHAR(100),
   custom_answers  JSON,
   created_at      DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_user_event (user_id, event_id),
   FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE,
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
 
 -- bingo_cards / bingo_cells は check_ins.cell_id から参照されるため先に作成する
+-- status / unlocked_at は持たない。段階はマスから導出する（D-8）
 CREATE TABLE bingo_cards (
   id          CHAR(36) PRIMARY KEY,
   event_id    CHAR(36) NOT NULL,
   user_id     CHAR(36) NOT NULL,
-  status      ENUM('CENTER_ONLY','UNLOCKED') NOT NULL DEFAULT 'CENTER_ONLY',
-  unlocked_at DATETIME NULL,
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_card_event_user (event_id, user_id),
@@ -168,16 +176,18 @@ CREATE TABLE bingo_cards (
   FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE
 );
 
+-- state を is_revealed / is_achieved の2軸へ分解（D-9）。source に PRESURVEY を追加、SIGNUP_BONUS は廃止
 CREATE TABLE bingo_cells (
-  id          CHAR(36) PRIMARY KEY,
-  card_id     CHAR(36) NOT NULL,
-  position    TINYINT  NOT NULL,
-  zone        ENUM('CENTER','OUTER') NOT NULL,
-  booth_id    CHAR(36) NULL,
-  state       ENUM('LOCKED','EMPTY','ACHIEVED') NOT NULL,
-  source      ENUM('SIGNUP_BONUS','FREE_VISIT','RECOMMEND') NULL,
-  assigned_at DATETIME NULL,
-  achieved_at DATETIME NULL,
+  id           CHAR(36)   PRIMARY KEY,
+  card_id      CHAR(36)   NOT NULL,
+  position     TINYINT    NOT NULL,
+  zone         ENUM('CENTER','OUTER') NOT NULL,
+  booth_id     CHAR(36)   NULL,
+  is_revealed  TINYINT(1) NOT NULL DEFAULT 0,
+  is_achieved  TINYINT(1) NOT NULL DEFAULT 0,
+  source       ENUM('PRESURVEY','FREE_VISIT','RECOMMEND') NULL,
+  assigned_at  DATETIME   NULL,
+  achieved_at  DATETIME   NULL,
   UNIQUE KEY uq_cell_card_position (card_id, position),
   UNIQUE KEY uq_cell_card_booth (card_id, booth_id),
   FOREIGN KEY (card_id)  REFERENCES bingo_cards(id) ON DELETE CASCADE,
@@ -222,30 +232,51 @@ CREATE TABLE booth_ratings (
   UNIQUE KEY uq_rating_per_checkin (checkin_id)
 );
 
--- 研究・デバッグ用（docs/.sdd/07-research-logging/logging.md）
-CREATE TABLE cell_assignment_logs (
+-- card_unlock_events（追記専用）: 解放の履歴。UNIQUE(card_id, pair_key) が冪等性の要（D-15）
+CREATE TABLE card_unlock_events (
   id                   CHAR(36)    PRIMARY KEY,
-  cell_id              CHAR(36)    NOT NULL,
+  card_id              CHAR(36)    NOT NULL,
+  pair_key             VARCHAR(8)  NOT NULL,
+  line_index           TINYINT     NOT NULL,
+  released_positions   VARCHAR(16) NOT NULL,
+  phase                VARCHAR(16) NOT NULL,
   strategy             VARCHAR(32) NOT NULL,
-  score                DOUBLE      NULL,
-  reason_payload       JSON        NULL,
+  decision_table_size  INT         NULL,
   global_checkin_count INT         NOT NULL,
   created_at           DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (cell_id) REFERENCES bingo_cells(id) ON DELETE CASCADE
+  UNIQUE KEY uq_unlock_card_pair (card_id, pair_key),
+  FOREIGN KEY (card_id) REFERENCES bingo_cards(id) ON DELETE CASCADE
 );
 
-CREATE TABLE recommendations (
-  id                 CHAR(36)  PRIMARY KEY,
-  user_id            CHAR(36)  NOT NULL,
-  event_id           CHAR(36)  NOT NULL,
-  offered_booth_ids  JSON      NOT NULL,
-  selected_booth_id  CHAR(36),
-  rejected_booth_ids JSON,
-  algorithm          VARCHAR(50) NOT NULL,
-  created_at         DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id)           REFERENCES users(id)  ON DELETE CASCADE,
-  FOREIGN KEY (event_id)          REFERENCES events(id) ON DELETE CASCADE,
-  FOREIGN KEY (selected_booth_id) REFERENCES booths(id) ON DELETE SET NULL
+-- recommendation_scores（追記専用）: 除外されていない全候補ブースを1行ずつ記録する（D-10）
+CREATE TABLE recommendation_scores (
+  id               CHAR(36)   PRIMARY KEY,
+  unlock_event_id  CHAR(36)   NOT NULL,
+  user_id          CHAR(36)   NOT NULL,
+  booth_id         CHAR(36)   NOT NULL,
+  score            DOUBLE     NULL,
+  rank_in_event    SMALLINT   NULL,
+  was_assigned     TINYINT(1) NOT NULL DEFAULT 0,
+  interest_match   ENUM('MATCH','PARTIAL','MISMATCH','UNKNOWN') NOT NULL DEFAULT 'UNKNOWN',
+  attributes       JSON       NULL,
+  reason_payload   JSON       NULL,
+  created_at       DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_score_event_booth (unlock_event_id, booth_id),
+  INDEX idx_score_user (user_id),
+  FOREIGN KEY (unlock_event_id) REFERENCES card_unlock_events(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id)         REFERENCES users(id)  ON DELETE CASCADE,
+  FOREIGN KEY (booth_id)        REFERENCES booths(id) ON DELETE CASCADE
+);
+
+-- gacha_coin_uses（器のみ。D-5: ビンゴはガチャコインに依存しない）
+CREATE TABLE gacha_coin_uses (
+  id        CHAR(36) PRIMARY KEY,
+  event_id  CHAR(36) NOT NULL,
+  user_id   CHAR(36) NOT NULL,
+  used_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_gacha_event_user (event_id, user_id),
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE
 );
 
 CREATE TABLE booth_categories (
@@ -286,7 +317,21 @@ CREATE TABLE audit_logs (
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
 
--- 確認（一覧に18テーブルが表示されれば成功）
+-- event_app_access（新規）。行が無いイベントは mode='closed' 相当として扱う（アプリ側）
+CREATE TABLE event_app_access (
+  event_id             CHAR(36)     PRIMARY KEY,
+  mode                 VARCHAR(20)  NOT NULL DEFAULT 'closed',
+  app_opens_at         DATETIME     NULL,
+  app_closes_at        DATETIME     NULL,
+  pre_survey_closes_at DATETIME     NULL,
+  updated_by           CHAR(36)     NULL,
+  updated_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CHECK (mode IN ('closed', 'scheduled', 'open')),
+  FOREIGN KEY (event_id)   REFERENCES events(id)     ON DELETE CASCADE,
+  FOREIGN KEY (updated_by) REFERENCES organizers(id) ON DELETE SET NULL
+);
+
+-- 確認（一覧に20テーブルが表示されれば成功）
 -- ※ さくら等の共有サーバーでは information_schema へのアクセスが権限で拒否される
 --   （#1044）ため、COUNT ではなく SHOW TABLES で確認する。
 SHOW TABLES;
