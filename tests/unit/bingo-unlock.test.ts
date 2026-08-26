@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { randomUUID } from 'node:crypto'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppConfig } from '../../src/config.js'
 import type { DbClient } from '../../src/db/client.js'
-import { unlockCard } from '../../src/lib/bingo/unlock.js'
+import { processCenterAchievement, healUnlockedCardIfNeeded } from '../../src/lib/bingo/unlock.js'
+import { CENTER_POSITIONS, OUTER_POSITIONS } from '../../src/lib/bingo/unlockPairs.js'
 
 const config: AppConfig = {
   port: 3000,
@@ -12,9 +12,9 @@ const config: AppConfig = {
   jwtSecret: 'secret',
   webhookApiKey: '',
   recommenderUrl: '', // 未設定 → 常にフォールバックへ（05-recommender/contract.md）
-  recommenderTimeoutMs: 1500,
+  recommenderTimeoutMs: 1000,
   checkinCooldownSec: 0,
-  ratingScale: 3,
+  ratingScale: 4,
   corsOrigin: 'http://localhost:5173',
   adminRegistrationKey: 'k',
   frontendBaseUrl: undefined,
@@ -27,189 +27,635 @@ const config: AppConfig = {
   mailFrom: 'from@example.com',
 }
 
-type Card = { id: string; status: 'CENTER_ONLY' | 'UNLOCKED'; unlocked_at: string | null }
 type Cell = {
   id: string
   card_id: string
   position: number
   zone: 'CENTER' | 'OUTER'
   booth_id: string | null
-  state: 'LOCKED' | 'EMPTY' | 'ACHIEVED'
+  is_revealed: number
+  is_achieved: number
   source: string | null
+  visit_order?: number
 }
+type UnlockEvent = {
+  id: string
+  card_id: string
+  pair_key: string
+  line_index: number
+  released_positions: string
+  phase: string
+  strategy: string
+  decision_table_size: number | null
+  global_checkin_count: number
+}
+type ScoreRow = { id: string; unlock_event_id: string; booth_id: string; was_assigned: number }
 type Booth = { id: string; event_id: string; is_active: number }
-type AssignmentLog = { id: string; cell_id: string; strategy: string; global_checkin_count: number }
 
 /**
- * unlockCard の結合テスト用インメモリ DB。
- * assignOuterCells / fallback.ts が実際に発行する SQL パターンにのみ対応する。
+ * unlock.ts / assignOuterCells.ts が実際に発行する SQL パターンにのみ対応するインメモリ DB。
  */
-function makeUnlockTestDb(opts: { card: Card; cells: Cell[]; boothCount: number }) {
-  const { card, cells } = opts
+function makeTestDb(opts: { cardId: string; cells: Cell[]; boothCount: number; surveyRow?: Record<string, unknown> }) {
+  const { cardId, cells } = opts
   const booths: Booth[] = Array.from({ length: opts.boothCount }, (_, i) => ({
     id: `booth-${i}`,
     event_id: 'event-1',
     is_active: 1,
   }))
-  const assignmentLogs: AssignmentLog[] = []
+  const unlockEvents: UnlockEvent[] = []
+  const scores: ScoreRow[] = []
 
   const query = async (sql: string, params: unknown[] = []): Promise<[unknown, unknown]> => {
-    if (/SELECT id, position FROM bingo_cells WHERE card_id = \? AND state = 'LOCKED'/.test(sql)) {
-      const rows = cells
-        .filter((c) => c.card_id === params[0] && c.state === 'LOCKED')
-        .sort((a, b) => a.position - b.position)
-        .map((c) => ({ id: c.id, position: c.position }))
+    if (/SELECT position FROM bingo_cells WHERE card_id = \? AND zone = 'CENTER' AND is_achieved = 1/.test(sql)) {
+      const rows = cells.filter((c) => c.zone === 'CENTER' && c.is_achieved === 1).map((c) => ({ position: c.position }))
       return [rows, undefined]
     }
-    if (/SELECT booth_id, source FROM bingo_cells WHERE card_id = \? AND zone = 'CENTER'/.test(sql)) {
-      const rows = cells
-        .filter((c) => c.card_id === params[0] && c.zone === 'CENTER')
-        .map((c) => ({ booth_id: c.booth_id, source: c.source }))
-      return [rows, undefined]
-    }
-    if (/SELECT DISTINCT booth_id FROM check_ins/.test(sql)) {
-      return [[], undefined]
-    }
-    if (/SELECT id FROM booths WHERE event_id = \? AND is_active = 0/.test(sql)) {
-      return [[], undefined]
-    }
-    if (/SELECT ci\.booth_id, ci\.visit_order, bc\.source, br\.rating/.test(sql)) {
-      const rows = cells
-        .filter((c) => c.card_id === params[0] && c.zone === 'CENTER' && c.booth_id)
-        .map((c, idx) => ({ booth_id: c.booth_id, visit_order: idx, source: c.source, rating: null }))
+    if (/SELECT pair_key FROM card_unlock_events WHERE card_id = \? AND pair_key <> 'PRESURVEY'/.test(sql)) {
+      const [id] = params as [string]
+      const rows = unlockEvents.filter((e) => e.card_id === id).map((e) => ({ pair_key: e.pair_key }))
       return [rows, undefined]
     }
     if (/SELECT COUNT\(\*\) AS c FROM check_ins ci\s+JOIN users u/.test(sql)) {
       return [[{ c: 42 }], undefined]
     }
-    if (/SELECT b\.id, COUNT\(ci\.id\) AS visitors/.test(sql)) {
-      // fallback.ts: exclude 済みブースを除いた候補を visitors 昇順で返す
+    if (/SELECT id FROM card_unlock_events WHERE card_id = \? AND pair_key = \? LIMIT 1/.test(sql)) {
+      const [id, pairKey] = params as [string, string]
+      const row = unlockEvents.find((e) => e.card_id === id && e.pair_key === pairKey)
+      return [row ? [{ id: row.id }] : [], undefined]
+    }
+    if (/SELECT id, position FROM bingo_cells WHERE card_id = \? AND zone = 'OUTER'/.test(sql)) {
+      const rows = cells.filter((c) => c.zone === 'OUTER').map((c) => ({ id: c.id, position: c.position }))
+      return [rows, undefined]
+    }
+    if (/SELECT position FROM bingo_cells WHERE card_id = \? AND zone = 'OUTER' AND is_revealed = 1/.test(sql)) {
+      const rows = cells.filter((c) => c.zone === 'OUTER' && c.is_revealed === 1).map((c) => ({ position: c.position }))
+      return [rows, undefined]
+    }
+    // buildExcludeSet は UNION 1本にまとまっている（C-4）
+    if (/SELECT booth_id FROM bingo_cells WHERE card_id = \? AND booth_id IS NOT NULL\s+UNION/.test(sql)) {
+      const rows = cells.filter((c) => c.booth_id !== null).map((c) => ({ booth_id: c.booth_id }))
+      return [rows, undefined]
+    }
+    if (/SELECT DISTINCT unlock_event_id FROM recommendation_scores WHERE unlock_event_id IN/.test(sql)) {
+      const ids = params as string[]
+      const found = [...new Set(scores.filter((s) => ids.includes(s.unlock_event_id)).map((s) => s.unlock_event_id))]
+      return [found.map((id) => ({ unlock_event_id: id })), undefined]
+    }
+    if (/SELECT ci\.booth_id, ci\.visit_order, bc\.source, br\.rating/.test(sql)) {
+      // A-1: is_achieved=1 のマスだけを、訪問順（visit_order 昇順）で返す
+      const rows = cells
+        .filter((c) => c.booth_id !== null && c.is_achieved === 1)
+        .map((c, idx) => ({ booth_id: c.booth_id, visit_order: c.visit_order ?? idx, source: c.source, rating: null }))
+        .sort((a, b) => (a.visit_order ?? 0) - (b.visit_order ?? 0))
+      return [rows, undefined]
+    }
+    if (/SELECT age_range, occupation, industry, custom_answers\s+FROM user_survey_answers/.test(sql)) {
+      return [opts.surveyRow ? [{ ...opts.surveyRow }] : [], undefined]
+    }
+    // C-6: 未修復のイベントだけを1クエリで引く
+    if (/FROM card_unlock_events cue[\s\S]*FIND_IN_SET/.test(sql)) {
+      const [id] = params as [string]
+      const rows = unlockEvents
+        .filter((e) => e.card_id === id && e.pair_key !== 'PRESURVEY')
+        .filter((e) =>
+          e.released_positions
+            .split(',')
+            .map((n) => Number(n.trim()))
+            .some((pos) => cells.some((c) => c.zone === 'OUTER' && c.position === pos && c.is_revealed === 0)),
+        )
+        .map((e) => ({ id: e.id, pair_key: e.pair_key, released_positions: e.released_positions }))
+      return [rows, undefined]
+    }
+    if (/SELECT id, position, is_revealed FROM bingo_cells WHERE card_id = \? AND zone = 'OUTER'/.test(sql)) {
+      const rows = cells
+        .filter((c) => c.zone === 'OUTER')
+        .map((c) => ({ id: c.id, position: c.position, is_revealed: c.is_revealed }))
+      return [rows, undefined]
+    }
+    if (/SELECT b\.id, b\.category_id,[\s\S]*FROM booths b\s+WHERE b\.event_id = \? AND b\.is_active = 1 AND b\.id NOT IN/.test(sql)) {
+      const excludeList = params.slice(2) as string[]
+      const candidates = booths.filter((b) => b.is_active === 1 && !excludeList.includes(b.id))
+      return [candidates.map((b) => ({ id: b.id, category_id: null, visitor_count: 0 })), undefined]
+    }
+    if (/SELECT b\.id, COUNT\(u\.id\) AS visitors\s+FROM booths b/.test(sql)) {
       const excludeList = params.slice(1) as string[]
       const candidates = booths.filter((b) => b.is_active === 1 && !excludeList.includes(b.id))
-      return [candidates.map((b) => ({ id: b.id })), undefined]
-    }
-    if (/SELECT id FROM booths WHERE event_id = \? AND is_active = 1 AND id IN/.test(sql)) {
-      return [[], undefined]
+      return [candidates.map((b) => ({ id: b.id, visitors: 0 })), undefined]
     }
     throw new Error(`unmatched SELECT: ${sql}`)
   }
 
   const execute = async (sql: string, params: unknown[] = []): Promise<[unknown, unknown]> => {
-    if (/UPDATE bingo_cards SET status = 'UNLOCKED'/.test(sql)) {
-      const [unlockedAt, , cardId] = params as [string, string, string]
-      if (card.id === cardId && card.status === 'CENTER_ONLY') {
-        card.status = 'UNLOCKED'
-        card.unlocked_at = unlockedAt
-        return [{ affectedRows: 1 }, undefined]
+    if (/INSERT INTO card_unlock_events/.test(sql)) {
+      const [id, cardIdP, pairKey, lineIndex, releasedPositions, phase, strategy, decisionTableSize, globalCheckinCount] =
+        params as [string, string, string, number, string, string, string, number | null, number]
+      if (unlockEvents.some((e) => e.card_id === cardIdP && e.pair_key === pairKey)) {
+        const err = new Error('dup') as Error & { code?: string }
+        err.code = 'ER_DUP_ENTRY'
+        throw err
       }
-      return [{ affectedRows: 0 }, undefined]
+      unlockEvents.push({
+        id,
+        card_id: cardIdP,
+        pair_key: pairKey,
+        line_index: lineIndex,
+        released_positions: releasedPositions,
+        phase,
+        strategy,
+        decision_table_size: decisionTableSize,
+        global_checkin_count: globalCheckinCount,
+      })
+      return [{ affectedRows: 1 }, undefined]
     }
     if (/UPDATE bingo_cells\s+SET booth_id = CASE id/.test(sql)) {
-      // params: [id,boothId]*N, [id,source]*N, [id,assignedAt]*N, ids...N
-      const n = (params.length - cells.filter((c) => c.card_id === card.id && c.state === 'LOCKED').length) / 3
-      // 単純化: WHEN 節から id→boothId, id→source を復元する
-      const idCount = cells.filter((c) => c.card_id === card.id && c.state === 'LOCKED').length
-      const boothPairs = params.slice(0, idCount * 2)
-      const sourcePairs = params.slice(idCount * 2, idCount * 4)
-      for (let i = 0; i < idCount; i++) {
+      const n = params.length / 7
+      const boothPairs = params.slice(0, n * 2)
+      const sourcePairs = params.slice(n * 2, n * 4)
+      let affected = 0
+      for (let i = 0; i < n; i++) {
         const id = boothPairs[i * 2] as string
         const boothId = boothPairs[i * 2 + 1] as string | null
         const source = sourcePairs[i * 2 + 1] as string | null
         const cell = cells.find((c) => c.id === id)
-        if (cell) {
+        if (cell && cell.is_revealed === 0) {
           cell.booth_id = boothId
-          cell.state = 'EMPTY'
+          cell.is_revealed = 1
           cell.source = source
+          affected += 1
         }
       }
-      void n
-      return [{ affectedRows: idCount }, undefined]
+      return [{ affectedRows: affected }, undefined]
     }
-    if (/INSERT INTO cell_assignment_logs/.test(sql)) {
-      // 6 params per row: id, cell_id, strategy, score, reason_payload, global_checkin_count
-      for (let i = 0; i < params.length; i += 6) {
-        assignmentLogs.push({
+    if (/INSERT INTO recommendation_scores/.test(sql)) {
+      for (let i = 0; i < params.length; i += 10) {
+        scores.push({
           id: params[i] as string,
-          cell_id: params[i + 1] as string,
-          strategy: params[i + 2] as string,
-          global_checkin_count: params[i + 5] as number,
+          unlock_event_id: params[i + 1] as string,
+          booth_id: params[i + 3] as string,
+          was_assigned: params[i + 6] as number,
         })
       }
-      return [{ affectedRows: params.length / 6 }, undefined]
+      return [{ affectedRows: params.length / 10 }, undefined]
+    }
+    // C-3: CASE 式でまとめた1回の UPDATE
+    if (/UPDATE card_unlock_events\s+SET phase = \?, decision_table_size = \?, global_checkin_count = \?,\s+strategy = CASE id/.test(sql)) {
+      const [phase, decisionTableSize, globalCheckinCount] = params as [string, number | null, number]
+      const rest = params.slice(3)
+      const n = rest.length / 3 // (id, strategy) ペア + 末尾の id 一覧
+      let affected = 0
+      for (let i = 0; i < n; i++) {
+        const id = rest[i * 2] as string
+        const strategy = rest[i * 2 + 1] as string
+        const ev = unlockEvents.find((e) => e.id === id)
+        if (ev) {
+          ev.phase = phase
+          ev.decision_table_size = decisionTableSize
+          ev.global_checkin_count = globalCheckinCount
+          ev.strategy = strategy
+          affected += 1
+        }
+      }
+      return [{ affectedRows: affected }, undefined]
     }
     throw new Error(`unmatched EXECUTE: ${sql}`)
   }
 
   const db: DbClient = { query, execute, end: async () => {} }
-  return { db, assignmentLogs, cells, card }
+  return { db, cells, unlockEvents, scores, cardId }
 }
 
-function buildCard(): { card: Card; cells: Cell[] } {
-  const card: Card = { id: 'card-1', status: 'CENTER_ONLY', unlocked_at: null }
+function buildAllCenterAchievedCard(): Cell[] {
+  const cardId = 'card-1'
   const cells: Cell[] = []
-  const centerPositions = [5, 6, 9, 10]
   for (let pos = 0; pos < 16; pos++) {
-    const isCenter = centerPositions.includes(pos)
+    const isCenter = CENTER_POSITIONS.includes(pos)
     cells.push({
       id: `cell-${pos}`,
-      card_id: card.id,
+      card_id: cardId,
       position: pos,
       zone: isCenter ? 'CENTER' : 'OUTER',
       booth_id: isCenter ? `visited-${pos}` : null,
-      state: isCenter ? 'ACHIEVED' : 'LOCKED',
+      is_revealed: isCenter ? 1 : 0,
+      is_achieved: isCenter ? 1 : 0,
       source: isCenter ? 'FREE_VISIT' : null,
     })
   }
-  return { card, cells }
+  return cells
 }
 
-describe('unlockCard', () => {
-  it('中央4マス完成時に解放し、外側12マスがフォールバックで埋まる（推薦未設定）', async () => {
-    const { card, cells } = buildCard()
-    const { db, assignmentLogs } = makeUnlockTestDb({ card, cells, boothCount: 40 })
+describe('processCenterAchievement', () => {
+  it('中央4マス完成で6ペア成立し、外周12マスがフォールバックで埋まる（推薦未設定）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, unlockEvents, scores } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
 
-    const result = await unlockCard(db, config, 'event-1', 'user-1', card.id)
+    const result = await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
 
-    expect(result.unlocked).toBe(true)
-    expect(card.status).toBe('UNLOCKED')
+    expect(result.unlockedPositions.sort((a, b) => a - b)).toEqual([...OUTER_POSITIONS].sort((a, b) => a - b))
+    expect(unlockEvents).toHaveLength(6)
 
     const outerCells = cells.filter((c) => c.zone === 'OUTER')
     expect(outerCells).toHaveLength(12)
-    expect(outerCells.every((c) => c.state === 'EMPTY')).toBe(true)
+    expect(outerCells.every((c) => c.is_revealed === 1)).toBe(true)
     expect(outerCells.every((c) => c.booth_id !== null)).toBe(true)
     // 重複ブースが入らないこと
     const boothIds = outerCells.map((c) => c.booth_id)
     expect(new Set(boothIds).size).toBe(boothIds.length)
 
-    // strategy='FALLBACK_COVERAGE' で12行記録される
-    expect(assignmentLogs).toHaveLength(12)
-    expect(assignmentLogs.every((l) => l.strategy === 'FALLBACK_COVERAGE')).toBe(true)
-    expect(assignmentLogs.every((l) => l.global_checkin_count === 42)).toBe(true)
+    // strategy='FALLBACK_COVERAGE' で記録される
+    expect(unlockEvents.every((e) => e.strategy === 'FALLBACK_COVERAGE')).toBe(true)
+    expect(unlockEvents.every((e) => e.global_checkin_count === 42)).toBe(true)
+    expect(scores.length).toBeGreaterThan(0)
+    expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(12)
   })
 
-  it('冪等性: 既に UNLOCKED のカードに対して再度呼んでも unlocked=false（affectedRows=0）', async () => {
-    const { card, cells } = buildCard()
-    card.status = 'UNLOCKED' // 既に解放済み
-    const { db } = makeUnlockTestDb({ card, cells, boothCount: 40 })
+  it('冪等性: 同じ状態で2回呼んでも2回目は新規解放が起きない', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, unlockEvents } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
 
-    const result = await unlockCard(db, config, 'event-1', 'user-1', card.id)
-    expect(result.unlocked).toBe(false)
-    expect(result.unlockedAt).toBeNull()
+    await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+    expect(unlockEvents).toHaveLength(6)
+
+    const second = await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+    expect(second.unlockedPositions).toEqual([])
+    expect(unlockEvents).toHaveLength(6) // 増えない
   })
 
-  it('候補ブースが12件に満たない場合、埋められるだけ埋めて残りは EMPTY/booth_id=NULL のままにする（E13）', async () => {
-    const { card, cells } = buildCard()
-    const { db } = makeUnlockTestDb({ card, cells, boothCount: 5 }) // 候補5件のみ（12マスに満たない）
+  it('外周マスの達成では解放が一切起きない（中央未達成のまま呼んでも新規ペアなし）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    // 中央を未達成に戻す
+    for (const c of cells) {
+      if (c.zone === 'CENTER') {
+        c.is_achieved = 0
+        c.booth_id = null
+      }
+    }
+    const { db, unlockEvents } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    const result = await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+    expect(result.unlockedPositions).toEqual([])
+    expect(unlockEvents).toHaveLength(0)
+  })
 
-    const result = await unlockCard(db, config, 'event-1', 'user-1', card.id)
-    expect(result.unlocked).toBe(true)
+  it('候補ブースが12件に満たない場合、埋められるだけ埋めて残りは is_revealed=1/booth_id=NULL にする（E7）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 5 }) // 候補5件のみ
+
+    const result = await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+    expect(result.unlockedPositions).toHaveLength(12) // 12マス全て is_revealed=1 になる
 
     const outerCells = cells.filter((c) => c.zone === 'OUTER')
     const filled = outerCells.filter((c) => c.booth_id !== null)
     const empty = outerCells.filter((c) => c.booth_id === null)
     expect(filled).toHaveLength(5)
     expect(empty).toHaveLength(7)
-    // LOCKED のまま放置しない
-    expect(outerCells.every((c) => c.state === 'EMPTY')).toBe(true)
+    expect(outerCells.every((c) => c.is_revealed === 1)).toBe(true) // is_revealed=0 のまま放置しない
+  })
+})
+
+describe('healUnlockedCardIfNeeded（自己修復）', () => {
+  it('解放イベントだけ作られてマスが is_revealed=0 のまま残っている場合、修復される', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, cells: dbCells, unlockEvents, scores } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+
+    // 解放イベントだけ作られた壊れた状態を再現（unlock.ts の手順2は成功したが手順4で失敗したケース）
+    unlockEvents.push({
+      id: 'unlock-evt-1',
+      card_id: 'card-1',
+      pair_key: '5-6',
+      line_index: 1,
+      released_positions: '4,7',
+      phase: 'COVERAGE',
+      strategy: 'PENDING',
+      decision_table_size: null,
+      global_checkin_count: 10,
+    })
+
+    await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+
+    const cell4 = dbCells.find((c) => c.position === 4)!
+    const cell7 = dbCells.find((c) => c.position === 7)!
+    expect(cell4.is_revealed).toBe(1)
+    expect(cell7.is_revealed).toBe(1)
+    expect(cell4.booth_id).not.toBeNull()
+    expect(cell7.booth_id).not.toBeNull()
+
+    const updatedEvent = unlockEvents.find((e) => e.id === 'unlock-evt-1')!
+    expect(updatedEvent.strategy).toBe('SELF_HEAL')
+    expect(scores.some((s) => s.unlock_event_id === 'unlock-evt-1')).toBe(true)
+  })
+
+  it('解放イベントが無ければ何もしない', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, cells: dbCells } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+    expect(dbCells.filter((c) => c.zone === 'OUTER' && c.is_revealed === 1)).toHaveLength(0)
+  })
+
+  it('3回ぶんの解放イベントすべてが独立して点検される', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, cells: dbCells, unlockEvents } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+
+    unlockEvents.push(
+      {
+        id: 'evt-1',
+        card_id: 'card-1',
+        pair_key: '5-6',
+        line_index: 1,
+        released_positions: '4,7',
+        phase: 'COVERAGE',
+        strategy: 'PENDING',
+        decision_table_size: null,
+        global_checkin_count: 1,
+      },
+      {
+        id: 'evt-2',
+        card_id: 'card-1',
+        pair_key: '9-10',
+        line_index: 2,
+        released_positions: '8,11',
+        phase: 'COVERAGE',
+        strategy: 'PENDING',
+        decision_table_size: null,
+        global_checkin_count: 2,
+      },
+      {
+        id: 'evt-3',
+        card_id: 'card-1',
+        pair_key: '5-9',
+        line_index: 5,
+        released_positions: '1,13',
+        phase: 'COVERAGE',
+        strategy: 'PENDING',
+        decision_table_size: null,
+        global_checkin_count: 3,
+      },
+    )
+
+    await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+
+    for (const pos of [4, 7, 8, 11, 1, 13]) {
+      const cell = dbCells.find((c) => c.position === pos)!
+      expect(cell.is_revealed).toBe(1)
+      expect(cell.booth_id).not.toBeNull()
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 推薦サービスへ送るペイロード（05-recommender/contract.md）
+// ---------------------------------------------------------------------------
+
+const configWithRecommender: AppConfig = { ...config, recommenderUrl: 'http://recommender.test' }
+
+/** fetch を差し替えて、推薦サービスへ送られたリクエストボディを捕まえる。 */
+function stubRecommender(): { requests: Record<string, any>[] } {
+  const requests: Record<string, any>[] = []
+  vi.stubGlobal('fetch', async (_url: string, init: { body: string }) => {
+    requests.push(JSON.parse(init.body))
+    // assigned/scores は空で返す → 割当はフォールバックが担う（解放は必ず成功させる）
+    return {
+      ok: true,
+      json: async () => ({ phase: 'DRSA', decision_table_size: 7, assigned: [], scores: [] }),
+    } as unknown as Response
+  })
+  return { requests }
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('visited_booths ペイロード（A-1）', () => {
+  it('解放済みだが未訪問（is_achieved=0）の外周マスを訪問済みブースに含めない', async () => {
+    const cells = buildAllCenterAchievedCard()
+    // 1回目の解放で position 4,7 に推薦ブースが載った状態（is_revealed=1 / is_achieved=0）
+    for (const pos of [4, 7]) {
+      const c = cells.find((x) => x.position === pos)!
+      c.booth_id = `recommended-${pos}`
+      c.is_revealed = 1
+      c.is_achieved = 0
+      c.source = 'RECOMMEND'
+    }
+    const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    const { requests } = stubRecommender()
+
+    await processCenterAchievement(db, configWithRecommender, 'event-1', 'user-1', 'card-1')
+
+    expect(requests).toHaveLength(1)
+    const visitedIds = requests[0]!.visited_booths.map((v: { booth_id: string }) => v.booth_id)
+    expect(visitedIds).not.toContain('recommended-4')
+    expect(visitedIds).not.toContain('recommended-7')
+    // 実際に訪問した中央4マスだけが載る
+    expect([...visitedIds].sort()).toEqual(['visited-10', 'visited-5', 'visited-6', 'visited-9'])
+    // ただしカードに載っている以上 exclude_booth_ids には残る
+    expect(requests[0]!.exclude_booth_ids).toContain('recommended-4')
+  })
+
+  it('visited_booths は position 順ではなく訪問順（visit_order 昇順）で並ぶ', async () => {
+    const cells = buildAllCenterAchievedCard()
+    // position の昇順と訪問順が逆になるように仕込む
+    const orders: Record<number, number> = { 5: 4, 6: 3, 9: 2, 10: 1 }
+    for (const c of cells) {
+      if (c.zone === 'CENTER') c.visit_order = orders[c.position]
+    }
+    const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    const { requests } = stubRecommender()
+
+    await processCenterAchievement(db, configWithRecommender, 'event-1', 'user-1', 'card-1')
+
+    const visited = requests[0]!.visited_booths as { booth_id: string; order: number }[]
+    expect(visited.map((v) => v.booth_id)).toEqual(['visited-10', 'visited-9', 'visited-6', 'visited-5'])
+    expect(visited.map((v) => v.order)).toEqual([1, 2, 3, 4])
+  })
+})
+
+describe('pre_survey ペイロード（A-3）', () => {
+  it('custom_answers を展開して平坦なオブジェクトで送る（文字列で返っても JSON.parse する）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db } = makeTestDb({
+      cardId: 'card-1',
+      cells,
+      boothCount: 40,
+      surveyRow: {
+        age_range: 'twenties',
+        occupation: 'student',
+        industry: 'it',
+        custom_answers: JSON.stringify({ interest_categories: ['cat-a', 'cat-b'], q_free: 'hello' }),
+      },
+    })
+    const { requests } = stubRecommender()
+
+    await processCenterAchievement(db, configWithRecommender, 'event-1', 'user-1', 'card-1')
+
+    expect(requests[0]!.pre_survey).toEqual({
+      age_range: 'twenties',
+      occupation: 'student',
+      industry: 'it',
+      interest_categories: ['cat-a', 'cat-b'],
+      q_free: 'hello',
+    })
+    expect(requests[0]!.pre_survey.custom_answers).toBeUndefined()
+  })
+
+  it('custom_answers が壊れた文字列でも例外を投げず、他の項目は送られる', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db } = makeTestDb({
+      cardId: 'card-1',
+      cells,
+      boothCount: 40,
+      surveyRow: { age_range: 'teens', occupation: null, industry: null, custom_answers: '{ broken json' },
+    })
+    const { requests } = stubRecommender()
+
+    await processCenterAchievement(db, configWithRecommender, 'event-1', 'user-1', 'card-1')
+
+    expect(requests[0]!.pre_survey).toEqual({ age_range: 'teens', occupation: null, industry: null })
+  })
+
+  it('オブジェクトで返る custom_answers もそのまま平坦化する', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db } = makeTestDb({
+      cardId: 'card-1',
+      cells,
+      boothCount: 40,
+      surveyRow: {
+        age_range: 'thirties',
+        occupation: null,
+        industry: null,
+        custom_answers: { interest_categories: ['cat-x'] },
+      },
+    })
+    const { requests } = stubRecommender()
+
+    await processCenterAchievement(db, configWithRecommender, 'event-1', 'user-1', 'card-1')
+
+    expect(requests[0]!.pre_survey.interest_categories).toEqual(['cat-x'])
+  })
+})
+
+describe('recommendation_scores の重複防止（A-2）', () => {
+  const insertBrokenEvent = async (db: DbClient, id: string) =>
+    db.execute(
+      `INSERT INTO card_unlock_events
+         (id, card_id, pair_key, line_index, released_positions, phase, strategy, decision_table_size, global_checkin_count)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [id, 'card-1', '5-6', 1, '4,7', 'COVERAGE', 'PENDING', null, 10],
+    )
+
+  /**
+   * 同一の未修復イベントが二重に処理される状況（GET /bingo/card の二重呼び出し）。
+   * 後発は INSERT 前の SELECT で既存 scores を見つけてスキップする。
+   * ※本番DBはトランザクションが使えないため、完全同時（両者が INSERT 前に SELECT を終える）
+   *   ケースまでは閉じられない。それは card_unlock_events の UNIQUE と同じ割り切り（ADR 0001）。
+   */
+  it('二重呼び出しで (unlock_event_id, booth_id) を重複 INSERT しない', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, scores } = makeTestDb({ cardId: 'card-1', cells, boothCount: 20 })
+    await insertBrokenEvent(db, 'evt-a')
+
+    await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+    const afterFirst = scores.length
+    expect(afterFirst).toBeGreaterThan(0)
+
+    // 先発がマス更新まで終えた直後に後発が同じイベントを掴んだ状態を再現する
+    for (const pos of [4, 7]) {
+      const c = cells.find((x) => x.position === pos)!
+      c.is_revealed = 0
+      c.booth_id = null
+    }
+    await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+
+    expect(scores.length).toBe(afterFirst) // 増えない
+    const keys = scores.map((s) => `${s.unlock_event_id}:${s.booth_id}`)
+    expect(new Set(keys).size).toBe(keys.length) // UNIQUE(unlock_event_id, booth_id) に当たらない
+  })
+
+  it('修復対象が複数ペアでも scores INSERT は1回、既に scores のあるペアは除かれる', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, scores } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    await insertBrokenEvent(db, 'evt-a') // 5-6 → 4,7
+    await db.execute(
+      `INSERT INTO card_unlock_events
+         (id, card_id, pair_key, line_index, released_positions, phase, strategy, decision_table_size, global_checkin_count)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      ['evt-b', 'card-1', '9-10', 2, '8,11', 'COVERAGE', 'PENDING', null, 10],
+    )
+
+    await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+    expect(new Set(scores.map((s) => s.unlock_event_id))).toEqual(new Set(['evt-a', 'evt-b']))
+
+    // evt-a のマスだけ戻す → 2回目は evt-a の scores をスキップする
+    const before = scores.length
+    for (const pos of [4, 7]) {
+      const c = cells.find((x) => x.position === pos)!
+      c.is_revealed = 0
+      c.booth_id = null
+    }
+    await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+    expect(scores.length).toBe(before)
+  })
+})
+
+describe('SQL 往復数（C）', () => {
+  it('6ペア同時成立でも scores の INSERT と meta の UPDATE は1回ずつにまとまる（C-2/C-3）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    const executed: string[] = []
+    const origExecute = db.execute
+    db.execute = async (sql: string, params?: unknown[]) => {
+      executed.push(sql)
+      return origExecute(sql, params as unknown[])
+    }
+
+    await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    expect(executed.filter((s) => /INSERT INTO recommendation_scores/.test(s))).toHaveLength(1)
+    expect(executed.filter((s) => /UPDATE card_unlock_events/.test(s))).toHaveLength(1)
+  })
+
+  it('修復不要なカードの healUnlockedCardIfNeeded は1クエリで終わる（C-6）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    const queried: string[] = []
+    const origQuery = db.query
+    db.query = async (sql: string, params?: unknown[]) => {
+      queried.push(sql)
+      return origQuery(sql, params as unknown[])
+    }
+
+    await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+
+    expect(queried).toHaveLength(1)
+  })
+})
+
+describe('unlockedPairs（B）', () => {
+  it('ペアごとの pair_key と released_positions を返す', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+
+    const result = await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    expect(result.unlockedPairs).toHaveLength(6)
+    const byKey = Object.fromEntries(result.unlockedPairs.map((p) => [p.pair_key, p.released_positions]))
+    expect(byKey['5-9']).toEqual([1, 13])
+    expect(byKey['6-9']).toEqual([3, 12])
+    // 平坦な unlockedPositions と内訳の合計が一致する
+    expect(result.unlockedPairs.flatMap((p) => p.released_positions).sort((a, b) => a - b)).toEqual(
+      [...result.unlockedPositions].sort((a, b) => a - b),
+    )
+  })
+
+  it('中央3マス目の達成では2ペアぶんの内訳が返る', async () => {
+    const cells = buildAllCenterAchievedCard()
+    // 中央 10 を未達成に戻す → 成立するのは 5-6 / 5-9 / 6-9 の3ペア
+    const c10 = cells.find((x) => x.position === 10)!
+    c10.is_achieved = 0
+    c10.booth_id = null
+    const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+
+    const result = await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    expect(result.unlockedPairs.map((p) => p.pair_key).sort()).toEqual(['5-6', '5-9', '6-9'])
+    expect(result.unlockedPositions).toHaveLength(6)
   })
 })

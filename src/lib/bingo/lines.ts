@@ -1,6 +1,9 @@
 /**
- * ライン成立とガチャコイン判定（純関数。DB を触らない）。
- * docs/.sdd/03-card-lifecycle/lines-and-coins.md
+ * ライン判定（純関数。DB を触らない）。
+ * docs/specs/bingo-dynamic-unlock/03-card-lifecycle/lines.md
+ *
+ * ビンゴ側が計算するのは成立ライン数までである（D-5）。コインへの換算はガチャ側の責務。
+ * calcCoinsEarned() / MAX_COINS はここには置かない。
  */
 
 /** 4x4 の全10ライン（4行 + 4列 + 2対角）。position は行優先 0..15。 */
@@ -17,9 +20,11 @@ export const LINES: readonly (readonly number[])[] = [
   [3, 6, 9, 12], // 対角
 ]
 
-export const MAX_COINS = 4
-
-/** 達成済み position の集合から、成立しているライン数を返す。 */
+/**
+ * 達成済み position の集合から、成立しているライン数を返す。
+ * 中央2x2 {5,6,9,10} はどのラインにも含まれないため、中央4マス達成だけでは 0 のままである。
+ * 達成した順序には依存しない（集合だけで決まる）。
+ */
 export function countCompletedLines(achieved: ReadonlySet<number>): number {
   let count = 0
   for (const line of LINES) {
@@ -30,7 +35,11 @@ export function countCompletedLines(achieved: ReadonlySet<number>): number {
   return count
 }
 
-/** 成立ライン総数を 4 でクリップした値。差分加算にしない（二重加算防止）。 */
-export function calcCoinsEarned(achieved: ReadonlySet<number>): number {
-  return Math.min(countCompletedLines(achieved), MAX_COINS)
+/** 成立しているライン index の一覧を返す（順序は LINES の並びに従う）。 */
+export function completedLineIndexes(achieved: ReadonlySet<number>): number[] {
+  const out: number[] = []
+  LINES.forEach((line, idx) => {
+    if (line.every((pos) => achieved.has(pos))) out.push(idx)
+  })
+  return out
 }

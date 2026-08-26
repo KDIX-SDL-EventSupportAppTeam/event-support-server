@@ -5,10 +5,9 @@ import { isoToMysqlUtc, utcMysqlNow } from '../../lib/datetime.js'
 import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt, requireVerifiedEmail } from '../../plugins/auth.js'
 import { ensureCard } from '../../lib/bingo/ensureCard.js'
-import { assignCenterCell, isCenterComplete } from '../../lib/bingo/assignCenterCell.js'
+import { processCenterAchievement, type UnlockedPair } from '../../lib/bingo/unlock.js'
 import { checkCooldown } from '../../lib/bingo/cooldown.js'
-import { unlockCard } from '../../lib/bingo/unlock.js'
-import { countCompletedLines, calcCoinsEarned } from '../../lib/bingo/lines.js'
+import { countCompletedLines } from '../../lib/bingo/lines.js'
 
 const checkinBody = z.discriminatedUnion('method', [
   z.object({
@@ -29,7 +28,7 @@ const ratingBody = z.object({
   context: z.enum(['NEXT_CHECKIN', 'MANUAL']).optional().default('MANUAL'),
 })
 
-/** そのユーザー・イベントで未評価の最新チェックインを返す（D-10）。自分自身は除く。 */
+/** そのユーザー・イベントで未評価の最新チェックインを返す（rating-collection.md）。自分自身は除く。 */
 async function getPendingRating(
   app: FastifyInstance,
   eventId: string,
@@ -53,7 +52,7 @@ async function getPendingRating(
 
 async function getAchievedPositions(app: FastifyInstance, cardId: string): Promise<Set<number>> {
   const [rows] = await app.db.query(
-    `SELECT position FROM bingo_cells WHERE card_id = ? AND state = 'ACHIEVED'`,
+    `SELECT position FROM bingo_cells WHERE card_id = ? AND is_achieved = 1`,
     [cardId],
   )
   return new Set((rows as { position: number }[]).map((r) => r.position))
@@ -110,10 +109,10 @@ export async function checkinRoutes(app: FastifyInstance) {
         boothName = row.name
       }
 
-      // カードは get-or-create（無ければここで作る。E6: アンケート未回答でも必ず成功する）
+      // カードは get-or-create（無ければここで作る。事前アンケート未回答でも必ず成功する）
       const card = await ensureCard(app.db, eventId, uid)
 
-      // E1: さくらプロキシは重複キーエラーを 500 に潰してしまい ER_DUP_ENTRY を
+      // さくらプロキシは重複キーエラーを 500 に潰してしまい ER_DUP_ENTRY を
       // 受け取れないため、INSERT 前に重複を明示的に確認する
       const [dupRows] = await app.db.query(
         'SELECT id FROM check_ins WHERE user_id = ? AND booth_id = ? LIMIT 1',
@@ -123,7 +122,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         return sendFail(reply, 409, 'CONFLICT', 'このブースには既にチェックイン済みです')
       }
 
-      // E9: クールタイム判定（既定 CHECKIN_COOLDOWN_SEC=0 では判定自体をスキップする）
+      // クールタイム判定（既定 CHECKIN_COOLDOWN_SEC=0 では判定自体をスキップする）
       const cooldown = await checkCooldown(app.db, app.config.checkinCooldownSec, uid, eventId)
       if (cooldown.blocked) {
         return sendFail(reply, 429, 'COOLDOWN', `クールタイム中です（残り${cooldown.remainingSec}秒）`)
@@ -154,53 +153,80 @@ export async function checkinRoutes(app: FastifyInstance) {
       }
 
       let filledCell: { position: number } | null = null
-      let unlocked = false
+      let filledZone: 'CENTER' | 'OUTER' | null = null
 
-      if (card.status === 'CENTER_ONLY') {
-        // 後出し割当（checkin.md）: 中央マスの EMPTY を1つ選び、今チェックインしたブースを割り当てる
-        const assigned = await assignCenterCell(app.db, card.id, boothId)
-        if (assigned) {
-          filledCell = { position: assigned.position }
-          await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [assigned.cellId, id])
-
-          const complete = await isCenterComplete(app.db, card.id)
-          if (complete) {
-            const result = await unlockCard(app.db, app.config, eventId, uid, card.id)
-            unlocked = result.unlocked
-            if (unlocked) {
-              app.io.to(`event:${eventId}:user:${uid}`).emit('bingo:unlocked', {
-                card_id: card.id,
-                unlocked_at: result.unlockedAt ? `${result.unlockedAt.replace(' ', 'T')}Z` : null,
-              })
-            }
-          }
-        }
-        // assigned が null の場合、中央に EMPTY が無い（E3: ボーナスブース訪問等）。何もしない。
-      } else {
-        // 解放済み: 外側マスに一致するブースがあれば ACHIEVED にする。無ければカード外訪問（D-4）。
-        const [outerRows] = await app.db.query(
-          `SELECT id, position FROM bingo_cells WHERE card_id = ? AND booth_id = ? AND state = 'EMPTY' LIMIT 1`,
-          [card.id, boothId],
+      // 分岐1: そのブースが、既に見えている（is_revealed=1）未達成のマスに載っている
+      // （事前推薦マス・解放済みの外周マスがこれに当たる）
+      const [revealedRows] = await app.db.query(
+        `SELECT id, position, zone FROM bingo_cells
+         WHERE card_id = ? AND booth_id = ? AND is_revealed = 1 AND is_achieved = 0
+         LIMIT 1`,
+        [card.id, boothId],
+      )
+      const revealed = (revealedRows as { id: string; position: number; zone: 'CENTER' | 'OUTER' }[])[0]
+      if (revealed) {
+        const now = utcMysqlNow()
+        const [result] = await app.db.execute(
+          `UPDATE bingo_cells SET is_achieved = 1, achieved_at = ? WHERE id = ? AND is_achieved = 0`,
+          [now, revealed.id],
         )
-        const outer = (outerRows as { id: string; position: number }[])[0]
-        if (outer) {
+        const affected = (result as { affectedRows: number }).affectedRows
+        if (affected === 1) {
+          filledCell = { position: revealed.position }
+          filledZone = revealed.zone
+          await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [revealed.id, id])
+        }
+      }
+
+      // 分岐2: 中央マスに空きがある（後出し割当）
+      if (!filledCell) {
+        const [centerRows] = await app.db.query(
+          `SELECT id, position FROM bingo_cells
+           WHERE card_id = ? AND zone = 'CENTER' AND booth_id IS NULL
+           ORDER BY position ASC LIMIT 1`,
+          [card.id],
+        )
+        const centerCell = (centerRows as { id: string; position: number }[])[0]
+        if (centerCell) {
           const now = utcMysqlNow()
           const [result] = await app.db.execute(
-            `UPDATE bingo_cells SET state='ACHIEVED', achieved_at=? WHERE id=? AND state='EMPTY'`,
-            [now, outer.id],
+            `UPDATE bingo_cells
+             SET booth_id = ?, is_revealed = 1, is_achieved = 1,
+                 source = 'FREE_VISIT', assigned_at = ?, achieved_at = ?
+             WHERE id = ? AND booth_id IS NULL`,
+            [boothId, now, now, centerCell.id],
           )
           const affected = (result as { affectedRows: number }).affectedRows
           if (affected === 1) {
-            filledCell = { position: outer.position }
-            await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [outer.id, id])
+            filledCell = { position: centerCell.position }
+            filledZone = 'CENTER'
+            await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [centerCell.id, id])
           }
         }
-        // cell_id は NULL のまま（カード外訪問。研究データとして記録は必ず残す。評価は同じように求める D-12）
+      }
+      // 分岐3: どちらでもない（カード外訪問）。cell_id は NULL のまま。記録は必ず残す。
+
+      let unlockedPositions: number[] = []
+      // ペア単位の内訳。unlocked_positions は複数ペアが平坦に混ざるため、
+      // フロントの解放演出（pair_key 単位の再生済みフラグ）にはこちらを使う
+      let unlockedPairs: UnlockedPair[] = []
+      if (filledZone === 'CENTER') {
+        const result = await processCenterAchievement(app.db, app.config, eventId, uid, card.id)
+        unlockedPositions = result.unlockedPositions
+        unlockedPairs = result.unlockedPairs
+        if (unlockedPositions.length) {
+          app.io.to(`event:${eventId}:user:${uid}`).emit('bingo:unlocked', {
+            unlock_event_ids: result.unlockEventIds,
+            released_positions: unlockedPositions,
+            unlocked_pairs: unlockedPairs,
+            unlocked_at: `${synced.replace(' ', 'T')}Z`,
+          })
+        }
       }
 
       const afterAchieved = await getAchievedPositions(app, card.id)
-      const newLines = countCompletedLines(afterAchieved) - countCompletedLines(beforeAchieved)
-      const coinsEarned = calcCoinsEarned(afterAchieved)
+      const linesCompleted = countCompletedLines(afterAchieved)
+      const newLines = linesCompleted - countCompletedLines(beforeAchieved)
 
       const pendingRating = await getPendingRating(app, eventId, uid, id)
 
@@ -218,10 +244,11 @@ export async function checkinRoutes(app: FastifyInstance) {
         synced_at: `${synced.replace(' ', 'T')}Z`,
         cooldown_remaining_sec: 0,
         filled_cell: filledCell,
-        pending_rating: pendingRating,
-        unlocked,
+        unlocked_positions: unlockedPositions,
+        unlocked_pairs: unlockedPairs,
         new_lines: Math.max(newLines, 0),
-        coins_earned: coinsEarned,
+        lines_completed: linesCompleted,
+        pending_rating: pendingRating,
       })
     },
   )

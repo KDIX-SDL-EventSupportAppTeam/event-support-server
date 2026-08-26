@@ -1,23 +1,31 @@
 import type { FastifyInstance } from 'fastify'
 import { sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt } from '../../plugins/auth.js'
-import { ensureCard } from '../../lib/bingo/ensureCard.js'
+import { ensureCard, ALL_POSITIONS } from '../../lib/bingo/ensureCard.js'
 import { healUnlockedCardIfNeeded } from '../../lib/bingo/unlock.js'
-import { calcCoinsEarned } from '../../lib/bingo/lines.js'
+import { countCompletedLines } from '../../lib/bingo/lines.js'
+import { CENTER_POSITIONS } from '../../lib/bingo/unlockPairs.js'
 
 type CellRow = {
   position: number
   zone: 'CENTER' | 'OUTER'
-  state: 'LOCKED' | 'EMPTY' | 'ACHIEVED'
-  source: 'SIGNUP_BONUS' | 'FREE_VISIT' | 'RECOMMEND' | null
+  is_revealed: number
+  is_achieved: number
+  source: 'PRESURVEY' | 'FREE_VISIT' | 'RECOMMEND' | null
   booth_id: string | null
   booth_name: string | null
   manual_code: string | null
-  reason_payload: string | null
+  booth_description: string | null
+}
+
+type UnlockEventRow = {
+  pair_key: string
+  released_positions: string
+  created_at: string
 }
 
 /**
- * 参加者向けビンゴカード API。docs/.sdd/06-api/participant-api.md
+ * 参加者向けビンゴカード API。docs/specs/bingo-dynamic-unlock/06-api/participant-api.md
  */
 export async function bingoRoutes(app: FastifyInstance) {
   const pre = [requireBearerAuth, requireEventMatchesJwt]
@@ -31,17 +39,13 @@ export async function bingoRoutes(app: FastifyInstance) {
 
       const card = await ensureCard(app.db, eventId, uid)
 
-      // self-healing（05-recommender/fallback.md, E14）: UNLOCKED なのに LOCKED マスが
-      // 残っている（解放処理の途中失敗）ケースをこの GET で検知して修復する
-      if (card.status === 'UNLOCKED') {
-        await healUnlockedCardIfNeeded(app.db, app.config, eventId, uid, card.id)
-      }
+      // self-healing（05-recommender/fallback.md）: 解放イベントはあるのにマスが is_revealed=0 の
+      // まま残っている（解放処理の途中失敗）ケースをこの GET で検知して修復する
+      await healUnlockedCardIfNeeded(app.db, app.config, eventId, uid, card.id)
 
       const [rows] = await app.db.query(
-        `SELECT c.position, c.zone, c.state, c.source, c.booth_id,
-                b.name AS booth_name, b.manual_code,
-                (SELECT l.reason_payload FROM cell_assignment_logs l
-                 WHERE l.cell_id = c.id ORDER BY l.created_at DESC LIMIT 1) AS reason_payload
+        `SELECT c.position, c.zone, c.is_revealed, c.is_achieved, c.source, c.booth_id,
+                b.name AS booth_name, b.manual_code, b.description AS booth_description
            FROM bingo_cells c
            LEFT JOIN booths b ON b.id = c.booth_id
           WHERE c.card_id = ?
@@ -50,44 +54,64 @@ export async function bingoRoutes(app: FastifyInstance) {
       )
       const cellRows = rows as CellRow[]
 
-      const achieved = new Set(cellRows.filter((c) => c.state === 'ACHIEVED').map((c) => c.position))
-      const centerFilled = cellRows.filter((c) => c.zone === 'CENTER' && c.state === 'ACHIEVED').length
-      const freeVisitAchieved = cellRows.filter(
-        (c) => c.zone === 'CENTER' && c.state === 'ACHIEVED' && c.source === 'FREE_VISIT',
-      ).length
-      const visitsToUnlock = card.status === 'UNLOCKED' ? 0 : Math.max(0, 3 - freeVisitAchieved)
+      const achieved = new Set(cellRows.filter((c) => c.is_achieved === 1).map((c) => c.position))
+      const centerAchieved = cellRows.filter((c) => c.zone === 'CENTER' && c.is_achieved === 1).length
+      const revealedCells = cellRows.filter((c) => c.is_revealed === 1).length
+      const achievedCells = achieved.size
 
-      const cells = cellRows.map((c) => {
-        // state='LOCKED' のマスでは booth・reason を必ず null にする（解放前に中身を漏らさない。README 絶対制約5）
-        if (c.state === 'LOCKED') {
-          return { position: c.position, zone: c.zone, state: c.state, source: c.source, booth: null, reason: null }
+      const cells = ALL_POSITIONS.map((position) => {
+        const c = cellRows.find((r) => r.position === position)
+        if (!c) {
+          // 通常はここに来ない（ensureCard が必ず16行作る）が、防御的に埋める
+          return { position, zone: CENTER_POSITIONS.includes(position) ? 'CENTER' : 'OUTER', is_revealed: false, is_achieved: false, source: null, booth: null }
         }
-        let reason: unknown = null
-        if (c.reason_payload) {
-          try {
-            reason = JSON.parse(c.reason_payload)
-          } catch {
-            reason = null
+        // is_revealed=0 のマスでは booth を必ず null にする（解放前に中身を漏らさない。絶対の制約）
+        if (c.is_revealed === 0) {
+          return {
+            position: c.position,
+            zone: c.zone,
+            is_revealed: false,
+            is_achieved: Boolean(c.is_achieved),
+            source: c.source,
+            booth: null,
           }
         }
         return {
           position: c.position,
           zone: c.zone,
-          state: c.state,
+          is_revealed: true,
+          is_achieved: Boolean(c.is_achieved),
           source: c.source,
-          booth: c.booth_id ? { id: c.booth_id, name: c.booth_name, manual_code: c.manual_code } : null,
-          // reason の生成ロジックは未決定（Q-3）。cell_assignment_logs.reason_payload の通し口のみ。
-          reason,
+          booth: c.booth_id
+            ? { id: c.booth_id, name: c.booth_name, manual_code: c.manual_code, description: c.booth_description }
+            : null,
         }
       })
 
+      const [unlockRows] = await app.db.query(
+        `SELECT pair_key, released_positions, created_at
+           FROM card_unlock_events
+          WHERE card_id = ? AND pair_key <> 'PRESURVEY'
+          ORDER BY created_at ASC`,
+        [card.id],
+      )
+      const unlockEvents = (unlockRows as UnlockEventRow[]).map((e) => ({
+        pair_key: e.pair_key,
+        released_positions: e.released_positions.split(',').map((s) => Number(s.trim())),
+        unlocked_at: `${String(e.created_at).replace(' ', 'T')}Z`,
+      }))
+
       return sendOk(reply, {
         card_id: card.id,
-        status: card.status,
-        unlocked_at: card.unlockedAt ? `${card.unlockedAt.replace(' ', 'T')}Z` : null,
         rating_scale: app.config.ratingScale,
-        progress: { center_filled: centerFilled, center_total: 4, visits_to_unlock: visitsToUnlock },
-        coins: { earned: calcCoinsEarned(achieved), max: 4 },
+        progress: {
+          center_achieved: centerAchieved,
+          center_total: CENTER_POSITIONS.length,
+          revealed_cells: revealedCells,
+          achieved_cells: achievedCells,
+        },
+        lines_completed: countCompletedLines(achieved),
+        unlock_events: unlockEvents,
         cells,
       })
     },

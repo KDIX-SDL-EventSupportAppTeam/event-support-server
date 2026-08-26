@@ -8,6 +8,7 @@ import { requireOrganizer } from '../../../plugins/auth.js'
 import { insertAuditLog } from '../../../lib/audit.js'
 import { buildEventUrls } from '../../../lib/url.js'
 import { assertEventOwnedByOrganizer } from '../../../lib/organizer.js'
+import { buildDefaultAccessDefaults } from '../../../lib/app-access.js'
 
 /** DB から取得したイベント行（日時は MySQL DATETIME 文字列）。 */
 type EventRow = {
@@ -198,6 +199,13 @@ export async function organizerEventRoutes(app: FastifyInstance) {
             [managerId, eventId, managerEmail, managerHash, managerDisplayName, 'manager'],
           )
 
+          const accessDefaults = buildDefaultAccessDefaults(body.date_start)
+          await conn.execute(
+            `INSERT INTO event_app_access (event_id, mode, app_opens_at, pre_survey_closes_at)
+             VALUES (?,?,?,?)`,
+            [eventId, accessDefaults.mode, accessDefaults.app_opens_at, accessDefaults.pre_survey_closes_at],
+          )
+
           await conn.execute(
             `INSERT INTO audit_logs (id, event_id, actor_id, actor_role, action, target_type, target_id, detail)
              VALUES (?,?,?,?,?,?,?,?)`,
@@ -231,6 +239,13 @@ export async function organizerEventRoutes(app: FastifyInstance) {
           await app.db.execute(
             'INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)',
             [managerId, eventId, managerEmail, managerHash, managerDisplayName, 'manager'],
+          )
+
+          const accessDefaults = buildDefaultAccessDefaults(body.date_start)
+          await app.db.execute(
+            `INSERT INTO event_app_access (event_id, mode, app_opens_at, pre_survey_closes_at)
+             VALUES (?,?,?,?)`,
+            [eventId, accessDefaults.mode, accessDefaults.app_opens_at, accessDefaults.pre_survey_closes_at],
           )
 
           await insertAuditLog(app.db, {

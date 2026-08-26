@@ -7,6 +7,7 @@ export type EventDataClearResult = {
     survey_answers: number
     ratings: number
     checkins: number
+    bingo_cards: number
     booth_tags: number
     booth_categories: number
     booths: number
@@ -56,6 +57,9 @@ export async function clearAllEventData(db: DbClient, eventId: string): Promise<
   const [usaRes] = await db.execute('DELETE FROM user_survey_answers WHERE event_id = ?', [eventId])
   const [brRes] = await db.execute('DELETE FROM booth_ratings WHERE event_id = ?', [eventId])
   const [ciRes] = await db.execute('DELETE FROM check_ins WHERE event_id = ?', [eventId])
+  // bingo_cells.booth_id は ON DELETE RESTRICT のため、booths 削除より先にカードを消す
+  // （bingo_cells / cell_assignment_logs は bingo_cards から CASCADE で消える）
+  const [cardRes] = await db.execute('DELETE FROM bingo_cards WHERE event_id = ?', [eventId])
 
   const deletedTags = await deleteByBoothIds(db, 'booth_tags', boothIds)
   const deletedBoothCategories = hasBoothCategories
@@ -76,6 +80,7 @@ export async function clearAllEventData(db: DbClient, eventId: string): Promise<
       survey_answers: affectedRows(usaRes),
       ratings: affectedRows(brRes),
       checkins: affectedRows(ciRes),
+      bingo_cards: affectedRows(cardRes),
       booth_tags: deletedTags,
       booth_categories: deletedBoothCategories,
       booths: affectedRows(boothRes),
