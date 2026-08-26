@@ -1,6 +1,6 @@
 ---
-状態: 確定
-最終更新: 2026-08-24
+状態: 実装済み
+最終更新: 2026-08-25
 ---
 
 # チェックインとマスの割当
@@ -89,7 +89,7 @@ WHERE id = ? AND booth_id IS NULL
 ## レスポンス
 
 [06-api/participant-api.md](../06-api/participant-api.md) を参照。
-`filled_cell` / `unlocked_positions` / `new_lines` / `pending_rating` を含む。
+`filled_cell` / `unlocked_positions` / `unlocked_pairs` / `new_lines` / `pending_rating` を含む。
 
 ## テストで固定すること
 

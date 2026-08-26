@@ -86,6 +86,44 @@
 未決定: 1ライン = 1枚か、上限は4枚か、など。
 [specs/gacha-and-award](../../gacha-and-award/README.md) 側で決める。
 
+## Q-8 運営によるブース差し替えの記録先
+
+**実装で行き詰まった。テーブル定義の変更が要る。**
+
+[06-api/admin-api.md](../06-api/admin-api.md) は差し替えを `recommendation_scores` に
+`strategy='REASSIGN'` で記録せよとするが、同テーブルの `unlock_event_id` は
+`card_unlock_events` を参照する NOT NULL の外部キーであり、
+**差し替えには対応する解放イベントが存在しない**。
+
+現在は `audit_logs` に `bingo.reassign` として記録するに留めている。
+`unlock_event_id` を NULL 許容にするか、専用テーブルを設けるかの判断が必要。
+
+## Q-9 解放の到達人数の算出式
+
+**実装したが、仕様書に定義が無い。**
+
+[06-api/admin-api.md](../06-api/admin-api.md) の `unlocks.{first,second,third}` について、
+何をもって「1回目 / 2回目 / 3回目に到達した」とするかが書かれていない。
+
+暫定で **累計ペア数が 1 / 3 / 6 以上のカード数**として実装した
+（中央2マス目で1組、3マス目で計3組、4マス目で計6組が成立するため。
+[03-card-lifecycle/unlock-pairs.md](../03-card-lifecycle/unlock-pairs.md)）。
+当日の監視で使う数字なので、この解釈でよいか確認する。
+
+## Q-10 事前アンケートの回答済み判定
+
+**未決定のため、サインイン後は常に入力フォームへ遷移している。**
+
+回答済みかどうかを返す API の形が決まっていない（`pre-survey` 側の PQ-2）。
+受け入れ条件は満たすが、「回答済みなら完了画面へ飛ばす」という以前の挙動は復元していない。
+
+## Q-11 推薦契約とDBカラムの名前のズレ
+
+[05-recommender/contract.md](../05-recommender/contract.md) のリクエスト例は `age_group` だが、
+DB のカラムは `age_range`。実装は `age_range` のままトップレベルに置いている。
+
+推薦エンジンの実装時に、どちらの名前で確定するかを揃える必要がある。
+
 ---
 
 ## 実装セッションへの指示
