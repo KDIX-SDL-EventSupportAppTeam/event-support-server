@@ -21,14 +21,19 @@
 | [09-open-questions/](09-open-questions/open-questions.md) | 未決定 |
 | [10-testing/](10-testing/README.md) | テスト仕様 |
 
-## 現状（2026-08-27 時点の実装）
+## 現状（2026-08-28 時点の実装 — feat/gacha-coins）
 
 | 対象 | 状態 |
 |---|---|
-| `gacha_coin_uses` | migration 09 で作成済み。`id / event_id / user_id / used_at` のみ、**ユニーク制約なし** |
-| `src/routes/v1/gacha.ts` | 器として存在。`MAX_COINS = 10` がハードコード、`min(lines, 10)` 換算 |
-| `POST /gacha/coins/use` | 素の INSERT。**二重タップ・再送で多重消費する**（未修正） |
-| frontend `/gachapon` 系3画面 | `LegacyPlaceholderPage`。旧 Flask 呼び出しは削除済み |
+| `gacha_coin_uses` | migration 10 で作り直し。`coin_index` / `idempotency_key` と `uk_gacha_coin` / `uk_gacha_idem` の2本 |
+| `gacha_settings` | migration 10 で新規（`is_enabled / coins_per_line / max_coins / bonus_coins`、既定 `0/1/4/0`） |
+| `src/lib/gacha/coins.ts` | `calcCoinsEarned(lines, settings)`（純関数。bingo に非依存） |
+| `src/lib/gacha/settings.ts` | `fetchGachaSettings`（行なし・列 NULL でも既定値で埋める） |
+| `src/lib/gacha/useCoin.ts` | HAVING 付き単一 INSERT ... SELECT。例外時は冪等キーで SELECT、衝突は収束まで再試行 |
+| `src/routes/v1/gacha.ts` | `MAX_COINS` 撤去。GET/POST を participant-api.md の契約に一致 |
+| `src/routes/v1/organizer/gacha-settings.ts` | GET/PUT（organizer・所有チェック・範囲バリデーション・audit_logs） |
+| `src/routes/v1/admin/gacha.ts` | `GET /admin/events/:id/gacha/stats`（当日モニタ） |
+| frontend `/gachapon` 系3画面 | 実装（`features/gachapon/`。`LegacyPlaceholderPage` を撤去） |
 | 旧 Flask 版（参考） | `max_coins = 4`、`min(bingo, 4) - spent` |
 
 ## 確定した仕様の骨子（2026-08-27）
