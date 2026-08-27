@@ -40,7 +40,6 @@ async function main() {
     console.log(`  参加者: ${result.participants}（password: ${SAMPLE_USER_PASSWORD}）`)
     console.log(`  チェックイン: ${result.checkins}`)
     console.log(`  評価: ${result.ratings}`)
-    console.log(`  推薦: ${result.recommendations}`)
     console.log(`  アンケート回答: ${result.survey_answers}`)
     console.log(`  アンケート設問: ${result.survey_questions}`)
     console.log(`  参加者メール例: sample-001@sample.local`)

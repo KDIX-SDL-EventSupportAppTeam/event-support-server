@@ -68,7 +68,6 @@ export type SampleGenerateResult = {
   participants: number
   checkins: number
   ratings: number
-  recommendations: number
   survey_answers: number
   survey_questions: number
 }
@@ -209,10 +208,11 @@ export async function generateSampleData(
     userRows,
   )
 
-  // --- チェックイン・評価・推薦・アンケート回答 ---
+  // --- チェックイン・評価・アンケート回答 ---
+  // 推薦データ（recommendation_scores）はサンプル生成で作らない。解放処理の副産物であり、
+  // card_unlock_events の捏造が必要になるため（仕様書 §4-C）。
   const checkinRows: unknown[][] = []
   const ratingRows: unknown[][] = []
-  const recommendationRows: unknown[][] = []
   const surveyAnswerRows: unknown[][] = []
 
   for (const userId of userIds) {
@@ -230,21 +230,6 @@ export async function generateSampleData(
       if (Math.random() < 0.75) {
         ratingRows.push([randomUUID(), userId, boothId, eventId, checkinId, randomInt(3, 5)])
       }
-    }
-
-    const recCount = randomInt(2, 3)
-    for (let r = 0; r < recCount; r++) {
-      const offered = pickMany(boothIds, randomInt(3, 5))
-      const selected = Math.random() < 0.82 ? pick(offered) : null
-      recommendationRows.push([
-        randomUUID(),
-        userId,
-        eventId,
-        JSON.stringify(offered),
-        selected,
-        Math.random() > 0.3 ? 'mab' : 'random',
-        hoursAgo(randomInt(1, 72)),
-      ])
     }
 
     const customAnswers: Record<string, string> = {}
@@ -276,12 +261,6 @@ export async function generateSampleData(
   )
   await bulkInsert(
     db,
-    `INSERT INTO recommendations (id, user_id, event_id, offered_booth_ids, selected_booth_id, algorithm, created_at) VALUES `,
-    7,
-    recommendationRows,
-  )
-  await bulkInsert(
-    db,
     `INSERT INTO user_survey_answers (id, user_id, event_id, age_range, occupation, industry, custom_answers) VALUES `,
     7,
     surveyAnswerRows,
@@ -293,7 +272,6 @@ export async function generateSampleData(
     participants: participantCount,
     checkins: checkinRows.length,
     ratings: ratingRows.length,
-    recommendations: recommendationRows.length,
     survey_answers: surveyAnswerRows.length,
     survey_questions: surveyQuestions.length,
   }
