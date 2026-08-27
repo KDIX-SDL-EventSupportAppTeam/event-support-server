@@ -42,7 +42,8 @@ export async function adminSampleDataRoutes(app: FastifyInstance) {
     async (req, reply) => {
       try {
         const result = await clearSampleData(app.db, req.params.event_id)
-        return sendOk(reply, { cleared: result.deleted })
+        // cleared の形は据え置き、割り当て解除したマス数は兄弟フィールドとして足す（追加のみ・破壊的変更なし）
+        return sendOk(reply, { cleared: result.deleted, cleared_cells: result.cleared_cells })
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'サンプルデータの削除に失敗しました'
         return sendFail(reply, 500, 'INTERNAL_ERROR', msg)
