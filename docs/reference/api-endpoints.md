@@ -54,6 +54,24 @@
 
 運営 CRUD の各エンドポイントは `src/routes/v1/admin/` 配下に分割、オーガナイザー系は `src/routes/v1/organizer/` 配下（`app.ts` の登録順を参照）。
 
+#### `analytics/{booths,recommendations}` の推薦集計（マイグレーション09以降）
+
+`recommendations` テーブルは廃止され、集計元は `recommendation_scores`（候補ブース1件 = 1行）に移行した。
+`recommendation_scores` に `event_id` 列は無いため `card_unlock_events` → `bingo_cards` を JOIN してイベントを絞る。
+
+応答フィールドの名前・型・null 許容は従来のまま（フロント無改修）。ただし **`selected` 系の意味が変わった**:
+
+| フィールド | 旧: `recommendations` | 新: `recommendation_scores` |
+|---|---|---|
+| `recommendation_offered_count` / `by_booth.offered_count` / `summary.total_recommendations` | 提示回数 | 候補として記録された行数（`COUNT(*)`） |
+| `recommendation_selected_count` / `by_booth.selected_count` / `summary.selected_count` | 利用者が提示から**選んだ**件数 | システムがマスに**割り当てた**件数（`SUM(was_assigned)`） |
+| `summary.algorithm` | `recommendations.algorithm` | `card_unlock_events.strategy` の最頻値（行が無ければ `mab`） |
+| `conversion.*` | 選択ブース→チェックインの導線 | 割り当てブース→チェックインの導線（推薦時刻は `recommendation_scores.created_at`） |
+
+サンプルデータ生成（`sample-data/generate`）は `recommendation_scores` を作らない（解放処理の副産物のため）。
+サンプル投入時、推薦分析は 0 件表示になるがエラーにはならない。詳細は
+[docs/specs/migration-09-followup/README.md](../specs/migration-09-followup/README.md) §4-B。
+
 ### WebSocket（socket.io）
 
 - 接続時に JWT（`auth.token`）で認証し、`event:<event_id>`（全員）/ `event:<event_id>:admin`（`manager` または `viewer` のみ）ルームへ参加
