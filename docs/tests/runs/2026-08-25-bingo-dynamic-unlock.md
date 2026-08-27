@@ -174,7 +174,7 @@ Cloud Run への影響確認が要るため未実施。
   現在は `audit_logs` にのみ記録。テーブル定義の変更が必要
 - **事前推薦マスの `recommendation_scores` は選ばれた1件のみ。**
   `pickPreSurveyBooth` が候補全件をスコアリングしないため、D-10 の「全候補」に未達
-- 推薦エンジン本体（`event-support-recommender`）は未着手。
+- 推薦エンジン本体（`event-support-recommend`）は未着手。
   現在はフォールバックのみが動作しており、**DRSA による推薦は一切効いていない**
 
 ## 関連

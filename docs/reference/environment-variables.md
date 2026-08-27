@@ -18,7 +18,7 @@
 | `FRONTEND_BASE_URL` | — | イベント作成時に発行する参加者/運営 URL のベース。未設定時は `CORS_ORIGIN` の先頭オリジンを使用する |
 | `ORGANIZER_REGISTRATION_KEY` | invite 時 ✅ | オーガナイザー登録（`POST /organizer/auth/register`）の `X-Organizer-Key` 検証キー |
 | `ORGANIZER_SIGNUP_MODE` | — | `invite`（既定・キー必須）\| `open`（誰でも登録可）\| `disabled`（登録停止・410、本番推奨） |
-| `RECOMMENDER_URL` | — | 推薦エンジン（`event-support-recommender`）のベース URL。**未設定・空文字なら呼び出さず即フォールバック**（訪問者数の少ない順。人気順にはしない） |
+| `RECOMMENDER_URL` | — | 推薦エンジン（`event-support-recommend`）のベース URL。**未設定・空文字なら呼び出さず即フォールバック**（訪問者数の少ない順。人気順にはしない） |
 | `RECOMMENDER_TIMEOUT_MS` | — | 推薦呼び出しのタイムアウト（既定 `1000`）。超えたらフォールバックへ |
 | `RATING_SCALE` | — | 評価の段階数（既定 `4`）。`booth_ratings.scale` に保存し、API が参加者へ配信する |
 | `CHECKIN_COOLDOWN_SEC` | — | 同一ユーザーの連続チェックインを拒否する最短間隔（既定 `0` = 無効） |

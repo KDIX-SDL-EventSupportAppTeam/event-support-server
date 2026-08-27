@@ -65,7 +65,7 @@
 - 事前推薦マスのブースへ訪問すると、そのマスが達成になり中央の空きが減らない
 - カード外訪問が `cell_id = NULL` で記録され、`pending_rating` に含まれる
 
-## 推薦エンジン側（`event-support-recommender`）
+## 推薦エンジン側（`event-support-recommend`）
 
 参考として記す。正本はそちらのリポジトリ。
 
