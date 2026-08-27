@@ -51,10 +51,6 @@ export async function clearSampleData(db: DbClient, eventId: string): Promise<Sa
 
   if (userIds.length) {
     const placeholders = userIds.map(() => '?').join(',')
-    await db.execute(`DELETE FROM recommendations WHERE event_id = ? AND user_id IN (${placeholders})`, [
-      eventId,
-      ...userIds,
-    ])
     await db.execute(
       `DELETE FROM user_survey_answers WHERE event_id = ? AND user_id IN (${placeholders})`,
       [eventId, ...userIds],
