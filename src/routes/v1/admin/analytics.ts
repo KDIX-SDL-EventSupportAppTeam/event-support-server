@@ -1,74 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { sendOk } from '../../../lib/response.js'
 import { requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
-
-// マイグレーション09で recommendations テーブルは廃止され recommendation_scores へ移行した。
-// 旧 recommendations は「1提示 = 1行」で offered_booth_ids(JSON) / selected_booth_id を持っていたが、
-// recommendation_scores は「候補ブース1件 = 1行」で、採用は was_assigned（システムが割り当てた）で表す。
-//
-// ⚠️ selected の意味が変わった:
-//   旧: 利用者が提示の中から「選んだ」ブース（selected_booth_id）
-//   新: システムがマスに「割り当てた」ブース（was_assigned = 1）
-// 応答フィールド名（recommendation_selected_count 等）は互換のため据え置くが、
-// 数える対象は「割り当て」になっている（docs/specs/migration-09-followup/README.md §4-B、
-// docs/reference/api/admin-analytics.md）。
-//
-// event_id 列は recommendation_scores に無いため、card_unlock_events → bingo_cards の
-// JOIN でイベントを絞る（users.event_id は出展者・運営が混ざるため使わない）。
-type RecScoreRow = {
-  booth_id: string
-  was_assigned: number | string
-  strategy: string | null
-  user_id: string
-  created_at: string
-}
-
-const REC_SCORE_BY_EVENT_SQL = `
-  SELECT rs.booth_id, rs.was_assigned, rs.user_id, rs.created_at, cue.strategy
-  FROM recommendation_scores rs
-  INNER JOIN card_unlock_events cue ON cue.id = rs.unlock_event_id
-  INNER JOIN bingo_cards        bc  ON bc.id  = cue.card_id
-  WHERE bc.event_id = ?`
-
-function aggregateRecommendations(rows: RecScoreRow[]) {
-  const boothOfferedCount: Record<string, number> = {}
-  const boothSelectedCount: Record<string, number> = {}
-  let selectedCount = 0
-  let openCount = 0
-  const strategyTally: Record<string, number> = {}
-
-  for (const row of rows) {
-    // 候補に挙がった行はすべて「提示」1件として数える
-    boothOfferedCount[row.booth_id] = (boothOfferedCount[row.booth_id] ?? 0) + 1
-    // was_assigned は TINYINT(1)。ドライバによって文字列で返り得るので Number 正規化する
-    if ((Number(row.was_assigned) || 0) === 1) {
-      selectedCount++
-      boothSelectedCount[row.booth_id] = (boothSelectedCount[row.booth_id] ?? 0) + 1
-    } else {
-      openCount++
-    }
-    if (row.strategy) strategyTally[row.strategy] = (strategyTally[row.strategy] ?? 0) + 1
-  }
-
-  // summary.algorithm は card_unlock_events.strategy の最頻値で埋める（行が無ければ従来の既定値）
-  let algorithm = 'mab'
-  let bestTally = 0
-  for (const [strategy, count] of Object.entries(strategyTally)) {
-    if (count > bestTally) {
-      bestTally = count
-      algorithm = strategy
-    }
-  }
-
-  return {
-    boothOfferedCount,
-    boothSelectedCount,
-    selectedCount,
-    openCount,
-    algorithm,
-    total: rows.length,
-  }
-}
+import {
+  aggregateRecommendations,
+  isAssigned,
+  REC_SCORE_BY_EVENT_SQL,
+  type RecScoreRow,
+} from '../../../lib/analytics/recommendationScores.js'
 
 function toIsoDatetime(v: string): string {
   return `${String(v).replace(' ', 'T')}Z`
@@ -539,7 +477,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       let selected_then_checkedin = 0
       const minutesList: number[] = []
       for (const r of recs) {
-        if ((Number(r.was_assigned) || 0) !== 1) continue
+        if (!isAssigned(r.was_assigned)) continue
         const key = `${r.user_id}\0${r.booth_id}`
         const times = checkinsByUserBooth.get(key) ?? []
         const recTime = new Date(toIsoDatetime(r.created_at)).getTime()
