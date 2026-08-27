@@ -48,6 +48,12 @@ npm run db:check   # テーブルの過不足と件数をまとめて確認す�
 
 `bingo_cells` と `card_unlock_events` は `bingo_cards` から CASCADE で消え、
 `recommendation_scores` は `card_unlock_events` から CASCADE で消える。
+このため**推薦データを明示的に削除する必要は無い**（`bingo_cards` を消せば連鎖して消える）。
+
+サンプルデータ削除（`src/lib/sample-data/clear.ts`）は一部のブースだけを消すため事情が異なる。
+サンプル参加者のカードは `users` 削除の CASCADE で消えるが、**実参加者のカードに割り当てられた
+サンプルブース**は残って `RESTRICT` に触れる。そのため `booths` を消す前に、該当マスの
+`booth_id` を `NULL` に戻す（運営の差し替え救済 `admin/bingo/reassign` の `cleared_cells` と同じ扱い）。
 
 ## 事前アンケート・アプリ公開ゲート
 
