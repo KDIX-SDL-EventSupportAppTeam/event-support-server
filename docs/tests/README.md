@@ -68,6 +68,10 @@ YYYY-MM-DD-kebab-case-summary.md
 | テストコード | 種別 | 主な対象（src） | 備考 |
 |--------------|------|-----------------|------|
 | `tests/unit/datetime.test.ts` | unit | `src/lib/datetime.ts` | UTC 変換の基礎テスト |
+| `tests/unit/gacha/coins.test.ts` | unit | `src/lib/gacha/coins.ts` | 換算の純関数（264通り総当たり） |
+| `tests/unit/gacha/settings.test.ts` | unit | `src/lib/gacha/settings.ts` | 設定取得のフォールバック |
+| `tests/integration/gacha/use-coin.test.ts` | integration | `src/routes/v1/gacha.ts`, `src/lib/gacha/useCoin.ts` | 多重消費・冪等（C-1〜C-10）。ローカル MySQL 必須 |
+| `tests/integration/gacha/settings.test.ts` | integration | `src/routes/v1/organizer/gacha-settings.ts`, `src/routes/v1/admin/gacha.ts` | 運営 API・監査ログ・stats。ローカル MySQL 必須 |
 
 新規テストを追加したら、この表も更新する。
 
@@ -78,6 +82,7 @@ YYYY-MM-DD-kebab-case-summary.md
 | 日付 | ファイル | 概要 | テストコード |
 |------|----------|------|--------------|
 | 2026-06-09 | [2026-06-09-sakura-db-proxy-manual.md](./runs/2026-06-09-sakura-db-proxy-manual.md) | さくらDBプロキシ手動検証 | なし（手動） |
+| 2026-08-28 | [2026-08-28-gacha-coins.md](./runs/2026-08-28-gacha-coins.md) | ガチャコイン：換算の純関数・消費の排他制御・運営API（C-1〜C-10） | `tests/unit/gacha/*.test.ts`, `tests/integration/gacha/*.test.ts` |
 
 ---
 

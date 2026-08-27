@@ -116,10 +116,23 @@ async function attempt(db: DbClient, input: UseCoinInput): Promise<AttemptOutcom
 }
 
 /**
+ * 手順4の衝突（uk_gacha_coin の敗者）で手順2から再試行する上限回数。
+ *
+ * spending.md は「1回だけ再試行」と書くが、これはさくらプロキシ経由（HTTP が直列化され
+ * リクエスト間に間隔が空く）を前提にした最小値である。ローカル MySQL への真の並行では、
+ * 最後の1枠を複数の敗者が奪い合うと1回では収束しないことがある（concurrency.md C-4）。
+ *
+ * 各再試行は「他の誰かが1枚 INSERT した」ことを意味し、`COUNT(*)` は単調増加するため、
+ * 高々「同時実行数」回で success か no_coins（HAVING 不成立）に必ず収束する。
+ * この上限は保険であり、通常はループ 1〜2 周で抜ける。到達したら真に異常なので 500。
+ */
+const MAX_RETRY_ON_CONFLICT = 25
+
+/**
  * コインを1枚消費する。
  * - 成功: `UseCoinResult` を返す（同一冪等キーの再送・並行でも同じ行を返す）
- * - 残高ゼロ: `NoCoinsAvailableError` を投げる
- * - 衝突が再試行後も解消しない: 例外を投げる（ルートは 500）
+ * - 残高ゼロ（HAVING 不成立）: `NoCoinsAvailableError` を投げる → ルートは 409
+ * - 衝突が収束しない: 例外を投げる → ルートは 500
  */
 export async function useCoin(db: DbClient, input: UseCoinInput): Promise<UseCoinResult> {
   const first = await attempt(db, input)
@@ -130,13 +143,16 @@ export async function useCoin(db: DbClient, input: UseCoinInput): Promise<UseCoi
     throw new NoCoinsAvailableError()
   }
 
-  // conflict → 手順2から1回だけ再試行
-  const second = await attempt(db, input)
-  if (second.kind === 'success') {
-    return { coinIndex: second.coinIndex, usedAt: second.usedAt, retried: true }
+  // conflict → 手順2から再試行（COUNT は単調増加するので必ず収束する）
+  for (let i = 0; i < MAX_RETRY_ON_CONFLICT; i++) {
+    const retry = await attempt(db, input)
+    if (retry.kind === 'success') {
+      return { coinIndex: retry.coinIndex, usedAt: retry.usedAt, retried: true }
+    }
+    if (retry.kind === 'no_coins') {
+      throw new NoCoinsAvailableError()
+    }
+    // conflict → もう一周
   }
-  if (second.kind === 'no_coins') {
-    throw new NoCoinsAvailableError()
-  }
-  throw new Error('gacha useCoin: 再試行後も uk_gacha_coin の衝突が解消しませんでした')
+  throw new Error('gacha useCoin: 再試行の上限に達しても uk_gacha_coin の衝突が解消しませんでした')
 }
