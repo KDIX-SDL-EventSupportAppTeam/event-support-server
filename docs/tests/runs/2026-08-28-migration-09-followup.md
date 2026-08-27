@@ -83,5 +83,11 @@ npm run build
 - サンプル生成は `recommendation_scores` を作らないため、サンプル投入時の推薦分析は 0 件表示（エラーではない）。
 - 研究用の新指標（フェーズ別・`interest_match` 別）は未着手（定義未確定・別 PR）。
 - PR #80（`feat/bingo-unlock-2-api-tests`）のドキュメント5コミットが develop へ取り残されていたため、
-  本ブランチで回収した。`docs/reference/api-endpoints.md` は `analytics/recommendations` を
-  一覧から削除していたが、実装に存在し仕様書 §4-B-2 が復旧を求めるため復活させた。
+  本ブランチで回収した。経緯と再発防止は
+  [ADR 0005](../../decisions/adrs/0005-stacked-pr-merge-order.md)。
+- 回収した `docs/reference/api-endpoints.md` は `analytics/recommendations` を一覧から削除していたが、
+  **これは PR #80 内の記載ミス**である。同じ PR の
+  `docs/specs/bingo-dynamic-unlock/06-api/admin-api.md` は同エンドポイントについて
+  「`recommendation_scores` を読むように変更する（改修）」と書いており、存続が前提になっている。
+  同時に削除された参加者向け `/recommendations` 2本はコードに実在しないため削除が正しく、
+  実在する運営の1本だけを巻き込んだものと判断して復活させた。
