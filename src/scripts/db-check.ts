@@ -18,7 +18,7 @@ import 'dotenv/config'
 import { loadConfig } from '../config.js'
 import { createPool } from '../db/pool.js'
 
-const EXPECTED_TABLES = 20
+const EXPECTED_TABLES = 21
 const EXPECTED_TABLE_NAMES = [
   'organizers',
   'events',
@@ -39,6 +39,7 @@ const EXPECTED_TABLE_NAMES = [
   'card_unlock_events',
   'recommendation_scores',
   'gacha_coin_uses',
+  'gacha_settings',
   'event_app_access',
 ] as const
 
