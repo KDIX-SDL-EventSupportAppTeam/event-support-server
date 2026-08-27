@@ -50,3 +50,16 @@
 
 - [推薦サービスとの契約](../../specs/bingo-dynamic-unlock/05-recommender/contract.md)
 - [推薦フェーズ](../../specs/bingo-dynamic-unlock/05-recommender/phases.md)
+
+## 追記（2026-08-28）: リポジトリ名は `event-support-recommend`
+
+2026-08-27 に実際に作成されたリポジトリは
+[`event-support-recommend`](https://github.com/KDIX-SDL-EventSupportAppTeam/event-support-recommend)
+であり、**末尾に `r` は付かない**。
+
+上の「判断」に書いた `event-support-recommender` は本 ADR 作成時点（2026-08-24）の呼称である。
+`decisions/` は追記のみで過去の記録を書き換えない運用のため、本文はそのまま残す
+（[rules/documentation.md](../../rules/documentation.md)）。
+
+**他の文書（`specs/` / `reference/` / `AGENTS.md` / `README.md`）は
+`event-support-recommend` に統一済み。** 以後はそちらの表記を正とする。

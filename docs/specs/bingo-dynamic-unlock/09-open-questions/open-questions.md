@@ -34,7 +34,7 @@
 
 ## Q-3 DRSA の実装本体
 
-**本仕様書のスコープ外。** `event-support-recommender` の関心事である。
+**本仕様書のスコープ外。** `event-support-recommend` の関心事である。
 
 サーバー側は[契約](../05-recommender/contract.md)に沿って呼び出す口と、
 [フォールバック](../05-recommender/fallback.md)だけを持つ。

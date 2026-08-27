@@ -21,7 +21,7 @@
 
 **担当しないこと**
 
-- 推薦アルゴリズムの実装（`event-support-recommender` に委譲）
+- 推薦アルゴリズムの実装（`event-support-recommend` に委譲）
 - フロントエンドの描画ロジック・ビルド
 
 ### 他サービスとの関係
@@ -34,7 +34,7 @@
         │                        │
         │ 内部 HTTP                │ SQL
         ▼                        ▼
-[event-support-recommender]   [MySQL（さくら / Docker）]
+[event-support-recommend]    [MySQL（さくら / Docker）]
                               ↑ 本番はさくら上ラッパー API 経由（HTTPS）
 ```
 
@@ -134,7 +134,7 @@ curl http://localhost:3000/health
 | リポジトリ | 役割 |
 |------------|------|
 | `event-support-frontend` | UI（API の呼び出し元） |
-| `event-support-recommender` | 推薦エンジン（内部 HTTP で呼び出す） |
+| `event-support-recommend` | 推薦エンジン（内部 HTTP で呼び出す） |
 
 ## 参照
 
