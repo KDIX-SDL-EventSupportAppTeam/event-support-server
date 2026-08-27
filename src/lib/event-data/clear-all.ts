@@ -8,6 +8,7 @@ export type EventDataClearResult = {
     ratings: number
     checkins: number
     bingo_cards: number
+    gacha_coin_uses: number
     booth_tags: number
     booth_categories: number
     booths: number
@@ -61,6 +62,12 @@ export async function clearAllEventData(db: DbClient, eventId: string): Promise<
   // （bingo_cells / cell_assignment_logs は bingo_cards から CASCADE で消える）
   const [cardRes] = await db.execute('DELETE FROM bingo_cards WHERE event_id = ?', [eventId])
 
+  // ガチャコイン使用台帳（docs/specs/gacha-and-award/02-data-model/schema.md）。
+  // users の CASCADE 任せにしない: この関数は運営アカウント（manager/viewer）を残すため、
+  // 運営が動作確認で使った行が消えずに残ってしまう。件数も運営に返す。
+  // 換算規則（gacha_settings）は「データ」ではなく設定のため、event_app_access と同様に残す。
+  const [gachaRes] = await db.execute('DELETE FROM gacha_coin_uses WHERE event_id = ?', [eventId])
+
   const deletedTags = await deleteByBoothIds(db, 'booth_tags', boothIds)
   const deletedBoothCategories = hasBoothCategories
     ? await deleteByBoothIds(db, 'booth_categories', boothIds)
@@ -81,6 +88,7 @@ export async function clearAllEventData(db: DbClient, eventId: string): Promise<
       ratings: affectedRows(brRes),
       checkins: affectedRows(ciRes),
       bingo_cards: affectedRows(cardRes),
+      gacha_coin_uses: affectedRows(gachaRes),
       booth_tags: deletedTags,
       booth_categories: deletedBoothCategories,
       booths: affectedRows(boothRes),

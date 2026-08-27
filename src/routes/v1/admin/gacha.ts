@@ -46,12 +46,14 @@ export async function adminGachaRoutes(app: FastifyInstance) {
         count: Number(r.count),
       }))
 
-      // users_with_coins: 換算後 earned > 0 の参加者数。
+      // users_with_coins: 換算後 earned > 0 の「参加者」数。
       // 参加者 API とは独立の集計クエリ（ライン計算は bingo の純関数に委ねる）。
+      // 運営スタッフ・出展者のカードは数に入れない（当日の配布実績を見るための指標のため）。
       const settings = await fetchGachaSettings(app.db, eventId)
       const [cellRows] = await app.db.query(
         `SELECT c.user_id AS user_id, cell.position AS position
            FROM bingo_cards c
+           JOIN users u ON u.id = c.user_id AND (u.role = 'participant' OR u.role IS NULL)
            JOIN bingo_cells cell ON cell.card_id = c.id AND cell.is_achieved = 1
           WHERE c.event_id = ?`,
         [eventId],
@@ -69,10 +71,13 @@ export async function adminGachaRoutes(app: FastifyInstance) {
       for (const positions of achievedByUser.values()) {
         if (calcCoinsEarned(countCompletedLines(positions), settings) > 0) usersWithCoins++
       }
-      // bonus_coins > 0 のときはカードを持つ全員が earned > 0。カード未達成者も数える。
+      // bonus_coins > 0 のときはカードを持つ参加者全員が earned > 0。マス未達成者も数える。
       if (settings.bonusCoins > 0) {
         const [cardCount] = await app.db.query(
-          `SELECT COUNT(*) AS c FROM bingo_cards WHERE event_id = ?`,
+          `SELECT COUNT(*) AS c
+             FROM bingo_cards c
+             JOIN users u ON u.id = c.user_id AND (u.role = 'participant' OR u.role IS NULL)
+            WHERE c.event_id = ?`,
           [eventId],
         )
         usersWithCoins = Number((cardCount as { c: number }[])[0]?.c ?? 0)

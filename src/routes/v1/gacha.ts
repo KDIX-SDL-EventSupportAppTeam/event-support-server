@@ -105,13 +105,21 @@ export async function gachaRoutes(app: FastifyInstance) {
       }
 
       // 手順2〜4: 消費。earned は手順2でその場算出し、再試行時も再評価する。
+      // 応答用にも使うため、最後に評価したライン数・獲得枚数を控える
+      // （消費後にもう一度 countLines するとカード取得を含む3クエリを余計に往復するため）。
+      let lastLines = 0
+      let lastEarned = 0
       let result
       try {
         result = await useCoin(app.db, {
           eventId,
           userId: uid,
           idempotencyKey,
-          computeEarned: async () => calcCoinsEarned(await countLines(eventId, uid), settings),
+          computeEarned: async () => {
+            lastLines = await countLines(eventId, uid)
+            lastEarned = calcCoinsEarned(lastLines, settings)
+            return lastEarned
+          },
         })
       } catch (err) {
         if (err instanceof NoCoinsAvailableError) {
@@ -120,9 +128,11 @@ export async function gachaRoutes(app: FastifyInstance) {
         throw err
       }
 
-      const linesCompleted = await countLines(eventId, uid)
+      const linesCompleted = lastLines
+      const earned = lastEarned
+      // used だけは数え直す（coin_index + 1 で代用しない: 同一ユーザーの並行消費が
+      // 先に入っていると実際の使用枚数はそれより多く、古い値を返してしまうため）。
       const used = await countUsed(eventId, uid)
-      const earned = calcCoinsEarned(linesCompleted, settings)
 
       return sendOk(reply, {
         ...basePayload({

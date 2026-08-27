@@ -22,5 +22,16 @@ jobs:
         run: npm ci
       - name: Build (tsc)
         run: npm run build
-      - name: Unit tests
+      # 結合テスト（tests/integration/）はローカル MySQL を要求する。
+      # service container ではなく docker compose を使うのは、sql-mode・文字セット・
+      # タイムゾーン・初期スキーマ（db/migrations を initdb.d にマウント）を
+      # 開発環境と完全に同じにするため。CI だけ通る／CI だけ落ちる差異を作らない。
+      - name: Start MySQL
+        run: docker compose up -d --wait mysql
+      - name: Unit and integration tests
         run: npm run test
+        env:
+          DATABASE_URL: mysql://app:appsecret@127.0.0.1:3306/event_support
+      - name: MySQL logs (on failure)
+        if: failure()
+        run: docker compose logs mysql
