@@ -51,6 +51,39 @@ async function fixture(lines: number, userCount = 1) {
   return f
 }
 
+describe('GET /gacha/coins（副作用なし・堅牢性）', () => {
+  it('gacha_settings の行が無いイベントでも 200（コード側の既定値）', async () => {
+    const f = await fixture(2)
+    await db.execute(`DELETE FROM gacha_settings WHERE event_id = ?`, [f.eventId])
+    const res = await getCoinsReq(app, f.eventId, f.token)
+    expect(res.statusCode).toBe(200)
+    expect(res.body.data!.is_enabled).toBe(false)
+    expect(res.body.data!.max_coins).toBe(4)
+  })
+
+  it('カード未発行のユーザーが GET してもエラーにならない（ensureCard される）', async () => {
+    const f = await seedFixture(db, {})
+    createdEvents.push({ eventId: f.eventId, organizerId: f.organizerId })
+    // seedLines を呼ばない = bingo_cards / bingo_cells は未作成
+    const res = await getCoinsReq(app, f.eventId, f.token)
+    expect(res.statusCode).toBe(200)
+    expect(res.body.data!.lines_completed).toBe(0)
+    expect(res.body.data!.earned).toBe(0)
+    const [cards] = await db.query(
+      `SELECT id FROM bingo_cards WHERE event_id = ? AND user_id = ?`,
+      [f.eventId, f.userId],
+    )
+    expect((cards as unknown[]).length).toBe(1)
+  })
+
+  it('POST 成功後の GET の used が POST 応答の used と一致する', async () => {
+    const f = await fixture(3)
+    const post = await useCoinReq(app, f.eventId, f.token, randomUUID())
+    const get = await getCoinsReq(app, f.eventId, f.token)
+    expect(get.body.data!.used).toBe(post.body.data!.used)
+  })
+})
+
 describe('C-1. 同じ冪等キーの並行2回', () => {
   it('行1件・枚数1枚。両応答は同じ coin_index / used / used_at で 200', async () => {
     const f = await fixture(3)

@@ -44,10 +44,11 @@ npm test
 
 ## 結果
 
-- 成功。`npm run build` OK、`npm test` は 31 ファイル / 661 テスト全通過。
-- 内訳（ガチャ分）:
+- 成功。サーバー: `npm run build` OK、`npm test` 全通過（ガチャ結合を含む）。
+  フロント: `npm run build` / `npm run lint`(0 error) / `npm test`(109) OK。
+- 内訳（ガチャ分・サーバー）:
   - 単体: `coins.test.ts` 312（264総当たり＋固定表11＋単調非減少24＋境界＋不変性）、`settings.test.ts` 5
-  - 結合: `use-coin.test.ts` 21（C-1〜C-10 + 起きてはいけないこと 3）、`settings.test.ts` 7
+  - 結合: `use-coin.test.ts` 24（GET 堅牢性 3 ＋ C-1〜C-10 ＋ 起きてはいけないこと 3）、`settings.test.ts` 7
 - C-4（別キー並行5回・残高3枚）はローカル MySQL への真の並行で
   「1回だけ再試行」では最後の1枠を敗者2本が奪い合うと収束せず 500 になることがあった。
   spending.md の「1回だけ」はさくらプロキシ（HTTP 直列化）前提の最小値と解釈し、
