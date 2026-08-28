@@ -15,7 +15,7 @@
 | `JWT_SECRET` | ✅ | JWT 署名キー（本番は 32 文字以上のランダム文字列） |
 | `WEBHOOK_API_KEY` | 本番 ✅ | Google Apps Script から受け取る Webhook 認証キー（開発は空でも可） |
 | `ADMIN_REGISTRATION_KEY` | ✅ | 運営アカウント登録（`POST /auth/register/admin`）の `X-Admin-Key` 検証キー。開発でも必須 |
-| `FRONTEND_BASE_URL` | — | イベント作成時に発行する参加者/運営 URL のベース。未設定時は `CORS_ORIGIN` の先頭オリジンを使用する |
+| `FRONTEND_BASE_URL` | — | イベント作成時に発行する参加者/運営 URL と確認メール中の URL のベース。未設定時は `CORS_ORIGIN` の先頭オリジンを使用する（本番で未設定なら起動時に警告） |
 | `ORGANIZER_REGISTRATION_KEY` | invite 時 ✅ | オーガナイザー登録（`POST /organizer/auth/register`）の `X-Organizer-Key` 検証キー |
 | `ORGANIZER_SIGNUP_MODE` | — | `invite`（既定・キー必須）\| `open`（誰でも登録可）\| `disabled`（登録停止・410、本番推奨） |
 | `RECOMMENDER_URL` | — | 推薦エンジン（`event-support-recommend`）のベース URL。**未設定・空文字なら呼び出さず即フォールバック**（訪問者数の少ない順。人気順にはしない） |
@@ -24,7 +24,7 @@
 | `CHECKIN_COOLDOWN_SEC` | — | 同一ユーザーの連続チェックインを拒否する最短間隔（既定 `0` = 無効） |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
 | `PORT` | — | リッスンポート（既定: `3000`。Cloud Run では `$PORT` が自動注入される） |
-| `SMTP_HOST` | — | 確認メール送信用 SMTP ホスト。未設定時はログ出力モード（実送信せず確認URLをサーバログに出す） |
+| `SMTP_HOST` | — | 確認メール送信用 SMTP ホスト。未設定時はログ出力モード（実送信せず確認URLをサーバログに出す）。**`NODE_ENV=production` では必須**で、未設定なら起動時にエラーで停止する |
 | `SMTP_PORT` | — | SMTP ポート（既定: `587`。`465` のみ暗黙TLS、それ以外は STARTTLS） |
 | `SMTP_USER` | — | SMTP 認証ユーザー |
 | `SMTP_PASS` | — | SMTP 認証パスワード |

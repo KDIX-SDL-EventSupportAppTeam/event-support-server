@@ -133,6 +133,7 @@ CREATE TABLE users (
   display_name  TEXT,
   role          VARCHAR(20) NOT NULL DEFAULT 'participant',
   email_verified_at DATETIME,
+  onboarding_completed_at DATETIME,
   created_at    DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_email_event (email, event_id),
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE

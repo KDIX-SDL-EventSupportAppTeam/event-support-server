@@ -30,6 +30,7 @@ import { adminGachaRoutes } from './routes/v1/admin/gacha.js'
 import { organizerGachaSettingsRoutes } from './routes/v1/organizer/gacha-settings.js'
 import { webhookRoutes } from './routes/v1/ops.js'
 import { surveyRoutes } from './routes/v1/survey.js'
+import { meRoutes } from './routes/v1/me.js'
 import { eventsPublicRoutes } from './routes/v1/events-public.js'
 import { appAccessRoutes } from './routes/v1/app-access.js'
 import { organizerAppAccessRoutes } from './routes/v1/organizer/app-access.js'
@@ -61,6 +62,7 @@ export async function buildApp(config: AppConfig, db: DbClient) {
     async (v1) => {
       await v1.register(authRoutes, { prefix: '/auth' })
       await v1.register(surveyRoutes)
+      await v1.register(meRoutes)
       await v1.register(eventsPublicRoutes)
       await v1.register(appAccessRoutes)
       await v1.register(boothRoutes)

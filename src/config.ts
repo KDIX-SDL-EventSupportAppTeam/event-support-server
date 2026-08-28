@@ -2,6 +2,7 @@ import 'dotenv/config'
 import { z } from 'zod'
 
 const envSchema = z.object({
+  NODE_ENV: z.string().optional(),
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().optional(),
   SAKURA_PROXY_URL: z.string().optional(),
@@ -25,6 +26,7 @@ const envSchema = z.object({
 })
 
 export type AppConfig = {
+  isProduction: boolean
   port: number
   databaseUrl: string | undefined
   sakuraProxyUrl: string | undefined
@@ -59,6 +61,26 @@ export function loadConfig(): AppConfig {
     throw new Error('DATABASE_URL または SAKURA_PROXY_URL のいずれかが必要です')
   }
 
+  const isProduction = e.NODE_ENV === 'production'
+
+  // メール確認は登録直後の必須ステップ（06-api.md の状態機械 S2）。SMTP 未設定だと
+  // lib/mailer.ts がログ出力に落ち、本番では誰も先へ進めないまま起動してしまう。
+  // 設定漏れに気づけないのが最悪なので、本番だけ起動時に落とす。
+  if (isProduction && !e.SMTP_HOST) {
+    throw new Error(
+      'NODE_ENV=production では SMTP_HOST が必須です。' +
+        '未設定だと確認メールが送られず、参加者が登録の次に進めません。',
+    )
+  }
+
+  // 確認メール中の URL は FRONTEND_BASE_URL、無ければ CORS_ORIGIN の先頭を使う（lib/email-verification.ts）。
+  // 複数オリジンを並べている本番では先頭が意図した宛先とは限らないため警告する。
+  if (isProduction && !e.FRONTEND_BASE_URL) {
+    console.warn(
+      'FRONTEND_BASE_URL が未設定です。確認メールの URL は CORS_ORIGIN の先頭オリジンになります。',
+    )
+  }
+
   if (e.ORGANIZER_SIGNUP_MODE === 'invite' && !e.ORGANIZER_REGISTRATION_KEY) {
     console.warn(
       'ORGANIZER_SIGNUP_MODE=invite ですが ORGANIZER_REGISTRATION_KEY が未設定です。' +
@@ -67,6 +89,7 @@ export function loadConfig(): AppConfig {
   }
 
   return {
+    isProduction,
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,
     sakuraProxyUrl: e.SAKURA_PROXY_URL,
