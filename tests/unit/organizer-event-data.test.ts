@@ -112,11 +112,11 @@ describe('DELETE /organizer/events/:event_id/event-data', () => {
     expect(res.statusCode).toBe(200)
     const { data } = res.json()
     expect(data.cleared).toEqual({
-      recommendations: 2,
       survey_answers: 2,
       ratings: 2,
       checkins: 2,
       bingo_cards: 2,
+      gacha_coin_uses: 2,
       booth_tags: 2,
       booth_categories: 2,
       booths: 2,
@@ -124,7 +124,10 @@ describe('DELETE /organizer/events/:event_id/event-data', () => {
       survey_questions: 2,
       categories: 2,
     })
-    expect(log.some((sql) => /^DELETE FROM recommendations/.test(sql))).toBe(true)
+    // recommendation_scores は明示削除しない（bingo_cards → card_unlock_events 経由の CASCADE）
+    expect(log.some((sql) => /^DELETE FROM recommendations\b/.test(sql))).toBe(false)
+    // ガチャ台帳は users の CASCADE 任せにせず明示的に消す（運営アカウントの行が残るため）
+    expect(log.some((sql) => /^DELETE FROM gacha_coin_uses WHERE event_id = \?/.test(sql))).toBe(true)
     // bingo_cards は booths より先に消す（bingo_cells.booth_id が ON DELETE RESTRICT のため）
     const cardIdx = log.findIndex((sql) => /^DELETE FROM bingo_cards/.test(sql))
     const boothIdx = log.findIndex((sql) => /^DELETE FROM booths/.test(sql))
@@ -237,7 +240,7 @@ describe('DELETE /organizer/events/:event_id/event-data', () => {
       payload: { confirm: 'DELETE_ALL_EVENT_DATA' },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json().data.cleared.recommendations).toBe(2)
+    expect(res.json().data.cleared.checkins).toBe(2)
     await app.close()
   })
 })

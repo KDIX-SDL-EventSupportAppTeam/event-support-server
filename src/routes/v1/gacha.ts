@@ -1,21 +1,61 @@
 import type { FastifyInstance } from 'fastify'
-import { randomUUID } from 'node:crypto'
-import { sendOk } from '../../lib/response.js'
+import { z } from 'zod'
+import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt } from '../../plugins/auth.js'
 import { ensureCard } from '../../lib/bingo/ensureCard.js'
 import { countCompletedLines } from '../../lib/bingo/lines.js'
-
-/** ビンゴのライン数からコイン数へ換算する既定の上限。ガチャ本体の実装までの暫定値。 */
-const MAX_COINS = 10
+import { calcCoinsEarned } from '../../lib/gacha/coins.js'
+import { fetchGachaSettings } from '../../lib/gacha/settings.js'
+import { NoCoinsAvailableError, useCoin } from '../../lib/gacha/useCoin.js'
 
 /**
- * ガチャコイン API の器のみ。docs/specs/bingo-dynamic-unlock/06-api/participant-api.md
+ * 参加者向けガチャコイン API。
  *
- * ビンゴ側は lines_completed を提供するだけで、コインへの換算・ガチャ本体の抽選ロジックは
- * ここでは実装しない（D-5: ビンゴのモジュールはガチャのエンドポイントを知らない）。
+ * コインは残高カラムを持たず、`gacha_coin_uses` の追記のみで表す。
+ * `available = max(0, earned - used)` を毎回導出する（G-1）。
+ * ライン数からコイン枚数への換算はガチャ側の純関数 calcCoinsEarned が担う（G-4）。
+ *
+ * 仕様: docs/specs/gacha-and-award/04-api/participant-api.md
  */
 export async function gachaRoutes(app: FastifyInstance) {
   const pre = [requireBearerAuth, requireEventMatchesJwt]
+
+  /** そのユーザーの成立ライン数を、ビンゴカードから求める。 */
+  async function countLines(eventId: string, uid: string): Promise<number> {
+    const card = await ensureCard(app.db, eventId, uid)
+    const [rows] = await app.db.query(
+      `SELECT position FROM bingo_cells WHERE card_id = ? AND is_achieved = 1`,
+      [card.id],
+    )
+    const achieved = new Set((rows as { position: number }[]).map((r) => r.position))
+    return countCompletedLines(achieved)
+  }
+
+  /** そのユーザーの使用枚数（台帳の行数）。 */
+  async function countUsed(eventId: string, uid: string): Promise<number> {
+    const [rows] = await app.db.query(
+      `SELECT COUNT(*) AS c FROM gacha_coin_uses WHERE event_id = ? AND user_id = ?`,
+      [eventId, uid],
+    )
+    return Number((rows as { c: number }[])[0]?.c ?? 0)
+  }
+
+  function basePayload(args: {
+    isEnabled: boolean
+    linesCompleted: number
+    earned: number
+    used: number
+    maxCoins: number
+  }) {
+    return {
+      is_enabled: args.isEnabled,
+      lines_completed: args.linesCompleted,
+      earned: args.earned,
+      used: args.used,
+      available: Math.max(0, args.earned - args.used),
+      max_coins: args.maxCoins,
+    }
+  }
 
   app.get<{ Params: { event_id: string } }>(
     '/events/:event_id/gacha/coins',
@@ -24,26 +64,26 @@ export async function gachaRoutes(app: FastifyInstance) {
       const eventId = req.params.event_id
       const uid = req.jwtUser!.sub
 
-      const card = await ensureCard(app.db, eventId, uid)
-      const [rows] = await app.db.query(
-        `SELECT position FROM bingo_cells WHERE card_id = ? AND is_achieved = 1`,
-        [card.id],
+      const settings = await fetchGachaSettings(app.db, eventId)
+      const linesCompleted = await countLines(eventId, uid)
+      const used = await countUsed(eventId, uid)
+      const earned = calcCoinsEarned(linesCompleted, settings)
+
+      // is_enabled = false でも 200 を返す。UI 側で「準備中」を出す。
+      return sendOk(
+        reply,
+        basePayload({
+          isEnabled: settings.isEnabled,
+          linesCompleted,
+          earned,
+          used,
+          maxCoins: settings.maxCoins,
+        }),
       )
-      const achieved = new Set((rows as { position: number }[]).map((r) => r.position))
-      const linesCompleted = countCompletedLines(achieved)
-
-      const [usedRows] = await app.db.query(
-        `SELECT COUNT(*) AS c FROM gacha_coin_uses WHERE event_id = ? AND user_id = ?`,
-        [eventId, uid],
-      )
-      const used = Number((usedRows as { c: number }[])[0]?.c ?? 0)
-
-      const earned = Math.min(linesCompleted, MAX_COINS)
-      const available = Math.max(0, earned - used)
-
-      return sendOk(reply, { lines_completed: linesCompleted, earned, used, available, max: MAX_COINS })
     },
   )
+
+  const useBody = z.object({ idempotency_key: z.string().uuid() })
 
   app.post<{ Params: { event_id: string } }>(
     '/events/:event_id/gacha/coins/use',
@@ -52,30 +92,59 @@ export async function gachaRoutes(app: FastifyInstance) {
       const eventId = req.params.event_id
       const uid = req.jwtUser!.sub
 
-      const id = randomUUID()
-      await app.db.execute(
-        `INSERT INTO gacha_coin_uses (id, event_id, user_id) VALUES (?,?,?)`,
-        [id, eventId, uid],
-      )
+      const parsed = useBody.safeParse(req.body)
+      if (!parsed.success) {
+        return sendFail(reply, 400, 'INVALID_BODY', 'idempotency_key は UUID 形式で必須です')
+      }
+      const idempotencyKey = parsed.data.idempotency_key
 
-      const card = await ensureCard(app.db, eventId, uid)
-      const [rows] = await app.db.query(
-        `SELECT position FROM bingo_cells WHERE card_id = ? AND is_achieved = 1`,
-        [card.id],
-      )
-      const achieved = new Set((rows as { position: number }[]).map((r) => r.position))
-      const linesCompleted = countCompletedLines(achieved)
+      // 手順1: 設定を読む。is_enabled = 0 なら 403
+      const settings = await fetchGachaSettings(app.db, eventId)
+      if (!settings.isEnabled) {
+        return sendFail(reply, 403, 'GACHA_DISABLED', 'ガチャは現在準備中です')
+      }
 
-      const [usedRows] = await app.db.query(
-        `SELECT COUNT(*) AS c FROM gacha_coin_uses WHERE event_id = ? AND user_id = ?`,
-        [eventId, uid],
-      )
-      const used = Number((usedRows as { c: number }[])[0]?.c ?? 0)
+      // 手順2〜4: 消費。earned は手順2でその場算出し、再試行時も再評価する。
+      // 応答用にも使うため、最後に評価したライン数・獲得枚数を控える
+      // （消費後にもう一度 countLines するとカード取得を含む3クエリを余計に往復するため）。
+      let lastLines = 0
+      let lastEarned = 0
+      let result
+      try {
+        result = await useCoin(app.db, {
+          eventId,
+          userId: uid,
+          idempotencyKey,
+          computeEarned: async () => {
+            lastLines = await countLines(eventId, uid)
+            lastEarned = calcCoinsEarned(lastLines, settings)
+            return lastEarned
+          },
+        })
+      } catch (err) {
+        if (err instanceof NoCoinsAvailableError) {
+          return sendFail(reply, 409, 'NO_COINS_AVAILABLE', '使用できるコインがありません')
+        }
+        throw err
+      }
 
-      const earned = Math.min(linesCompleted, MAX_COINS)
-      const available = Math.max(0, earned - used)
+      const linesCompleted = lastLines
+      const earned = lastEarned
+      // used だけは数え直す（coin_index + 1 で代用しない: 同一ユーザーの並行消費が
+      // 先に入っていると実際の使用枚数はそれより多く、古い値を返してしまうため）。
+      const used = await countUsed(eventId, uid)
 
-      return sendOk(reply, { lines_completed: linesCompleted, earned, used, available, max: MAX_COINS })
+      return sendOk(reply, {
+        ...basePayload({
+          isEnabled: settings.isEnabled,
+          linesCompleted,
+          earned,
+          used,
+          maxCoins: settings.maxCoins,
+        }),
+        coin_index: result.coinIndex,
+        used_at: result.usedAt,
+      })
     },
   )
 }

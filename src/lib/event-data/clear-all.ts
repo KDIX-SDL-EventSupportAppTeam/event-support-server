@@ -3,11 +3,11 @@ import { hasBoothCategoriesTable } from '../sample-data/constants.js'
 
 export type EventDataClearResult = {
   deleted: {
-    recommendations: number
     survey_answers: number
     ratings: number
     checkins: number
     bingo_cards: number
+    gacha_coin_uses: number
     booth_tags: number
     booth_categories: number
     booths: number
@@ -53,13 +53,20 @@ export async function clearAllEventData(db: DbClient, eventId: string): Promise<
   const hasBoothCategories = await hasBoothCategoriesTable(db)
   const boothIds = await boothIdsForEvent(db, eventId)
 
-  const [recRes] = await db.execute('DELETE FROM recommendations WHERE event_id = ?', [eventId])
+  // 推薦データ（recommendation_scores）は明示削除しない。card_unlock_events 経由で
+  // bingo_cards 削除時に ON DELETE CASCADE で消える（migration 09 / 仕様書 §4-C）。
   const [usaRes] = await db.execute('DELETE FROM user_survey_answers WHERE event_id = ?', [eventId])
   const [brRes] = await db.execute('DELETE FROM booth_ratings WHERE event_id = ?', [eventId])
   const [ciRes] = await db.execute('DELETE FROM check_ins WHERE event_id = ?', [eventId])
   // bingo_cells.booth_id は ON DELETE RESTRICT のため、booths 削除より先にカードを消す
   // （bingo_cells / cell_assignment_logs は bingo_cards から CASCADE で消える）
   const [cardRes] = await db.execute('DELETE FROM bingo_cards WHERE event_id = ?', [eventId])
+
+  // ガチャコイン使用台帳（docs/specs/gacha-and-award/02-data-model/schema.md）。
+  // users の CASCADE 任せにしない: この関数は運営アカウント（manager/viewer）を残すため、
+  // 運営が動作確認で使った行が消えずに残ってしまう。件数も運営に返す。
+  // 換算規則（gacha_settings）は「データ」ではなく設定のため、event_app_access と同様に残す。
+  const [gachaRes] = await db.execute('DELETE FROM gacha_coin_uses WHERE event_id = ?', [eventId])
 
   const deletedTags = await deleteByBoothIds(db, 'booth_tags', boothIds)
   const deletedBoothCategories = hasBoothCategories
@@ -76,11 +83,11 @@ export async function clearAllEventData(db: DbClient, eventId: string): Promise<
 
   return {
     deleted: {
-      recommendations: affectedRows(recRes),
       survey_answers: affectedRows(usaRes),
       ratings: affectedRows(brRes),
       checkins: affectedRows(ciRes),
       bingo_cards: affectedRows(cardRes),
+      gacha_coin_uses: affectedRows(gachaRes),
       booth_tags: deletedTags,
       booth_categories: deletedBoothCategories,
       booths: affectedRows(boothRes),

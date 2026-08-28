@@ -180,6 +180,22 @@ async function ensureDevAppAccess(pool: ReturnType<typeof createPool>) {
   console.log('Seed: event_app_access set to open:', EVENT_ID)
 }
 
+/**
+ * ガチャコイン設定（gacha_settings）を有効化しておく。
+ * スキーマ既定は is_enabled=0（当日ガチャを止められるようにするため。G-8）だが、
+ * ローカル・シード時は常に 1 にしておき、すぐ使用まで試せるようにする。
+ * 換算は確定値（1枚/ライン・上限4・ボーナス0。G-11）。
+ */
+async function ensureDevGachaSettings(pool: ReturnType<typeof createPool>) {
+  await pool.query(
+    `INSERT INTO gacha_settings (event_id, is_enabled, coins_per_line, max_coins, bonus_coins)
+     VALUES (?, 1, 1, 4, 0)
+     ON DUPLICATE KEY UPDATE is_enabled = 1`,
+    [EVENT_ID],
+  )
+  console.log('Seed: gacha_settings enabled:', EVENT_ID)
+}
+
 async function main() {
   const config = loadConfig()
   const pool = createPool(config)
@@ -192,6 +208,7 @@ async function main() {
     await ensureDevUser(pool)
     await ensureExhibitorUser(pool)
     await ensureDevAppAccess(pool)
+    await ensureDevGachaSettings(pool)
     await pool.end()
     return
   }
@@ -268,6 +285,7 @@ async function main() {
   await ensureDevUser(pool)
   await ensureExhibitorUser(pool)
   await ensureDevAppAccess(pool)
+  await ensureDevGachaSettings(pool)
 
   console.log('Seed OK. event_id =', EVENT_ID)
   console.log(`  Booths: ${BOOTH_SEEDS.length} 件 / manual codes: DEV001〜DEV${String(BOOTH_SEEDS.length).padStart(3, '0')}`)

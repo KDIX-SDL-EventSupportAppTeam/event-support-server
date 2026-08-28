@@ -68,6 +68,10 @@ YYYY-MM-DD-kebab-case-summary.md
 | テストコード | 種別 | 主な対象（src） | 備考 |
 |--------------|------|-----------------|------|
 | `tests/unit/datetime.test.ts` | unit | `src/lib/datetime.ts` | UTC 変換の基礎テスト |
+| `tests/unit/gacha/coins.test.ts` | unit | `src/lib/gacha/coins.ts` | 換算の純関数（264通り総当たり） |
+| `tests/unit/gacha/settings.test.ts` | unit | `src/lib/gacha/settings.ts` | 設定取得のフォールバック |
+| `tests/integration/gacha/use-coin.test.ts` | integration | `src/routes/v1/gacha.ts`, `src/lib/gacha/useCoin.ts` | 多重消費・冪等（C-1〜C-10）。ローカル MySQL 必須 |
+| `tests/integration/gacha/settings.test.ts` | integration | `src/routes/v1/organizer/gacha-settings.ts`, `src/routes/v1/admin/gacha.ts` | 運営 API・監査ログ・stats。ローカル MySQL 必須 |
 
 新規テストを追加したら、この表も更新する。
 
@@ -78,6 +82,15 @@ YYYY-MM-DD-kebab-case-summary.md
 | 日付 | ファイル | 概要 | テストコード |
 |------|----------|------|--------------|
 | 2026-06-09 | [2026-06-09-sakura-db-proxy-manual.md](./runs/2026-06-09-sakura-db-proxy-manual.md) | さくらDBプロキシ手動検証 | なし（手動） |
+| 2026-07-07 | [2026-07-07-comment-save-fetch-api.md](./runs/2026-07-07-comment-save-fetch-api.md) | ブースコメント保存・取得API #54 | `tests/unit/booth-comments.test.ts` |
+| 2026-07-07 | [2026-07-07-exhibitor-role-stats-api.md](./runs/2026-07-07-exhibitor-role-stats-api.md) | 出展者ロール・一括登録API・集計API #53 | `tests/unit/exhibitor.test.ts` |
+| 2026-07-12 | [2026-07-12-admin-booth-sort.md](./runs/2026-07-12-admin-booth-sort.md) | 運営向けブース別ソート付き一覧・集計API #55 | `tests/unit/admin-booth-sort.test.ts` |
+| 2026-07-12 | [2026-07-12-organizer-event-data.md](./runs/2026-07-12-organizer-event-data.md) | イベントデータ全削除の organizer 専用エンドポイント再設計 | `tests/unit/organizer-event-data.test.ts` |
+| 2026-07-13 | [2026-07-13-email-verification.md](./runs/2026-07-13-email-verification.md) | メールアドレス本人確認 #57 | `tests/unit/email-verification.test.ts` |
+| 2026-07-13 | [2026-07-13-event-survey-url.md](./runs/2026-07-13-event-survey-url.md) | イベントにアンケートURL追加 | — |
+| 2026-07-13 | [2026-07-13-organizer-auth-disabled.md](./runs/2026-07-13-organizer-auth-disabled.md) | 主催者ポータルの本番アクセス制限 #56 | `tests/unit/organizer-auth.test.ts` |
+| 2026-08-25 | [2026-08-25-bingo-dynamic-unlock.md](./runs/2026-08-25-bingo-dynamic-unlock.md) | **ビンゴ動的段階解放の実装と検証**（仕様変更対応・性能計測・環境問題） | `tests/unit/bingo-*.test.ts` ほか |
+| 2026-08-28 | [2026-08-28-gacha-coins.md](./runs/2026-08-28-gacha-coins.md) | ガチャコイン：換算の純関数・消費の排他制御・運営API（C-1〜C-10） | `tests/unit/gacha/*.test.ts`, `tests/integration/gacha/*.test.ts` |
 
 ---
 

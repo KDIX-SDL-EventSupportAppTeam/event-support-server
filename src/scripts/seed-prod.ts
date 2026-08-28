@@ -103,6 +103,15 @@ async function main() {
       console.log(`[seed-prod] inserted event: ${seedEnv.SEED_PROD_EVENT_ID}`)
     }
 
+    // ガチャコインは有効化した状態でシードする（スキーマ既定は 0＝当日の停止用。G-8/G-11）。
+    await pool.execute(
+      `INSERT INTO gacha_settings (event_id, is_enabled, coins_per_line, max_coins, bonus_coins)
+       VALUES (?, 1, 1, 4, 0)
+       ON DUPLICATE KEY UPDATE is_enabled = 1`,
+      [seedEnv.SEED_PROD_EVENT_ID],
+    )
+    console.log(`[seed-prod] gacha_settings enabled: ${seedEnv.SEED_PROD_EVENT_ID}`)
+
     for (const q of survey) {
       const [dup] = await pool.query(
         'SELECT id FROM survey_questions WHERE event_id = ? AND question_text = ? LIMIT 1',

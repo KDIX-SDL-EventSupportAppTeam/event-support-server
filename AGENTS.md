@@ -42,5 +42,5 @@ npm run db:check   # DB 疎通とテーブル数の確認
 | リポジトリ | 役割 |
 |---|---|
 | `event-support-frontend` | UI。API 契約は本リポジトリの `docs/specs/` が正本 |
-| `event-support-recommender` | 推薦エンジン。server から内部 HTTP で中継する |
+| `event-support-recommend` | 推薦エンジン。server から内部 HTTP で中継する |
 | `event-support-analytics` | 分析。指標定義はそちらが正本 |
