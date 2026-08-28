@@ -16,14 +16,28 @@ const config = {
 type Fixture = {
   emailVerifiedAt?: string | null
   answeredAt?: string | null
+  onboardingCompletedAt?: string | null
   mode?: string
   appOpensAt?: string | null
 }
 
 function makeDb(fx: Fixture = {}): DbClient {
+  let onboardingAt: string | null = fx.onboardingCompletedAt ?? null
+
   const run = async (sql: string, params: unknown[] = []): Promise<[unknown, unknown]> => {
-    if (/SELECT email_verified_at FROM users/.test(sql)) {
-      return [[{ email_verified_at: fx.emailVerifiedAt ?? null }], undefined]
+    if (/UPDATE users SET onboarding_completed_at/.test(sql)) {
+      // 条件付き UPDATE: 既に打刻済みなら上書きしない
+      if (onboardingAt === null) onboardingAt = params[0] as string
+      return [{ affectedRows: 1 }, undefined]
+    }
+    if (/SELECT onboarding_completed_at FROM users/.test(sql)) {
+      return [[{ onboarding_completed_at: onboardingAt }], undefined]
+    }
+    if (/SELECT email_verified_at, onboarding_completed_at FROM users/.test(sql)) {
+      return [
+        [{ email_verified_at: fx.emailVerifiedAt ?? null, onboarding_completed_at: onboardingAt }],
+        undefined,
+      ]
     }
     if (/SELECT created_at FROM user_survey_answers/.test(sql)) {
       const [uid, eid] = params
@@ -112,6 +126,20 @@ describe('GET /events/:event_id/me/state', () => {
     await app.close()
   })
 
+  it('オンボーディング未完了なら false を返す', async () => {
+    const app = await buildApp(makeDb())
+    const res = await get(app, EVENT_ID, tokenFor(EVENT_ID))
+    expect(res.json().data.onboarding_completed).toBe(false)
+    await app.close()
+  })
+
+  it('オンボーディング完了済みなら true を返す', async () => {
+    const app = await buildApp(makeDb({ onboardingCompletedAt: '2026-10-16 01:00:00' }))
+    const res = await get(app, EVENT_ID, tokenFor(EVENT_ID))
+    expect(res.json().data.onboarding_completed).toBe(true)
+    await app.close()
+  })
+
   it('アプリ公開ゲートの実効状態を同じ応答に載せる', async () => {
     const app = await buildApp(makeDb({ mode: 'open' }))
     const res = await get(app, EVENT_ID, tokenFor(EVENT_ID))
@@ -119,6 +147,42 @@ describe('GET /events/:event_id/me/state', () => {
     expect(data.app_access.is_open).toBe(true)
     expect(data.app_access.mode).toBe('open')
     expect(typeof data.app_access.server_time).toBe('string')
+    await app.close()
+  })
+})
+
+describe('POST /events/:event_id/me/onboarding', () => {
+  async function post(app: FastifyInstance, eventId: string, token?: string) {
+    return app.inject({
+      method: 'POST',
+      url: `/events/${eventId}/me/onboarding`,
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+    })
+  }
+
+  it('未認証は 401 を返す', async () => {
+    const app = await buildApp(makeDb())
+    expect((await post(app, EVENT_ID)).statusCode).toBe(401)
+    await app.close()
+  })
+
+  it('打刻すると me/state が completed を返すようになる', async () => {
+    const db = makeDb()
+    const app = await buildApp(db)
+    expect((await get(app, EVENT_ID, tokenFor(EVENT_ID))).json().data.onboarding_completed).toBe(false)
+
+    const res = await post(app, EVENT_ID, tokenFor(EVENT_ID))
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.onboarding_completed).toBe(true)
+
+    expect((await get(app, EVENT_ID, tokenFor(EVENT_ID))).json().data.onboarding_completed).toBe(true)
+    await app.close()
+  })
+
+  it('2 回目の打刻は初回の時刻を上書きしない', async () => {
+    const app = await buildApp(makeDb({ onboardingCompletedAt: '2026-10-16 01:00:00' }))
+    const res = await post(app, EVENT_ID, tokenFor(EVENT_ID))
+    expect(res.json().data.onboarding_completed_at).toBe('2026-10-16T01:00:00Z')
     await app.close()
   })
 })

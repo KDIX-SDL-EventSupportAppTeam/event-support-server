@@ -115,6 +115,7 @@ Bearer + `requireEventMatchesJwt`。
     "email_verified": true,
     "survey_answered": true,
     "survey_answered_at": "2026-08-20T09:12:00Z",
+    "onboarding_completed": false,
     "app_access": {
       "is_open": false,
       "mode": "scheduled",
@@ -132,10 +133,24 @@ Bearer + `requireEventMatchesJwt`。
 | `email_verified` | `users.email_verified_at` が NULL でないか |
 | `survey_answered` | `user_survey_answers` に (user_id, event_id) の行があるか |
 | `survey_answered_at` | 同行の `created_at`。再回答は UPDATE で上書きするため**最初の回答時刻** |
+| `onboarding_completed` | `users.onboarding_completed_at` が NULL でないか |
 | `app_access` | `lib/app-access.ts` の実効開放状態（公開 GET と同じ算出） |
 
 - JWT の `event_id` と URL が一致しなければ 403（`requireEventMatchesJwt`）
 - 未認証は 401
+
+## POST /api/v1/events/:event_id/me/onboarding（Bearer 必須）
+
+オンボーディング完了の打刻。最終スライド到達またはスキップで呼ぶ。
+
+```json
+{ "success": true, "data": { "onboarding_completed": true, "onboarding_completed_at": "2026-10-16T01:00:00Z" } }
+```
+
+- **冪等。** 2 回目以降の呼び出しは初回の時刻を保つ（`onboarding_completed_at IS NULL` を条件にした UPDATE 1 本。ADR 0001）
+- 既読を端末（localStorage）ではなくサーバーに持つのは、**回答から開放まで数日空き、その間に端末が変わり得る**ため。
+  PC で回答してスマホで入場した参加者に毎回オンボーディングが出るのを防ぐ
+- `users` は `event_id` を持つ（イベントごとに別行）ため、この列だけでイベント単位の既読になる
 
 ## 既存エンドポイントの変更
 
