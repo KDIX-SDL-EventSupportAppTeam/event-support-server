@@ -1,6 +1,6 @@
 ---
 状態: 確定
-最終更新: 2026-08-24
+最終更新: 2026-08-28
 ---
 
 # API
@@ -103,6 +103,40 @@ Bearer + `requireEventMatchesJwt`。
 5. `(user_id, event_id)` で既存行を SELECT → あれば UPDATE、無ければ INSERT
 6. レスポンスに `{ answered_at }` を返す
 
+## GET /api/v1/events/:event_id/me/state（Bearer 必須）
+
+配布リンクを踏んだときに「その参加者がどの段階にいるか」を 1 回で返す（PQ-2 案 B）。
+単一 URL の分岐材料をここに集約し、段階ごとに別 API を叩かせない。
+
+```json
+{
+  "success": true,
+  "data": {
+    "email_verified": true,
+    "survey_answered": true,
+    "survey_answered_at": "2026-08-20T09:12:00Z",
+    "app_access": {
+      "is_open": false,
+      "mode": "scheduled",
+      "app_opens_at": "2026-10-16T00:30:00Z",
+      "is_pre_survey_open": true,
+      "pre_survey_closes_at": "2026-10-15T14:59:59Z",
+      "server_time": "2026-08-28T09:21:00Z"
+    }
+  }
+}
+```
+
+| フィールド | 由来 |
+|---|---|
+| `email_verified` | `users.email_verified_at` が NULL でないか |
+| `survey_answered` | `user_survey_answers` に (user_id, event_id) の行があるか |
+| `survey_answered_at` | 同行の `created_at`。再回答は UPDATE で上書きするため**最初の回答時刻** |
+| `app_access` | `lib/app-access.ts` の実効開放状態（公開 GET と同じ算出） |
+
+- JWT の `event_id` と URL が一致しなければ 403（`requireEventMatchesJwt`）
+- 未認証は 401
+
 ## 既存エンドポイントの変更
 
 | エンドポイント | 変更 |
@@ -126,5 +160,6 @@ Bearer + `requireEventMatchesJwt`。
 | `src/routes/v1/admin/app-access.ts` | staff の読み取り専用 GET |
 | `src/lib/app-access.ts` | **実効開放状態の算出と既定値生成。判定ロジックはここだけに置く** |
 | `src/routes/v1/survey.ts` | 既存。締切チェック・バリデーション・upsert を追加 |
+| `src/routes/v1/me.ts` | 参加者自身の進行状態（`me/state`）。単一 URL の分岐材料をここに集約する |
 
 `app.ts` の登録順は既存の並び（public → v1 → organizer → admin）に合わせる。
