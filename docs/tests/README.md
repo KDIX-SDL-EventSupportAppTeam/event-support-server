@@ -78,6 +78,14 @@ YYYY-MM-DD-kebab-case-summary.md
 | 日付 | ファイル | 概要 | テストコード |
 |------|----------|------|--------------|
 | 2026-06-09 | [2026-06-09-sakura-db-proxy-manual.md](./runs/2026-06-09-sakura-db-proxy-manual.md) | さくらDBプロキシ手動検証 | なし（手動） |
+| 2026-07-07 | [2026-07-07-comment-save-fetch-api.md](./runs/2026-07-07-comment-save-fetch-api.md) | ブースコメント保存・取得API #54 | `tests/unit/booth-comments.test.ts` |
+| 2026-07-07 | [2026-07-07-exhibitor-role-stats-api.md](./runs/2026-07-07-exhibitor-role-stats-api.md) | 出展者ロール・一括登録API・集計API #53 | `tests/unit/exhibitor.test.ts` |
+| 2026-07-12 | [2026-07-12-admin-booth-sort.md](./runs/2026-07-12-admin-booth-sort.md) | 運営向けブース別ソート付き一覧・集計API #55 | `tests/unit/admin-booth-sort.test.ts` |
+| 2026-07-12 | [2026-07-12-organizer-event-data.md](./runs/2026-07-12-organizer-event-data.md) | イベントデータ全削除の organizer 専用エンドポイント再設計 | `tests/unit/organizer-event-data.test.ts` |
+| 2026-07-13 | [2026-07-13-email-verification.md](./runs/2026-07-13-email-verification.md) | メールアドレス本人確認 #57 | `tests/unit/email-verification.test.ts` |
+| 2026-07-13 | [2026-07-13-event-survey-url.md](./runs/2026-07-13-event-survey-url.md) | イベントにアンケートURL追加 | — |
+| 2026-07-13 | [2026-07-13-organizer-auth-disabled.md](./runs/2026-07-13-organizer-auth-disabled.md) | 主催者ポータルの本番アクセス制限 #56 | `tests/unit/organizer-auth.test.ts` |
+| 2026-08-25 | [2026-08-25-bingo-dynamic-unlock.md](./runs/2026-08-25-bingo-dynamic-unlock.md) | **ビンゴ動的段階解放の実装と検証**（仕様変更対応・性能計測・環境問題） | `tests/unit/bingo-*.test.ts` ほか |
 
 ---
 

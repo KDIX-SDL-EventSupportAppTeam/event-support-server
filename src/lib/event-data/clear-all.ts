@@ -3,7 +3,6 @@ import { hasBoothCategoriesTable } from '../sample-data/constants.js'
 
 export type EventDataClearResult = {
   deleted: {
-    recommendations: number
     survey_answers: number
     ratings: number
     checkins: number
@@ -53,7 +52,8 @@ export async function clearAllEventData(db: DbClient, eventId: string): Promise<
   const hasBoothCategories = await hasBoothCategoriesTable(db)
   const boothIds = await boothIdsForEvent(db, eventId)
 
-  const [recRes] = await db.execute('DELETE FROM recommendations WHERE event_id = ?', [eventId])
+  // 推薦データ（recommendation_scores）は明示削除しない。card_unlock_events 経由で
+  // bingo_cards 削除時に ON DELETE CASCADE で消える（migration 09 / 仕様書 §4-C）。
   const [usaRes] = await db.execute('DELETE FROM user_survey_answers WHERE event_id = ?', [eventId])
   const [brRes] = await db.execute('DELETE FROM booth_ratings WHERE event_id = ?', [eventId])
   const [ciRes] = await db.execute('DELETE FROM check_ins WHERE event_id = ?', [eventId])
@@ -76,7 +76,6 @@ export async function clearAllEventData(db: DbClient, eventId: string): Promise<
 
   return {
     deleted: {
-      recommendations: affectedRows(recRes),
       survey_answers: affectedRows(usaRes),
       ratings: affectedRows(brRes),
       checkins: affectedRows(ciRes),
