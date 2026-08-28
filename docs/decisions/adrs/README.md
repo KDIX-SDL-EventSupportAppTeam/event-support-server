@@ -24,6 +24,8 @@ NNNN-kebab-case-title.md
 |------|----------|------|
 | 0001 | [0001-sakura-proxy-error-masking.md](./0001-sakura-proxy-error-masking.md) | さくらプロキシは DB エラーを 500 に潰すため、一意制約は INSERT 前に確認する |
 | 0002 | [0002-cloud-run-single-instance-for-websocket.md](./0002-cloud-run-single-instance-for-websocket.md) | WebSocket 配信のため Cloud Run を 1 インスタンスに固定する |
+| 0004 | [0004-split-recommender-repository.md](./0004-split-recommender-repository.md) | 推薦エンジンを別リポジトリに分ける |
+| 0005 | [0005-stacked-pr-merge-order.md](./0005-stacked-pr-merge-order.md) | 積み重ねた PR は上から順にマージし、取り残しを CI で検出する |
 
 ## 関連
 

@@ -1,6 +1,6 @@
 ---
-状態: 確定
-最終更新: 2026-08-27
+状態: 実装済み
+最終更新: 2026-08-28
 ---
 
 # マイグレーション 09 の追従漏れ修正
@@ -73,24 +73,44 @@ DROP TABLE IF EXISTS recommendations;
 
 ### なぜ develop が壊れたか（経緯）
 
-GitHub の履歴を確認した結果、**PR #81 が古いスナップショットからマージされている。**
+**積み重ねた（stacked）3本の PR を、下から順にマージしたため。**
 
-| PR | ブランチ | base | 状態 |
-|---|---|---|---|
-| #78 | `feat/bingo-unlock-1-schema-logic` | develop | **CLOSED（未マージ）** |
-| #79 | `feat/bingo-unlock-2-api-tests` | `feat/bingo-unlock-1-schema` | MERGED（08-25） |
-| #81 | `feat/bingo-unlock-1-schema` | develop | MERGED（08-26） |
-
-`#79` のマージで `origin/feat/bingo-unlock-1-schema` は `63dbf2a` まで進んでいたが、
-翌日マージされた `#81` のマージコミット `ab10fe0` の第二親は **`6e2dd4a`（`#79` マージ前）**。
-
-```bash
-git show ab10fe0 --format="%H %P" -s
-# ab10fe0... 8c46474... 6e2dd4a...   ← 63dbf2a ではない
+```
+develop
+  └─ feat/bingo-unlock-1-schema         … PR #81 (base: develop)
+       └─ feat/bingo-unlock-2-api-tests  … PR #79 (base: feat/bingo-unlock-1-schema)
+            └─ docs/bingo-unlock-3-documentation … PR #80 (base: feat/bingo-unlock-2-api-tests)
 ```
 
-**マージ操作の前に `git fetch` していなかった**ため、`db/` のスキーマ刷新だけが
-develop に入り、対応する `src/lib/bingo/*.ts` のロジック刷新が取り残された。
+| PR | ブランチ | base | マージ時刻（JST） |
+|---|---|---|---|
+| #78 | `feat/bingo-unlock-1-schema-logic` | develop | **CLOSED（未マージ）** |
+| **#81** | `feat/bingo-unlock-1-schema` | develop | **08-26 21:08:19** |
+| #79 | `feat/bingo-unlock-2-api-tests` | `feat/bingo-unlock-1-schema` | 08-26 21:44:12 |
+| #80 | `docs/bingo-unlock-3-documentation` | `feat/bingo-unlock-2-api-tests` | 08-26 21:44:26 |
+
+一番下の `#81` が最初にマージされ、その **36 分後**に `#79` と `#80` が
+**既に develop へマージ済みのブランチへ**マージされた。この2本は行き場を失い、
+`db/` のスキーマ刷新だけが develop に入って `src/lib/bingo/*.ts` のロジック刷新が取り残された。
+
+08-27 01:33 に `origin/feat/bingo-unlock-1-schema` を develop へ手動で再マージ（`4e7b451`）した
+ことで `#79` の内容は回収されたが、**`#80` は1段上に載っていたため回収されず、
+2026-08-28 まで取り残されたままだった**（本対応で回収済み）。
+
+> ⚠️ **`git fetch` 忘れが原因ではない。**
+> `#81` のマージコミット `ab10fe0` の第二親は `6e2dd4a` だが、これは
+> **21:08 時点の `feat/bingo-unlock-1-schema` の正しい先端**である
+> （`63dbf2a` は 21:44:12 まで存在しない）。`#81` のマージ自体に誤りは無い。
+>
+> ```bash
+> git show -s --format=%ci 6e2dd4a   # 2026-08-25 17:00:12 +0900
+> git show -s --format=%ci ab10fe0   # 2026-08-26 21:08:19 +0900  ← #81
+> git show -s --format=%ci 63dbf2a   # 2026-08-26 21:44:12 +0900  ← #79（#81 より後）
+> ```
+>
+> 原因は fetch の有無ではなく**マージ順序**である。この区別は対策に直結する
+> （ブランチの最新性を強制しても `#81` は止まらない）。
+> 詳細と再発防止は [ADR 0005](../../decisions/adrs/0005-stacked-pr-merge-order.md)。
 
 ## 3. 影響範囲
 
@@ -133,11 +153,15 @@ git merge origin/feat/bingo-unlock-1-schema
 npm test && npm run build
 ```
 
-**検証済み（2026-08-27）**: develop へのドライマージで**コンフリクト無し**、
-マージ後の `npm test` は **24 ファイル / 287 件すべて成功**。
+> ✅ **完了（2026-08-28）。** 08-27 01:33 の手動再マージ（`4e7b451`）で
+> `origin/feat/bingo-unlock-1-schema` は既に develop の先祖になっており、
+> 上記 `git merge` は "Already up to date" になる（`/bingo/card` は実測で 200）。
+> **A で新たに行う作業は無い。**
+>
+> ただし同じ積み重ねの最上段 `#80`（`origin/feat/bingo-unlock-2-api-tests`）は
+> **回収されていなかった**ため、本対応でマージした（`d1ba03a`）。§2 と ADR 0005 を参照。
 
-これで `/bingo/card` の 500 は解消する。`ensureCard.ts` は
-`is_revealed` / `is_achieved` ベースの実装に置き換わる。
+`ensureCard.ts` は `is_revealed` / `is_achieved` ベースの実装に置き換わっている。
 
 > ⚠️ **これは §4-B（運営分析）を直さない。** マージ後のブランチにも
 > `analytics.ts:109,441` の `FROM recommendations` はそのまま残っている（確認済み）。
@@ -341,8 +365,18 @@ bingo_cards
 
 イベント ID は `20000000-0000-4000-8000-000000000001`。
 
-## 7. 再発防止（提案・別途判断）
+## 7. 再発防止
 
-今回は `git fetch` 忘れのままマージしたことが直接原因である。
-`develop` を保護し、**マージ前に最新であることを CI で検査する**などの
-運用ルールを検討する価値がある（[decisions/](../../decisions/README.md) に ADR を起こす）。
+[**ADR 0005: 積み重ねた PR は上から順にマージし、取り残しを CI で検出する**](../../decisions/adrs/0005-stacked-pr-merge-order.md)（ステータス: 提案）に記録した。
+
+同じ原因の取り残しが**2件**起きている（`#79` の一時的な取り残しと、`#80` の2日間の放置）。
+要点は次のとおり。
+
+1. 積み重ねた PR は**上から順に**マージする（`#80` → `#79` → `#81`）
+2. 下を先にマージしてしまったら、残りの PR の **base を `develop` に付け替える**
+   （ブランチへの追いマージだと1段上を取りこぼす。今回まさにそれが起きた）
+3. `git rev-list --count origin/develop..<branch>` で取り残しを検査して通知する
+
+**`develop` のブランチ保護を有効にするかは ADR では決めていない**（リポジトリ設定の変更を伴うため別途判断）。
+なお GitHub の *Require branches to be up to date before merging* は
+**今回の事故を防げない**（`#81` は base である `develop` に対しては最新だった）。

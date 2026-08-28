@@ -1,7 +1,7 @@
 import type { AppConfig } from '../../config.js'
 
 /**
- * 推薦サービス（event-support-recommender）との HTTP 契約。
+ * 推薦サービス（event-support-recommend）との HTTP 契約。
  * docs/specs/bingo-dynamic-unlock/05-recommender/contract.md が正本。
  *
  * サーバー側は呼び出し口とフォールバックだけを持つ。アルゴリズム本体は推薦エンジン側の関心事。

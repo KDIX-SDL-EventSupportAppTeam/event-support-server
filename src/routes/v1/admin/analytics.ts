@@ -1,47 +1,12 @@
 import type { FastifyInstance } from 'fastify'
-import { parseJsonStringArray } from '../../../lib/json-array.js'
 import { sendOk } from '../../../lib/response.js'
 import { requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
-
-type RecRow = {
-  offered_booth_ids: unknown
-  selected_booth_id: string | null
-  algorithm: string
-  user_id: string
-  created_at: string
-}
-
-function aggregateRecommendations(rows: RecRow[]) {
-  const boothOfferedCount: Record<string, number> = {}
-  const boothSelectedCount: Record<string, number> = {}
-  let selectedCount = 0
-  let openCount = 0
-  let algorithm = 'mab'
-
-  for (const row of rows) {
-    algorithm = row.algorithm || algorithm
-    const offered = parseJsonStringArray(row.offered_booth_ids)
-    for (const boothId of offered) {
-      boothOfferedCount[boothId] = (boothOfferedCount[boothId] ?? 0) + 1
-    }
-    if (row.selected_booth_id) {
-      selectedCount++
-      boothSelectedCount[row.selected_booth_id] =
-        (boothSelectedCount[row.selected_booth_id] ?? 0) + 1
-    } else {
-      openCount++
-    }
-  }
-
-  return {
-    boothOfferedCount,
-    boothSelectedCount,
-    selectedCount,
-    openCount,
-    algorithm,
-    total: rows.length,
-  }
-}
+import {
+  aggregateRecommendations,
+  isAssigned,
+  REC_SCORE_BY_EVENT_SQL,
+  type RecScoreRow,
+} from '../../../lib/analytics/recommendationScores.js'
 
 function toIsoDatetime(v: string): string {
   return `${String(v).replace(' ', 'T')}Z`
@@ -104,11 +69,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
            GROUP BY booth_id, rating`,
           [eventId],
         ),
-        app.db.query(
-          `SELECT offered_booth_ids, selected_booth_id, algorithm, user_id, created_at
-           FROM recommendations WHERE event_id = ?`,
-          [eventId],
-        ),
+        app.db.query(REC_SCORE_BY_EVENT_SQL, [eventId]),
       ])
 
       const tagsByBooth = new Map<string, string[]>()
@@ -125,7 +86,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         ratingDistByBooth.set(r.booth_id, dist)
       }
 
-      const recAgg = aggregateRecommendations(recRows as RecRow[])
+      const recAgg = aggregateRecommendations(recRows as RecScoreRow[])
 
       const booths = (boothRows as {
         id: string
@@ -436,11 +397,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       const eventId = req.params.event_id
 
       const [[recRows], [boothRows], [checkinRows]] = await Promise.all([
-        app.db.query(
-          `SELECT id, offered_booth_ids, selected_booth_id, algorithm, user_id, created_at
-           FROM recommendations WHERE event_id = ?`,
-          [eventId],
-        ),
+        app.db.query(REC_SCORE_BY_EVENT_SQL, [eventId]),
         app.db.query(`SELECT id, name FROM booths WHERE event_id = ?`, [eventId]),
         app.db.query(
           `SELECT user_id, booth_id, checked_in_at FROM check_ins WHERE event_id = ?`,
@@ -452,7 +409,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         (boothRows as { id: string; name: string }[]).map((b) => [b.id, b.name]),
       )
 
-      const recs = recRows as RecRow[]
+      const recs = recRows as RecScoreRow[]
       const recAgg = aggregateRecommendations(recs)
 
       const by_booth = [...new Set([
@@ -506,7 +463,9 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         .sort((a, b) => b.count - a.count)
         .slice(0, 20)
 
-      // 推薦選択 → チェックインコンバージョン
+      // 推薦（割り当て）→ チェックインコンバージョン。
+      // 旧実装の「利用者が選んだブース」は「システムが割り当てたブース（was_assigned=1）」に対応する。
+      // 推薦時刻は recommendation_scores.created_at を使う（新旧で変わらない）。
       const checkinsByUserBooth = new Map<string, string[]>()
       for (const c of checkinRows as { user_id: string; booth_id: string; checked_in_at: string }[]) {
         const key = `${c.user_id}\0${c.booth_id}`
@@ -518,8 +477,8 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       let selected_then_checkedin = 0
       const minutesList: number[] = []
       for (const r of recs) {
-        if (!r.selected_booth_id) continue
-        const key = `${r.user_id}\0${r.selected_booth_id}`
+        if (!isAssigned(r.was_assigned)) continue
+        const key = `${r.user_id}\0${r.booth_id}`
         const times = checkinsByUserBooth.get(key) ?? []
         const recTime = new Date(toIsoDatetime(r.created_at)).getTime()
         const after = times
