@@ -7,7 +7,7 @@
 |---|---|---|
 | [bingo-dynamic-unlock/](bingo-dynamic-unlock/) | 草案 | ビンゴカードの動的段階解放（第4回プロトフェス向け本命） |
 | [pre-survey/](pre-survey/) | 草案 | 事前アンケートとアプリ公開ゲート |
-| [gacha-and-award/](gacha-and-award/) | 草案 | ガチャコイン・アワード投票（後回し。依存方向の制約のみ） |
+| [gacha-and-award/](gacha-and-award/) | 確定 | ガチャコイン（1ライン1枚・上限4枚／スタッフ立会いなし。アワード投票は対象外） |
 | [migration-09-followup/](migration-09-followup/) | 確定 | **マイグレーション09の追従漏れ修正。`/bingo/card` と運営分析が現在 500 を返している** |
 
 ## 読むときの約束

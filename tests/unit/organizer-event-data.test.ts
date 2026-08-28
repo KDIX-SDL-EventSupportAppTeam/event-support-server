@@ -116,6 +116,7 @@ describe('DELETE /organizer/events/:event_id/event-data', () => {
       ratings: 2,
       checkins: 2,
       bingo_cards: 2,
+      gacha_coin_uses: 2,
       booth_tags: 2,
       booth_categories: 2,
       booths: 2,
@@ -125,6 +126,8 @@ describe('DELETE /organizer/events/:event_id/event-data', () => {
     })
     // recommendation_scores は明示削除しない（bingo_cards → card_unlock_events 経由の CASCADE）
     expect(log.some((sql) => /^DELETE FROM recommendations\b/.test(sql))).toBe(false)
+    // ガチャ台帳は users の CASCADE 任せにせず明示的に消す（運営アカウントの行が残るため）
+    expect(log.some((sql) => /^DELETE FROM gacha_coin_uses WHERE event_id = \?/.test(sql))).toBe(true)
     // bingo_cards は booths より先に消す（bingo_cells.booth_id が ON DELETE RESTRICT のため）
     const cardIdx = log.findIndex((sql) => /^DELETE FROM bingo_cards/.test(sql))
     const boothIdx = log.findIndex((sql) => /^DELETE FROM booths/.test(sql))

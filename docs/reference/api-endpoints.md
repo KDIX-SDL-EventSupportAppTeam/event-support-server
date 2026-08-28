@@ -23,11 +23,13 @@
 | GET | `/api/v1/events/:event_id/checkins` | Bearer | 自分のチェックイン履歴 |
 | POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating` | Bearer | 評価送信（+comment、`context`。空白のみは NULL 正規化、再送信は 409。`rating` は `1..RATING_SCALE`） |
 | GET | `/api/v1/events/:event_id/bingo/card` | Bearer | ビンゴカード取得（無ければ生成。解放漏れの self-healing を含む。`is_revealed=0` のマスは `booth` を `null` で返す） |
+| GET | `/api/v1/events/:event_id/gacha/coins` | Bearer | ガチャコイン枚数（`is_enabled / lines_completed / earned / used / available / max_coins`）。無効時も 200 |
+| POST | `/api/v1/events/:event_id/gacha/coins/use` | Bearer | コイン1枚消費（`idempotency_key` はクライアント生成 UUID 必須）。再送は同じ行を返し枚数は増えない。`403 GACHA_DISABLED` / `409 NO_COINS_AVAILABLE` |
+| GET | `/api/v1/admin/events/:event_id/gacha/stats` | Bearer（manager/viewer） | ガチャ使用状況（`total_used / users_with_coins / users_who_used / used_by_hour`） |
 | PATCH | `/api/v1/events/:event_id/admin/booths/:booth_id/active` | Bearer（manager） | ブースの当日中止・復帰切り替え |
 | POST | `/api/v1/events/:event_id/admin/bingo/reassign` | Bearer（manager） | 中止ブースが見えているマスに残っている場合の差し替え救済（`{booth_id}` → `{affected_cards, reassigned_cells, cleared_cells}`） |
 | GET | `/api/v1/events/:event_id/app-access` | — | アプリ公開ゲートの実効状態（`is_open` / `mode` / `is_pre_survey_open` / `server_time`） |
 | GET | `/api/v1/events/:event_id/pre-survey/questions` | — | 事前アンケート設問（`interest_categories` の選択肢は `categories` から動的生成） |
-| GET / POST | `/api/v1/events/:event_id/gacha/coins` | Bearer | ガチャコイン（器のみ。換算規則は未確定） |
 | GET / PUT | `/api/v1/organizer/events/:event_id/app-access` | Bearer（organizer、所有イベントのみ） | アプリ公開ゲートの参照・更新 |
 | GET | `/api/v1/admin/events/:event_id/app-access` | Bearer（staff） | アプリ公開ゲートの参照（読み取り専用） |
 | POST | `/api/v1/webhook/booths/sync` | `X-Api-Key` | ブース情報同期（Google Forms） |
@@ -41,6 +43,8 @@
 | PATCH | `/api/v1/organizer/events/:event_id/staff/:user_id` | Bearer（organizer、所有イベントのみ） | スタッフのロール変更（最後の manager ガード） |
 | DELETE | `/api/v1/organizer/events/:event_id/staff/:user_id` | Bearer（organizer、所有イベントのみ） | スタッフ削除（最後の manager ガード） |
 | DELETE | `/api/v1/organizer/events/:event_id/event-data` | Bearer（organizer、所有イベントのみ、確認文字列必須） | イベントデータ全削除（監査ログ記録） |
+| GET | `/api/v1/organizer/events/:event_id/gacha/settings` | Bearer（organizer、所有イベントのみ） | ガチャ換算規則の取得（行が無ければ既定値 `0/1/4/0`） |
+| PUT | `/api/v1/organizer/events/:event_id/gacha/settings` | Bearer（organizer、所有イベントのみ） | ガチャ換算規則の更新（`is_enabled` で当日停止。`coins_per_line` 0-10 / `max_coins` 0-50 / `bonus_coins` 0-10。監査ログ記録） |
 | GET | `/api/v1/events/:event_id/public` | — | 公開イベント情報（名前・日程・会場・アンケートURL） |
 | POST | `/api/v1/admin/events/:event_id/exhibitors/bulk` | Bearer（manager） | 出展者アカウント一括登録（行単位の成功/失敗を返す） |
 | GET | `/api/v1/events/:event_id/exhibitor/booths` | Bearer | 出展者の担当ブース一覧（exhibitor 以外は空で返す） |

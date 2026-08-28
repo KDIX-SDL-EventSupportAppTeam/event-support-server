@@ -16,14 +16,15 @@
 --   1. 下の「USE」の行で、実際のデータベース名に書き換える。
 --      （phpMyAdmin 等で対象 DB を選択済みの場合は、USE 行を削除しても構いません。）
 --   2. このファイル全文を SQL 実行画面に貼り付けて実行する。
---   3. 末尾の確認用 SELECT で、テーブル数が 20 であることを確認する。
---      （20 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
+--   3. 末尾の確認用 SELECT で、テーブル数が 21 であることを確認する。
+--      （21 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
 --
--- 【削除 → 再作成されるテーブル（20）】
+-- 【削除 → 再作成されるテーブル（21）】
 --   organizers, events, categories, booths, booth_tags, users, survey_questions,
 --   user_survey_answers, bingo_cards, bingo_cells, check_ins, booth_ratings,
---   card_unlock_events, recommendation_scores, gacha_coin_uses, booth_categories,
---   exhibitor_booths, email_verification_tokens, audit_logs, event_app_access
+--   card_unlock_events, recommendation_scores, gacha_coin_uses, gacha_settings,
+--   booth_categories, exhibitor_booths, email_verification_tokens, audit_logs,
+--   event_app_access
 --
 -- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 09_*.sql（内容を同期すること）
 -- 設計書: docs/designs/database.md §11、主催者自己管理機能: .sdd/02-data-model.md
@@ -41,6 +42,7 @@ USE `your_database_name`;
 -- 外部キー制約があるため、参照先→参照元の逆順で DROP する
 -- =============================================================================
 SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS gacha_settings;
 DROP TABLE IF EXISTS gacha_coin_uses;
 DROP TABLE IF EXISTS recommendation_scores;
 DROP TABLE IF EXISTS card_unlock_events;
@@ -268,15 +270,31 @@ CREATE TABLE recommendation_scores (
   FOREIGN KEY (booth_id)        REFERENCES booths(id) ON DELETE CASCADE
 );
 
--- gacha_coin_uses（器のみ。D-5: ビンゴはガチャコインに依存しない）
+-- gacha_coin_uses（コイン使用台帳。追記のみ。D-5: ビンゴはガチャコインに依存しない）
+-- docs/specs/gacha-and-award/02-data-model/schema.md（migration 10 と内容を同期すること）
 CREATE TABLE gacha_coin_uses (
-  id        CHAR(36) PRIMARY KEY,
-  event_id  CHAR(36) NOT NULL,
-  user_id   CHAR(36) NOT NULL,
-  used_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_gacha_event_user (event_id, user_id),
+  id              CHAR(36) PRIMARY KEY,
+  event_id        CHAR(36) NOT NULL,
+  user_id         CHAR(36) NOT NULL,
+  coin_index      INT      NOT NULL,
+  idempotency_key CHAR(36) NOT NULL,
+  used_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_gacha_coin (event_id, user_id, coin_index),
+  UNIQUE KEY uk_gacha_idem (event_id, user_id, idempotency_key),
+  INDEX idx_gacha_event_used_at (event_id, used_at),
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE
+);
+
+-- gacha_settings（イベントごとの換算規則。G-3）
+CREATE TABLE gacha_settings (
+  event_id       CHAR(36) PRIMARY KEY,
+  is_enabled     TINYINT(1) NOT NULL DEFAULT 0,
+  coins_per_line INT        NOT NULL DEFAULT 1,
+  max_coins      INT        NOT NULL DEFAULT 4,
+  bonus_coins    INT        NOT NULL DEFAULT 0,
+  updated_at     DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
 
 CREATE TABLE booth_categories (
@@ -331,7 +349,7 @@ CREATE TABLE event_app_access (
   FOREIGN KEY (updated_by) REFERENCES organizers(id) ON DELETE SET NULL
 );
 
--- 確認（一覧に20テーブルが表示されれば成功）
+-- 確認（一覧に21テーブルが表示されれば成功）
 -- ※ さくら等の共有サーバーでは information_schema へのアクセスが権限で拒否される
 --   （#1044）ため、COUNT ではなく SHOW TABLES で確認する。
 SHOW TABLES;
