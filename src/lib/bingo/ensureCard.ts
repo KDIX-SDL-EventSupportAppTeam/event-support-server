@@ -6,9 +6,16 @@ import { CENTER_POSITIONS } from './unlockPairs.js'
 
 export const ALL_POSITIONS: readonly number[] = Array.from({ length: 16 }, (_, i) => i)
 
+/** 事前推薦マスの位置。カード生成時に唯一 is_revealed=1 になり得るマス。 */
+const PRESURVEY_POSITION = 5
+
 export type BingoCardRow = { id: string }
 
-async function findCard(db: DbClient, eventId: string, userId: string): Promise<BingoCardRow | null> {
+/**
+ * カードを読むだけ。無ければ null。
+ * 副作用が要らない参照（ガチャのコイン枚数など）はこちらを使う。
+ */
+export async function findCard(db: DbClient, eventId: string, userId: string): Promise<BingoCardRow | null> {
   const [rows] = await db.query('SELECT id FROM bingo_cards WHERE event_id = ? AND user_id = ? LIMIT 1', [
     eventId,
     userId,
@@ -18,11 +25,14 @@ async function findCard(db: DbClient, eventId: string, userId: string): Promise<
 }
 
 /**
- * カードの get-or-create。サインアップ時、または参加者が初めてカードを要求した時のいずれか早い方に呼ぶ。
+ * カードの get-or-create。参加者が初めてカードを要求した時に呼ぶ。
  * docs/specs/bingo-dynamic-unlock/03-card-lifecycle/signup.md
  *
- * - INSERT 前に SELECT で存在確認する。競合で2行目の INSERT が失敗した場合は
- *   エラーにせず既存カードを読み直して返す（さくらプロキシは重複キーを 500 に潰すため。ADR 0001）
+ * - INSERT 前に SELECT で存在確認する。競合で2本目が走った場合も
+ *   `ON DUPLICATE KEY UPDATE` で例外にせず、既存カードを読み直して返す。
+ *   `catch (err.code === 'ER_DUP_ENTRY')` に頼らないのは、さくらプロキシが
+ *   重複キーを code の無い 500 に潰すため（ADR 0001）。例外で分岐する実装は
+ *   本番経路でだけ 500 に化ける
  * - bingo_cells が未作成なら16行まとめて作る
  * - position 5 は事前推薦マス。決まらなければ booth_id=NULL, is_revealed=0 のままにする（E1/E3）
  *
@@ -32,16 +42,14 @@ export async function ensureCard(db: DbClient, eventId: string, userId: string):
   let card = await findCard(db, eventId, userId)
 
   if (!card) {
-    const id = randomUUID()
-    try {
-      await db.execute(`INSERT INTO bingo_cards (id, event_id, user_id) VALUES (?,?,?)`, [id, eventId, userId])
-      card = { id }
-    } catch (e: unknown) {
-      const err = e as { code?: string }
-      if (err.code !== 'ER_DUP_ENTRY') throw e
-      card = await findCard(db, eventId, userId)
-      if (!card) throw e
-    }
+    await db.execute(
+      `INSERT INTO bingo_cards (id, event_id, user_id) VALUES (?,?,?)
+         ON DUPLICATE KEY UPDATE event_id = event_id`,
+      [randomUUID(), eventId, userId],
+    )
+    // 自分の INSERT が無視された（＝競合に負けた）可能性があるため、id は必ず読み直す
+    card = await findCard(db, eventId, userId)
+    if (!card) throw new Error('ビンゴカードの作成に失敗しました')
   }
 
   const [countRows] = await db.query('SELECT COUNT(*) AS c FROM bingo_cells WHERE card_id = ?', [card.id])
@@ -63,7 +71,7 @@ async function createCells(db: DbClient, eventId: string, userId: string, cardId
   for (const position of ALL_POSITIONS) {
     const isCenter = CENTER_POSITIONS.includes(position)
     const zone = isCenter ? 'CENTER' : 'OUTER'
-    const isPreSurveyCell = position === 5 && preSurveyBoothId !== null
+    const isPreSurveyCell = position === PRESURVEY_POSITION && preSurveyBoothId !== null
 
     placeholders.push('(?,?,?,?,?,?,?,?,?)')
     values.push(
@@ -79,23 +87,34 @@ async function createCells(db: DbClient, eventId: string, userId: string, cardId
     )
   }
 
-  try {
-    await db.execute(
-      `INSERT INTO bingo_cells
-         (id, card_id, position, zone, booth_id, is_revealed, is_achieved, source, assigned_at)
-       VALUES ${placeholders.join(',')}`,
-      values,
-    )
-  } catch (e: unknown) {
-    // uq_cell_card_position の競合 = 別リクエストが先に16行作成済み。読み直しは呼び出し側の責務。
-    const err = e as { code?: string }
-    if (err.code !== 'ER_DUP_ENTRY') throw e
-    return
-  }
+  // uq_cell_card_position の競合 = 別リクエストが先に16行作成済み。その場合は何も起きない
+  // （ADR 0001 により、重複を例外として捕捉することはできない）
+  await db.execute(
+    `INSERT INTO bingo_cells
+       (id, card_id, position, zone, booth_id, is_revealed, is_achieved, source, assigned_at)
+     VALUES ${placeholders.join(',')}
+     ON DUPLICATE KEY UPDATE card_id = card_id`,
+    values,
+  )
 
-  if (preSurveyBoothId) {
-    await recordPreSurveyUnlockEvent(db, eventId, cardId, userId, preSurveyBoothId)
-  }
+  if (!preSurveyBoothId) return
+
+  // 競合に負けていれば position 5 に載っているのは相手が選んだブース。
+  // 自分の候補ではなく「実際にカードへ載ったブース」を記録する
+  // （そうしないと recommendation_scores がカードに存在しないブースを指す）。
+  const assignedBoothId = await readPreSurveyBoothId(db, cardId)
+  if (!assignedBoothId) return
+
+  await recordPreSurveyUnlockEvent(db, eventId, cardId, userId, assignedBoothId)
+}
+
+/** カードに実際に載っている事前推薦ブース。未割当なら null。 */
+async function readPreSurveyBoothId(db: DbClient, cardId: string): Promise<string | null> {
+  const [rows] = await db.query('SELECT booth_id FROM bingo_cells WHERE card_id = ? AND position = ? LIMIT 1', [
+    cardId,
+    PRESURVEY_POSITION,
+  ])
+  return (rows as { booth_id: string | null }[])[0]?.booth_id ?? null
 }
 
 /**
@@ -115,6 +134,13 @@ async function recordPreSurveyUnlockEvent(
   userId: string,
   boothId: string,
 ): Promise<void> {
+  // ADR 0001: 一意制約に依存する INSERT は事前に SELECT で確認する
+  const [existingRows] = await db.query(
+    `SELECT id FROM card_unlock_events WHERE card_id = ? AND pair_key = 'PRESURVEY' LIMIT 1`,
+    [cardId],
+  )
+  if ((existingRows as { id: string }[])[0]) return // 既に記録済み
+
   const [checkinRows] = await db.query(
     `SELECT COUNT(*) AS c FROM check_ins ci
      JOIN users u ON u.id = ci.user_id
@@ -124,18 +150,17 @@ async function recordPreSurveyUnlockEvent(
   const globalCheckinCount = Number((checkinRows as { c: number }[])[0]?.c ?? 0)
 
   const unlockEventId = randomUUID()
-  try {
-    await db.execute(
-      `INSERT INTO card_unlock_events
-         (id, card_id, pair_key, line_index, released_positions, phase, strategy, decision_table_size, global_checkin_count)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [unlockEventId, cardId, 'PRESURVEY', -1, '5', 'PRESURVEY', 'PRESURVEY', null, globalCheckinCount],
-    )
-  } catch (e: unknown) {
-    const err = e as { code?: string }
-    if (err.code === 'ER_DUP_ENTRY') return // 既に記録済み
-    throw e
-  }
+  const [header] = await db.execute(
+    `INSERT INTO card_unlock_events
+       (id, card_id, pair_key, line_index, released_positions, phase, strategy, decision_table_size, global_checkin_count)
+     VALUES (?,?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE pair_key = pair_key`,
+    [unlockEventId, cardId, 'PRESURVEY', -1, '5', 'PRESURVEY', 'PRESURVEY', null, globalCheckinCount],
+  )
+
+  // 競合で無視されたら affectedRows=0。recommendation_scores は一意制約を持たない
+  // 追記テーブルなので、ここで止めないと同じ推薦が二重に残る
+  if (Number((header as { affectedRows?: number }).affectedRows ?? 0) !== 1) return
 
   await db.execute(
     `INSERT INTO recommendation_scores
