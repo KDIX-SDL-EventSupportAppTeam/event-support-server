@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt } from '../../plugins/auth.js'
-import { ensureCard } from '../../lib/bingo/ensureCard.js'
+import { findCard } from '../../lib/bingo/ensureCard.js'
 import { countCompletedLines } from '../../lib/bingo/lines.js'
 import { calcCoinsEarned } from '../../lib/gacha/coins.js'
 import { fetchGachaSettings } from '../../lib/gacha/settings.js'
@@ -20,9 +20,17 @@ import { NoCoinsAvailableError, useCoin } from '../../lib/gacha/useCoin.js'
 export async function gachaRoutes(app: FastifyInstance) {
   const pre = [requireBearerAuth, requireEventMatchesJwt]
 
-  /** そのユーザーの成立ライン数を、ビンゴカードから求める。 */
+  /**
+   * そのユーザーの成立ライン数を、ビンゴカードから求める。
+   *
+   * カードが無ければ 0 を返し、**ここでは作らない**。コイン枚数の問い合わせが
+   * ビンゴカードを生成するのは責務として誤りで、ホーム初回表示で
+   * `GET /bingo/card` と同時に走ると同一ユーザーの ensureCard が二重に競合する
+   * （カード未生成 = ライン0 なので、読み取りだけで意味的にも正しい）。
+   */
   async function countLines(eventId: string, uid: string): Promise<number> {
-    const card = await ensureCard(app.db, eventId, uid)
+    const card = await findCard(app.db, eventId, uid)
+    if (!card) return 0
     const [rows] = await app.db.query(
       `SELECT position FROM bingo_cells WHERE card_id = ? AND is_achieved = 1`,
       [card.id],
