@@ -26,6 +26,7 @@ NNNN-kebab-case-title.md
 | 0002 | [0002-cloud-run-single-instance-for-websocket.md](./0002-cloud-run-single-instance-for-websocket.md) | WebSocket 配信のため Cloud Run を 1 インスタンスに固定する |
 | 0004 | [0004-split-recommender-repository.md](./0004-split-recommender-repository.md) | 推薦エンジンを別リポジトリに分ける |
 | 0005 | [0005-stacked-pr-merge-order.md](./0005-stacked-pr-merge-order.md) | 積み重ねた PR は上から順にマージし、取り残しを CI で検出する |
+| 0006 | [0006-bingo-card-creation-must-not-fail.md](./0006-bingo-card-creation-must-not-fail.md) | ビンゴカード生成は「作る側1本」に寄せ、重複キーは例外にしない |
 
 ## 関連
 

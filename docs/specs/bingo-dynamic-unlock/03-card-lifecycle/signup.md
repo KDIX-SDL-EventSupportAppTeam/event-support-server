@@ -80,7 +80,15 @@ export async function pickPreSurveyBooth(
 - `bingo_cards` の `UNIQUE (event_id, user_id)`
 - `bingo_cells` の `UNIQUE (card_id, position)`
 
-INSERT が重複で落ちた場合は**読み直して返す**（例外を上げない）。
+重複は `INSERT ... ON DUPLICATE KEY UPDATE` で**そもそも例外にせず**、
+INSERT のあとに必ず SELECT で読み直して返す。
+
+`catch (err.code === 'ER_DUP_ENTRY')` に頼ってはならない。さくらプロキシは
+重複キーを code の無い 500 に潰すため、例外で分岐する実装は本番経路でだけ
+500 に化ける（[ADR 0001](../../../decisions/adrs/0001-sakura-proxy-error-masking.md)）。
+
+競合に負けた側は、`position 5` に載っているのが相手の選んだブースになる。
+`recommendation_scores` には自分の候補ではなく**実際にカードへ載ったブース**を記録する。
 
 ## 検証（テストで固定する）
 

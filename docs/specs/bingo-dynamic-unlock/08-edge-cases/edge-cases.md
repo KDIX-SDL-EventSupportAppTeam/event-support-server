@@ -25,7 +25,7 @@
 | E14 | カードに載っていないブースへ訪問する | `cell_id = NULL` で記録する。ビンゴには寄与しないが**評価は同じように求める** |
 | E15 | 中央4マスすべて達成したがラインが0本 | 正常。中央2×2 はラインを構成しない（[lines.md](../03-card-lifecycle/lines.md)） |
 | E16 | 参加者が3回すべての解放を受ける前に帰る | そのまま。`card_unlock_events` の行数が到達段階を表す。**離脱の分析材料になる** |
-| E17 | 同一ユーザーの `ensureCard` が同時に走る | `UNIQUE (event_id, user_id)` で1枚。重複 INSERT が失敗したら**読み直して返す**（例外にしない） |
+| E17 | 同一ユーザーの `ensureCard` が同時に走る | `UNIQUE (event_id, user_id)` で1枚。重複は `ON DUPLICATE KEY UPDATE` で例外にせず、INSERT 後に**読み直して返す**（`ER_DUP_ENTRY` の catch に頼らない。ADR 0001） |
 | E18 | カテゴリが当日編集され、推薦時と分析時で判定が変わる | `interest_match` / `attributes` を**推薦時点の値で凍結**しているので影響しない |
 | E19 | 評価が1件も付いていない状態で解放が走る | `COVERAGE` フェーズで動く。例外を投げない |
 | E20 | 解放通知の socket が届かない（スマホがバックグラウンド） | チェックインレスポンスの `unlocked_positions` が正の経路。カード取得でも `unlock_events` が取れる |
