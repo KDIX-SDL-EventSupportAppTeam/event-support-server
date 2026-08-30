@@ -98,7 +98,7 @@ CREATE TABLE bingo_cells (
 CREATE TABLE card_unlock_events (
   id                   CHAR(36)    PRIMARY KEY,
   card_id              CHAR(36)    NOT NULL,
-  pair_key             VARCHAR(8)  NOT NULL,
+  pair_key             VARCHAR(16) NOT NULL, -- 'PRESURVEY'(9文字) を入れるため 16。migration 11 と同期
   line_index           TINYINT     NOT NULL,
   released_positions   VARCHAR(16) NOT NULL,
   phase                VARCHAR(16) NOT NULL,
