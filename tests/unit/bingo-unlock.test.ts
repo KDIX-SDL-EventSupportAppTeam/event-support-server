@@ -659,3 +659,93 @@ describe('unlockedPairs（B）', () => {
     expect(result.unlockedPositions).toHaveLength(6)
   })
 })
+
+// ---------------------------------------------------------------------------
+// 推薦サービス障害時のフォールバック（issue #91 / 00-must-do.md）
+//
+// 「推薦が落ちる」5つの現実的な障害モードで、解放が必ず成立し
+// FALLBACK_COVERAGE で記録され、recommendation_scores に候補全件が残ることを固定する。
+// ---------------------------------------------------------------------------
+describe('推薦サービス障害時にも解放が成功する（#91）', () => {
+  /** fetch を差し替える。挙動は kind で切り替える。 */
+  function stubRecommenderFailure(
+    kind: 'timeout' | 'http_500' | 'invalid_json' | 'empty_response' | 'unknown_booths',
+  ): void {
+    vi.stubGlobal('fetch', (async (_url: string, init: { signal?: AbortSignal }) => {
+      if (kind === 'timeout') {
+        // signal の abort を待って reject する（callRecommender の AbortController 経由）
+        return await new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject(new DOMException('The operation was aborted', 'AbortError')),
+          )
+        })
+      }
+      if (kind === 'http_500') {
+        return { ok: false, status: 500, json: async () => ({}) } as unknown as Response
+      }
+      if (kind === 'invalid_json') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new SyntaxError('Unexpected token < in JSON')
+          },
+        } as unknown as Response
+      }
+      if (kind === 'empty_response') {
+        // assigned も scores も無い
+        return { ok: true, status: 200, json: async () => ({}) } as unknown as Response
+      }
+      // unknown_booths: 存在しない/非活性のブース ID を返す（E10・E11 が効く）
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          phase: 'DRSA',
+          decision_table_size: 9,
+          assigned: [
+            { booth_id: 'ghost-1', rank: 1 },
+            { booth_id: 'ghost-2', rank: 2 },
+          ],
+          scores: [
+            { booth_id: 'ghost-1', score: 0.9, rank: 1, interest_match: 'MATCH' },
+            { booth_id: 'ghost-2', score: 0.8, rank: 2, interest_match: 'PARTIAL' },
+          ],
+        }),
+      } as unknown as Response
+    }) as unknown as typeof fetch)
+  }
+
+  const cases = ['timeout', 'http_500', 'invalid_json', 'empty_response', 'unknown_booths'] as const
+
+  for (const kind of cases) {
+    it(`${kind}: 解放は成立し FALLBACK_COVERAGE で記録される`, async () => {
+      stubRecommenderFailure(kind)
+      const cells = buildAllCenterAchievedCard()
+      const { db, unlockEvents, scores } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+      // タイムアウトを即座に踏むよう短くする
+      const cfg: AppConfig = { ...configWithRecommender, recommenderTimeoutMs: 5 }
+
+      const result = await processCenterAchievement(db, cfg, 'event-1', 'user-1', 'card-1')
+
+      // 解放は成立する（外周12マスすべて解放）
+      expect(result.unlockedPositions.sort((a, b) => a - b)).toEqual(
+        [...OUTER_POSITIONS].sort((a, b) => a - b),
+      )
+      const outerCells = cells.filter((c) => c.zone === 'OUTER')
+      expect(outerCells.every((c) => c.is_revealed === 1)).toBe(true)
+      expect(outerCells.every((c) => c.booth_id !== null)).toBe(true)
+      // カードに幽霊ブースは載らない（E10・E11）
+      expect(outerCells.some((c) => String(c.booth_id).startsWith('ghost-'))).toBe(false)
+
+      // 6ペアすべて FALLBACK_COVERAGE
+      expect(unlockEvents).toHaveLength(6)
+      expect(unlockEvents.every((e) => e.strategy === 'FALLBACK_COVERAGE')).toBe(true)
+
+      // recommendation_scores に候補全件が記録され、割当は12件
+      expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(12)
+      expect(scores.length).toBeGreaterThan(12)
+      expect(scores.some((s) => String(s.booth_id).startsWith('ghost-'))).toBe(false)
+    })
+  }
+})
