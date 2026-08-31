@@ -120,6 +120,54 @@ describe('getRecommenderOpsState（中継の取得層）', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  it('T-9b 同時到着（キャッシュが冷えている）でも推薦エンジンへのリクエストは1回だけ', async () => {
+    // 結果だけをキャッシュしていると、await が解決する前に来た分が全部素通りする。
+    let resolveFetch: (r: Response) => void = () => {}
+    const fetchImpl = vi.fn().mockImplementation(
+      () => new Promise<Response>((resolve) => { resolveFetch = resolve }),
+    )
+    const now = () => 1000
+
+    const all = Promise.all([
+      getRecommenderOpsState(makeConfig(), { fetchImpl, now }),
+      getRecommenderOpsState(makeConfig(), { fetchImpl, now }),
+      getRecommenderOpsState(makeConfig(), { fetchImpl, now }),
+    ])
+    resolveFetch(jsonResponse(200, { phase: 'COVERAGE' }))
+    const results = await all
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    // 3本とも同じ結果を受け取る
+    for (const r of results) expect(r).toMatchObject({ available: true })
+  })
+
+  it('BAD_RESPONSE: 応答が配列（形が違う）→ available:false', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, [1, 2, 3]))
+    const res = await getRecommenderOpsState(makeConfig(), { fetchImpl, now: () => 0 })
+    expect(res).toMatchObject({ available: false, reason: 'BAD_RESPONSE' })
+  })
+
+  it('ボディ読み取り中にタイムアウトしたら UNREACHABLE（BAD_RESPONSE にしない）', async () => {
+    // ヘッダは返るがボディが止まる相手。タイムアウトがボディまで覆っていないと張り付く。
+    const fetchImpl = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      return {
+        ok: true,
+        status: 200,
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () =>
+              reject(new DOMException('The operation was aborted', 'AbortError')),
+            )
+          }),
+      } as unknown as Response
+    })
+    const res = await getRecommenderOpsState(
+      makeConfig({ recommenderStateTimeoutMs: 10 } as Partial<AppConfig>),
+      { fetchImpl, now: () => 0 },
+    )
+    expect(res).toMatchObject({ available: false, reason: 'UNREACHABLE' })
+  })
+
   it('T-10 10秒経過後は再取得する', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { phase: 'COVERAGE' }))
     let clock = 1000

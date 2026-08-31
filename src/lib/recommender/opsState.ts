@@ -31,15 +31,22 @@ export interface OpsStateDeps {
 /** 同一プロセス内キャッシュの寿命。 */
 export const OPS_STATE_CACHE_TTL_MS = 10_000
 
-let cache: { at: number; result: RecommenderStateResult } | null = null
+/**
+ * 取得中の Promise ごとキャッシュする。**結果だけをキャッシュすると足りない。**
+ * ダッシュボードは WebSocket で頻繁に再取得するため、キャッシュが冷えている瞬間に
+ * 同時到着した N 本が全部エンジンを叩いてしまう（推薦エンジンが遅い・落ちているときほど
+ * 窓が広がり、まさに守りたい場面で漏れる）。
+ */
+let cache: { at: number; inflight: Promise<RecommenderStateResult> } | null = null
 
 /** テスト用: プロセスキャッシュを空にする。 */
 export function __resetOpsStateCacheForTests(): void {
   cache = null
 }
 
+/** 配列は「形が違う」＝ BAD_RESPONSE。/ops/state はオブジェクトを返す契約。 */
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
 async function fetchOnce(
@@ -54,42 +61,48 @@ async function fetchOnce(
 
   const url = `${baseUrl.replace(/\/+$/, '')}/ops/state`
   const controller = new AbortController()
+  // タイムアウトはボディ読み取りまでを覆う。ヘッダだけ返してボディが止まる相手に
+  // 張り付かないため（recommenderClient.ts と同じ流儀）。
   const timer = setTimeout(() => controller.abort(), config.recommenderStateTimeoutMs)
 
-  let res: Response
   try {
-    res = await fetchImpl(url, {
+    const res = await fetchImpl(url, {
       method: 'GET',
       // Authorization は使わない（Cloud Run の IAM 認証と層が衝突するため）。
       headers: { 'x-ops-token': config.recommenderOpsToken },
       signal: controller.signal,
     })
+
+    if (res.status === 401 || res.status === 403) {
+      return { available: false, reason: 'UNAUTHORIZED', fetched_at: isoNow }
+    }
+    if (!res.ok) {
+      // 想定外のステータス。バージョン不一致を疑う。
+      return { available: false, reason: 'BAD_RESPONSE', fetched_at: isoNow }
+    }
+
+    // ボディが JSON でない / 形が違う → BAD_RESPONSE。
+    // ただしボディ読み取りが abort された場合は「届かなかった」= UNREACHABLE に倒す。
+    let body: unknown
+    try {
+      body = await res.json()
+    } catch {
+      if (controller.signal.aborted) {
+        return { available: false, reason: 'UNREACHABLE', fetched_at: isoNow }
+      }
+      return { available: false, reason: 'BAD_RESPONSE', fetched_at: isoNow }
+    }
+    if (!isRecord(body)) {
+      return { available: false, reason: 'BAD_RESPONSE', fetched_at: isoNow }
+    }
+
+    return { available: true, fetched_at: isoNow, state: body }
   } catch {
     // 接続失敗・タイムアウト（AbortController の abort もここに来る）
     return { available: false, reason: 'UNREACHABLE', fetched_at: isoNow }
   } finally {
     clearTimeout(timer)
   }
-
-  if (res.status === 401 || res.status === 403) {
-    return { available: false, reason: 'UNAUTHORIZED', fetched_at: isoNow }
-  }
-  if (!res.ok) {
-    // 想定外のステータス。バージョン不一致を疑う。
-    return { available: false, reason: 'BAD_RESPONSE', fetched_at: isoNow }
-  }
-
-  let body: unknown
-  try {
-    body = await res.json()
-  } catch {
-    return { available: false, reason: 'BAD_RESPONSE', fetched_at: isoNow }
-  }
-  if (!isRecord(body)) {
-    return { available: false, reason: 'BAD_RESPONSE', fetched_at: isoNow }
-  }
-
-  return { available: true, fetched_at: isoNow, state: body }
 }
 
 /**
@@ -104,10 +117,18 @@ export async function getRecommenderOpsState(
   const t = now()
 
   if (cache && t - cache.at < OPS_STATE_CACHE_TTL_MS) {
-    return cache.result
+    return cache.inflight
   }
 
-  const result = await fetchOnce(config, fetchImpl, new Date(t).toISOString())
-  cache = { at: t, result }
-  return result
+  // 先に cache へ入れてから await する。こうしないと同時到着分が素通りする。
+  const inflight = fetchOnce(config, fetchImpl, new Date(t).toISOString())
+  cache = { at: t, inflight }
+  try {
+    return await inflight
+  } catch (e) {
+    // fetchOnce は例外を投げない設計だが、投げたときにキャッシュを壊れたまま
+    // 10 秒間居座らせない（次の呼び出しで取り直せるようにする）。
+    if (cache?.inflight === inflight) cache = null
+    throw e
+  }
 }
