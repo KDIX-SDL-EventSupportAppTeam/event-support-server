@@ -35,6 +35,7 @@ import { eventsPublicRoutes } from './routes/v1/events-public.js'
 import { appAccessRoutes } from './routes/v1/app-access.js'
 import { organizerAppAccessRoutes } from './routes/v1/organizer/app-access.js'
 import { adminAppAccessRoutes } from './routes/v1/admin/app-access.js'
+import { adminRecommenderStateRoutes } from './routes/v1/admin/recommender-state.js'
 import { registerSocketIO } from './plugins/socket.js'
 
 export async function buildApp(config: AppConfig, db: DbClient) {
@@ -86,6 +87,7 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(adminAuditLogRoutes)
       await v1.register(adminBoothCommentRoutes)
       await v1.register(adminAppAccessRoutes)
+      await v1.register(adminRecommenderStateRoutes)
       await v1.register(organizerAuthRoutes)
       await v1.register(organizerEventRoutes)
       await v1.register(organizerStaffRoutes)
