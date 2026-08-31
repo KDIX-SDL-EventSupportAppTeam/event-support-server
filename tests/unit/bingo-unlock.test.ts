@@ -659,3 +659,83 @@ describe('unlockedPairs（B）', () => {
     expect(result.unlockedPositions).toHaveLength(6)
   })
 })
+
+// ---------------------------------------------------------------------------
+// 解放の同時実行を再現し、壊れ方を記録する（issue #93 / 08-edge-cases E22）
+//
+// 真の同時実行はさくらプロキシ（トランザクション無し）では塞げない。
+// 塞がないと決め、代わりに「何が起きるか」を固定して「既知・受容」にする。
+// ---------------------------------------------------------------------------
+describe('解放の同時実行の壊れ方（#93 / E22）', () => {
+  /**
+   * card_unlock_events の重複 INSERT が「どう失敗するか」を切り替える DB ラッパ。
+   * - local: ローカル MySQL 相当。Error に code='ER_DUP_ENTRY' が乗る（tryClaimPair が捕捉して null）
+   * - sakura: さくらプロキシ相当（ADR 0001）。code の無い 500 相当の Error（捕捉できず伝播する）
+   */
+  function withDupMode(db: DbClient, mode: 'local' | 'sakura'): DbClient {
+    const origExecute = db.execute
+    return {
+      query: db.query,
+      end: db.end,
+      execute: async (sql: string, params?: unknown[]) => {
+        try {
+          return await origExecute(sql, params as unknown[])
+        } catch (e) {
+          if (mode === 'sakura' && /INSERT INTO card_unlock_events/.test(sql)) {
+            throw new Error('[sakura-proxy] 500: Internal Server Error') // code なし
+          }
+          throw e
+        }
+      },
+    }
+  }
+
+  it('local 相当: 並行2本でも二重解放なし・ログ重複なし（処理が2本に分かれることはある）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, unlockEvents, scores } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    const wrapped = withDupMode(db, 'local')
+
+    const results = await Promise.all([
+      processCenterAchievement(wrapped, config, 'event-1', 'user-1', 'card-1'),
+      processCenterAchievement(wrapped, config, 'event-1', 'user-1', 'card-1'),
+    ])
+
+    // 二重解放しない: card_unlock_events は6行、pair_key は一意
+    expect(unlockEvents).toHaveLength(6)
+    expect(new Set(unlockEvents.map((e) => e.pair_key)).size).toBe(6)
+    // ログ重複しない: recommendation_scores の (unlock_event_id, booth_id) は一意
+    const keys = scores.map((s) => `${s.unlock_event_id}:${s.booth_id}`)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(12)
+    // 2本あわせて外周12マスちょうどを解放する（分担されても過不足なし）
+    const allReleased = results.flatMap((r) => r.unlockedPositions).sort((a, b) => a - b)
+    expect([...new Set(allReleased)]).toEqual([...OUTER_POSITIONS].sort((a, b) => a - b))
+    expect(cells.filter((c) => c.zone === 'OUTER').every((c) => c.is_revealed === 1)).toBe(true)
+  })
+
+  it('sakura 相当: 敗者リクエストは 500 で落ちるが、解放は勝者側で成立し二重解放は起きない', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, unlockEvents, scores } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    const wrapped = withDupMode(db, 'sakura')
+
+    const settled = await Promise.allSettled([
+      processCenterAchievement(wrapped, config, 'event-1', 'user-1', 'card-1'),
+      processCenterAchievement(wrapped, config, 'event-1', 'user-1', 'card-1'),
+    ])
+
+    // 少なくとも1本は 500（rejected）になる ← これが「壊れ方」。塞がない
+    const rejected = settled.filter((s) => s.status === 'rejected')
+    expect(rejected.length).toBeGreaterThanOrEqual(1)
+
+    // それでも二重解放・ログ重複は起きない
+    expect(unlockEvents.length).toBeLessThanOrEqual(6)
+    expect(new Set(unlockEvents.map((e) => e.pair_key)).size).toBe(unlockEvents.length)
+    const keys = scores.map((s) => `${s.unlock_event_id}:${s.booth_id}`)
+    expect(new Set(keys).size).toBe(keys.length)
+
+    // 当日の対処: 次の GET /bingo/card で自己修復が空マスを埋める
+    await healUnlockedCardIfNeeded(wrapped, config, 'event-1', 'user-1', 'card-1')
+    expect(cells.filter((c) => c.zone === 'OUTER').every((c) => c.is_revealed === 1)).toBe(true)
+    expect(unlockEvents).toHaveLength(6)
+  })
+})
