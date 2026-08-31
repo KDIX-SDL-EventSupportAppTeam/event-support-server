@@ -90,7 +90,20 @@ export async function callRecommender(
   }
 }
 
-function parseRecommendResponse(v: unknown): RecommendCellsResponse | null {
+/**
+ * ランクを読む。契約（05-recommender/contract.md、本リポジトリが正本）は `rank` だが、
+ * 推薦エンジンの現行実装は `rank_in_event` を返す。デプロイ順序が前後しても
+ * `recommendation_scores.rank_in_event` が欠損しないよう、両方を受ける。
+ * `rank` を優先し、無ければ `rank_in_event` を見る。どちらも無ければ null。
+ */
+function parseRank(o: Record<string, unknown>): number | null {
+  if (typeof o.rank === 'number') return o.rank
+  if (typeof o.rank_in_event === 'number') return o.rank_in_event
+  return null
+}
+
+/** テスト用に公開。応答 JSON を検証済みの型に変換する純関数。 */
+export function parseRecommendResponse(v: unknown): RecommendCellsResponse | null {
   if (!v || typeof v !== 'object') return null
   const obj = v as Record<string, unknown>
 
@@ -118,7 +131,7 @@ function parseAssigned(v: unknown): RecommendAssigned | null {
   const boothId = o.booth_id
   if (typeof boothId !== 'string' || !boothId) return null
   const score = typeof o.score === 'number' ? o.score : null
-  const rank = typeof o.rank === 'number' ? o.rank : null
+  const rank = parseRank(o)
   return { booth_id: boothId, score, rank }
 }
 
@@ -130,7 +143,7 @@ function parseScore(v: unknown): RecommendScore | null {
   const boothId = o.booth_id
   if (typeof boothId !== 'string' || !boothId) return null
   const score = typeof o.score === 'number' ? o.score : null
-  const rank = typeof o.rank === 'number' ? o.rank : null
+  const rank = parseRank(o)
   const interestMatchRaw = o.interest_match
   const interest_match: InterestMatch = INTEREST_MATCH_VALUES.includes(interestMatchRaw as InterestMatch)
     ? (interestMatchRaw as InterestMatch)
