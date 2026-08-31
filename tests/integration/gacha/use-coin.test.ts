@@ -61,7 +61,9 @@ describe('GET /gacha/coins（副作用なし・堅牢性）', () => {
     expect(res.body.data!.max_coins).toBe(4)
   })
 
-  it('カード未発行のユーザーが GET してもエラーにならない（ensureCard される）', async () => {
+  // コイン枚数の問い合わせはビンゴカードを作らない。作っていた頃は、ホーム初回表示で
+  // GET /bingo/card と同時に走って ensureCard が競合し、片方が 500 になっていた
+  it('カード未発行のユーザーが GET してもエラーにならず、カードを作らない', async () => {
     const f = await seedFixture(db, {})
     createdEvents.push({ eventId: f.eventId, organizerId: f.organizerId })
     // seedLines を呼ばない = bingo_cards / bingo_cells は未作成
@@ -73,7 +75,7 @@ describe('GET /gacha/coins（副作用なし・堅牢性）', () => {
       `SELECT id FROM bingo_cards WHERE event_id = ? AND user_id = ?`,
       [f.eventId, f.userId],
     )
-    expect((cards as unknown[]).length).toBe(1)
+    expect((cards as unknown[]).length).toBe(0)
   })
 
   it('POST 成功後の GET の used が POST 応答の used と一致する', async () => {

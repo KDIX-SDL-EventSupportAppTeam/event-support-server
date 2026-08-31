@@ -20,7 +20,9 @@
 }
 ```
 
-- 副作用なし。ただし `ensureCard` でカードが無ければ発行される（既存挙動を踏襲）
+- **副作用なし。カードが無ければ作らずに `lines_completed: 0` を返す**
+  （コイン枚数の問い合わせがビンゴカードを発行するのは責務として誤り。
+  ホーム初回表示で `GET /bingo/card` と同時に走り、`ensureCard` が競合していた）
 - `is_enabled = false` でも `200` を返す。枚数は算出して返し、UI 側で「準備中」を出す
 
 ## POST /api/v1/events/:event_id/gacha/coins/use

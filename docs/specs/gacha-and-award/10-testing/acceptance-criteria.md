@@ -33,7 +33,7 @@
 
 - [x] GET が `is_enabled / lines_completed / earned / used / available / max_coins` を返す
 - [x] `gacha_settings` の行が無いイベントでも GET が `200`（`use-coin.test.ts` GET 堅牢性）
-- [x] カード未発行のユーザーが GET してもエラーにならない（`ensureCard` される）
+- [x] カード未発行のユーザーが GET してもエラーにならず、カードを作らない
 - [x] POST 成功で `coin_index` と `used_at` が返る
 - [x] POST 成功後の GET の `used` が、POST 応答の `used` と一致する
 

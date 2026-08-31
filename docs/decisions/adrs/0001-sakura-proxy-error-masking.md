@@ -29,6 +29,26 @@ mysql2 前提の重複検知が**プロキシ経由では一切機能しない**
 - `src/routes/v1/checkins.ts` — チェックイン / 評価
 - `src/routes/v1/auth.ts` — 一般登録 / 運営登録
 
+### 追記（2026-08-29）: get-or-create は `ON DUPLICATE KEY UPDATE` を使う
+
+「重複なら 409 を返す」操作は上記の事前 SELECT で足りるが、**重複を無害として
+握り潰したい操作**（get-or-create）では事前 SELECT だけでは不十分だった。
+同時に走った2本が揃って「無い」を見た後に INSERT するため、必ず一方が重複する。
+
+この場合は
+
+```sql
+INSERT INTO t (...) VALUES (...) ON DUPLICATE KEY UPDATE some_col = some_col
+```
+
+とし、**そもそも例外を発生させない**。INSERT 後に SELECT で読み直して確定させる
+（自分の INSERT が無視された可能性があるため）。`INSERT IGNORE` は FK 違反や
+型エラーまで警告に落とすので使わない。重複キーだけを無害化すること。
+
+実例: `src/lib/bingo/ensureCard.ts`。この対応前は、オンボーディング直後の
+ホーム初回表示で `GET /bingo/card` と `GET /gacha/coins` が同時に `ensureCard` を呼び、
+負けた側が 500 になってビンゴカードが表示されない事象が出ていた。
+
 ## 結果・トレードオフ
 
 - 重複時に正しく 409 と意味のあるメッセージを返せる。
