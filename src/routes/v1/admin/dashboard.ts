@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { sendOk } from '../../../lib/response.js'
 import { requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
-import { determinePhase, DEFAULT_PHASE_THRESHOLDS } from '../../../lib/bingo/phases.js'
 
 export async function adminRoutes(app: FastifyInstance) {
   const pre = [requireStaff, requireEventMatchesJwt]
@@ -95,17 +94,6 @@ export async function adminRoutes(app: FastifyInstance) {
       const bingoRatings = Number(bingoRow?.ratings) || 0
       const ratingCollectionRate = bingoCheckins ? Math.round((bingoRatings / bingoCheckins) * 1000) / 1000 : 0
 
-      // recommender.current_phase は評価済み件数（決定表のサイズ = ratings）から判定する
-      const decisionTableSize = bingoRatings
-      const currentPhase = determinePhase(decisionTableSize)
-      const nextThreshold =
-        currentPhase === 'COVERAGE'
-          ? DEFAULT_PHASE_THRESHOLDS.similarityMin
-          : currentPhase === 'SIMILARITY'
-            ? DEFAULT_PHASE_THRESHOLDS.drsaMin
-            : null
-      const remainingToNext = nextThreshold != null ? Math.max(0, nextThreshold - decisionTableSize) : 0
-
       const pairCounts = (r6[0] as { card_id: string; pair_count: number }[]).map((r) => Number(r.pair_count) || 0)
       const unlocks = {
         first: pairCounts.filter((n) => n >= 1).length,
@@ -118,16 +106,13 @@ export async function adminRoutes(app: FastifyInstance) {
       const fallbackTotal = Number(fallbackRow?.total_count) || 0
       const fallbackRateLast30Min = fallbackTotal ? Math.round((fallbackCount / fallbackTotal) * 1000) / 1000 : 0
 
+      // フェーズ（current_phase など）は返さない。推薦エンジンの実際の稼働状態は
+      // 中継エンドポイント GET /admin/events/:event_id/recommender/state が返す。
+      // ここが返すのは DB の事実だけ（recommender-phase-linkage/02-dashboard-and-contract.md §1）。
       const bingo = {
         checkins: bingoCheckins,
         ratings: bingoRatings,
         rating_collection_rate: ratingCollectionRate,
-        recommender: {
-          current_phase: currentPhase,
-          decision_table_size: decisionTableSize,
-          next_threshold: nextThreshold,
-          remaining_to_next: remainingToNext,
-        },
         unlocks,
         fallback_rate_last_30min: fallbackRateLast30Min,
       }

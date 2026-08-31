@@ -39,23 +39,37 @@
   "checkins": 412,
   "ratings": 176,
   "rating_collection_rate": 0.427,
-  "recommender": {
-    "current_phase": "DRSA",
-    "decision_table_size": 176,
-    "next_threshold": null,
-    "remaining_to_next": 0
-  },
   "unlocks": { "first": 98, "second": 76, "third": 61 },
   "fallback_rate_last_30min": 0.02
 }
 ```
 
+**フェーズ情報（`current_phase` など）はこの応答に含めない。**
+サーバーは自分でフェーズを計算しない（`determinePhase(評価件数)` は推薦エンジンの
+実際の稼働フェーズと食い違いうる）。推薦エンジンの稼働状態は中継エンドポイント
+[GET /api/v1/admin/events/:event_id/recommender/state](../../recommender-phase-linkage/01-ops-state-relay.md)
+が返す。この応答が返すのは **DB の事実だけ**。
+
 | 項目 | なぜ見るのか |
 |---|---|
 | `rating_collection_rate` | **推薦手法が成立するかどうかを左右する最重要指標**（[rating-collection.md](../04-rating/rating-collection.md)） |
-| `current_phase` / `remaining_to_next` | いつ DRSA に切り替わるかを当日把握する |
 | `unlocks` | 解放が1回目・2回目・3回目まで到達している人数。**離脱の把握** |
 | `fallback_rate_last_30min` | 推薦サービスの障害検知。高ければ推薦エンジンが落ちている |
+
+### `unlocks` の算出式
+
+カードごとに、`card_unlock_events` の行数（**`pair_key = 'PRESURVEY'` を除く**、
+`role = 'participant'` のカードのみ）から累計成立ペア数を求める。
+中央マスが 2 / 3 / 4 個埋まった時点で成立ペアが累計 1 / 3 / 6 組になる
+（[unlock-pairs.md](../03-card-lifecycle/unlock-pairs.md) の対応表）。
+
+| 表示 | 条件 | 意味 |
+|---|---|---|
+| `unlocks.first` | 累計ペア数 >= 1 | 中央2マスが埋まった |
+| `unlocks.second` | 累計ペア数 >= 3 | 中央3マスが埋まった（2組同時成立） |
+| `unlocks.third` | 累計ペア数 >= 6 | 中央4マスすべてが埋まった |
+
+`pair_key = 'PRESURVEY'`（事前推薦マス）は解放ではないので数えない。
 
 ## GET /api/v1/admin/events/:event_id/analytics/recommendations（改修）
 
