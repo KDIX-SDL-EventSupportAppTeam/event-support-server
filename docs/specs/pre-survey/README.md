@@ -1,6 +1,6 @@
 ---
 状態: 実装済み
-最終更新: 2026-08-25
+最終更新: 2026-09-01
 ---
 
 # 事前アンケートとアプリ公開ゲート
@@ -26,7 +26,7 @@
 |---|---|
 | フロント5画面（Entry / SignUp / SignIn / Form / Thanks） | **モック実装済み**（localStorage ベース。develop にマージ済み） |
 | 設問定義 | フロントにハードコード（8問）。**サーバー配信へ移行する**（[P-11](01-concept.md)） |
-| サーバー実装 | **未着手** |
+| サーバー実装 | **実装済み**（`src/routes/v1/survey.ts` / `src/routes/v1/app-access.ts` ほか。develop にマージ済み） |
 | `survey_questions` / `user_survey_answers` テーブル | 既存。そのまま使う |
 | `event_app_access` テーブル | 未作成 |
 
