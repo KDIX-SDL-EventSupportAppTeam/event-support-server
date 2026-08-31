@@ -8,11 +8,11 @@
 # データベース
 
 完全なスキーマの正は `db/create-tables.sql`（**21 テーブル**）。増分は `db/migrations/`（12 ファイル）。
+起動手順・Docker init と `db:migrate` の使い分けは [README.md § ローカル開発](./README.md#ローカル開発) を参照。
 
 > `db/migrations/` には **`10_` で始まるファイルが2つある**（`10_gacha_coins.sql` /
 > `10_onboarding_completed.sql`）。番号だけでは適用順が決まらないため、増分適用を選ぶ場合の
 > 落とし穴になる（本番は `db/create-tables.sql` 全文適用を採る。[operations/production-db-apply.md](../operations/production-db-apply.md)）。
-起動手順・Docker init と `db:migrate` の使い分けは [README.md § ローカル開発](./README.md#ローカル開発) を参照。
 
 ```bash
 # テーブル数確認
