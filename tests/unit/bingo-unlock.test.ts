@@ -668,6 +668,17 @@ describe('unlockedPairs（B）', () => {
 // ---------------------------------------------------------------------------
 describe('解放の同時実行の壊れ方（#93 / E22）', () => {
   /**
+   * ⚠️ このテストの並行性はロックステップに依存している。
+   * フェイク DB の query/execute は即座に解決するため、2本の
+   * processCenterAchievement は同じ await 回数を同じ順で辿り、
+   * 「両者が INSERT 前の SELECT を終える」競合状態が決定的に再現される。
+   *
+   * つまり **processCenterAchievement の await の数や順序を変えると、
+   * 競合が再現されなくなってテストが意味を失う**（落ちるのではなく、
+   * 素通りして緑のまま無意味になる）。実装を触ったときは、
+   * sakura ケースが実際に rejected を1本以上出しているかを必ず確認すること。
+   */
+  /**
    * card_unlock_events の重複 INSERT が「どう失敗するか」を切り替える DB ラッパ。
    * - local: ローカル MySQL 相当。Error に code='ER_DUP_ENTRY' が乗る（tryClaimPair が捕捉して null）
    * - sakura: さくらプロキシ相当（ADR 0001）。code の無い 500 相当の Error（捕捉できず伝播する）
