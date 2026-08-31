@@ -15,7 +15,12 @@ type CellRow = {
   source: string | null
 }
 type UnlockEventRow = { id: string; card_id: string; pair_key: string }
-type ScoreRow = { unlock_event_id: string; booth_id: string; was_assigned: number }
+type ScoreRow = {
+  unlock_event_id: string
+  booth_id: string
+  was_assigned: number
+  rank_in_event: number | null
+}
 
 /**
  * 一意制約（uq_card_event_user / uq_cell_card_position / uq_unlock_card_pair）を
@@ -122,16 +127,21 @@ function makeDb(opts: { booths: string[] | string[][]; interestCategoryIds?: str
       return [{ affectedRows: 1 }, undefined]
     }
     if (/INSERT INTO recommendation_scores/.test(sql)) {
-      const [, unlockEventId, , boothId, , , wasAssigned] = params as [
+      const [, unlockEventId, , boothId, , rankInEvent, wasAssigned] = params as [
         string,
         string,
         string,
         string,
         unknown,
-        unknown,
+        number | null,
         number,
       ]
-      scores.push({ unlock_event_id: unlockEventId, booth_id: boothId, was_assigned: wasAssigned })
+      scores.push({
+        unlock_event_id: unlockEventId,
+        booth_id: boothId,
+        was_assigned: wasAssigned,
+        rank_in_event: rankInEvent,
+      })
       return [{ affectedRows: 1 }, undefined]
     }
     throw new Error(`unmatched EXECUTE: ${sql}`)
@@ -168,11 +178,13 @@ describe('ensureCard', () => {
     expect(revealed[0]!.source).toBe('PRESURVEY')
     expect(revealed[0]!.booth_id).not.toBeNull()
 
-    // 事前推薦も推薦の一種として card_unlock_events / recommendation_scores に記録される
+    // 事前推薦も推薦の一種として card_unlock_events / recommendation_scores に記録される。
+    // D-10: 除外されていない候補全件（3件）を記録し、was_assigned=1 は1件だけ。
     expect(unlockEvents).toHaveLength(1)
     expect(unlockEvents[0]!.pair_key).toBe('PRESURVEY')
-    expect(scores).toHaveLength(1)
-    expect(scores[0]!.was_assigned).toBe(1)
+    expect(scores).toHaveLength(3)
+    expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(1)
+    expect(new Set(scores.map((s) => s.booth_id)).size).toBe(3)
   })
 
   it('E1: アンケート未回答でもカード生成は成功し、is_revealed=1の行は0行', async () => {
@@ -191,6 +203,19 @@ describe('ensureCard', () => {
     const first = await ensureCard(db, 'event-1', 'user-1')
     const second = await ensureCard(db, 'event-1', 'user-1')
     expect(second.id).toBe(first.id)
+  })
+
+  it('D-10: 候補全件が recommendation_scores に記録され、再発行しても行が重複しない', async () => {
+    const { db, scores } = makeDb({
+      booths: ['b-1', 'b-2', 'b-3', 'b-4', 'b-5'],
+      interestCategoryIds: ['cat-1'],
+    })
+    await ensureCard(db, 'event-1', 'user-1')
+    expect(scores).toHaveLength(5) // 候補ブース数ぶん
+    expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(1)
+
+    await ensureCard(db, 'event-1', 'user-1') // 二重発行
+    expect(scores).toHaveLength(5) // 増えない（uq_unlock_card_pair で冪等）
   })
 
   it('E3: 関心分野に一致するブースが1つも無くてもカード生成は失敗しない', async () => {
@@ -218,7 +243,9 @@ describe('ensureCard', () => {
     expect(cards).toHaveLength(1)
     expect(cells.filter((c) => c.card_id === a.id)).toHaveLength(16)
     expect(unlockEvents).toHaveLength(1)
-    expect(scores).toHaveLength(1) // 一意制約が無い追記テーブル。二重記録されないこと
+    // 一意制約が無い追記テーブル。候補3件ぶんの行が二重記録されないこと（3件のまま）
+    expect(scores).toHaveLength(3)
+    expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(1)
   })
 
   it('競合に負けた側は、自分が選んだブースではなくカードに載ったブースを記録する', async () => {
@@ -234,9 +261,12 @@ describe('ensureCard', () => {
     ])
 
     const cell5 = cells.find((c) => c.card_id === card.id && c.position === 5)!
-    expect(scores).toHaveLength(1)
-    // recommendation_scores がカードに存在しないブースを指してはならない
-    expect(scores[0]!.booth_id).toBe(cell5.booth_id)
+    // was_assigned=1 の行はちょうど1件で、カードに実際に載ったブースを指す
+    const assigned = scores.filter((s) => s.was_assigned === 1)
+    expect(assigned).toHaveLength(1)
+    expect(assigned[0]!.booth_id).toBe(cell5.booth_id)
+    // 候補ブースは重複せず記録される
+    expect(new Set(scores.map((s) => s.booth_id)).size).toBe(scores.length)
   })
 })
 

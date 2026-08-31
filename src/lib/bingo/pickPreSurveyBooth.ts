@@ -14,10 +14,26 @@ import type { DbClient } from '../../db/client.js'
  *
  * この関数は例外を投げてはならない（E1/E3: 未回答・該当なしでもカード生成は必ず成功する）。
  */
-export async function pickPreSurveyBooth(db: DbClient, eventId: string, userId: string): Promise<string | null> {
+export type PreSurveyPick = {
+  /** 事前推薦マスに入れるブース。候補0件なら null。 */
+  chosen: string | null
+  /**
+   * 除外されていない候補ブース全件（訪問者数の少ない順）。
+   * D-10: 推薦されなかった候補も `recommendation_scores` の分母に入れるため、
+   * 選ばれた1件だけでなく全件を呼び出し側へ渡す。
+   */
+  candidateBoothIds: string[]
+}
+
+/** 候補全件つきで選定する。ensureCard が recommendation_scores に候補全件を記録するために使う。 */
+export async function pickPreSurveyBoothWithCandidates(
+  db: DbClient,
+  eventId: string,
+  userId: string,
+): Promise<PreSurveyPick> {
   try {
     const interestCategoryIds = await readInterestCategories(db, eventId, userId)
-    if (!interestCategoryIds.length) return null
+    if (!interestCategoryIds.length) return { chosen: null, candidateBoothIds: [] }
 
     const placeholders = interestCategoryIds.map(() => '?').join(',')
     const [rows] = await db.query(
@@ -31,15 +47,21 @@ export async function pickPreSurveyBooth(db: DbClient, eventId: string, userId: 
       [eventId, eventId, ...interestCategoryIds],
     )
     const candidates = (rows as { id: string; visitors: number }[]).map((r) => r.id)
-    if (!candidates.length) return null
+    if (!candidates.length) return { chosen: null, candidateBoothIds: [] }
 
     const bottomCount = Math.max(1, Math.ceil(candidates.length * 0.3))
     const pool = candidates.slice(0, bottomCount)
-    return pool[Math.floor(Math.random() * pool.length)] ?? candidates[0]!
+    const chosen = pool[Math.floor(Math.random() * pool.length)] ?? candidates[0]!
+    return { chosen, candidateBoothIds: candidates }
   } catch {
     // 例外を投げてはならない（E1/E3）。呼び出し側で null をハンドリングする。
-    return null
+    return { chosen: null, candidateBoothIds: [] }
   }
+}
+
+export async function pickPreSurveyBooth(db: DbClient, eventId: string, userId: string): Promise<string | null> {
+  const { chosen } = await pickPreSurveyBoothWithCandidates(db, eventId, userId)
+  return chosen
 }
 
 async function readInterestCategories(db: DbClient, eventId: string, userId: string): Promise<string[]> {

@@ -55,8 +55,9 @@
 ## データ
 
 - [x] `recommendations` テーブルを DROP し、**既存データも削除する**
-- [ ] △ `recommendation_scores` に**候補全件**を記録する（推薦されなかったものが分母になる）
-      → 解放時は全件記録。**事前推薦マスだけは選ばれた1件のみ**で D-10 に未達
+- [x] `recommendation_scores` に**候補全件**を記録する（推薦されなかったものが分母になる）
+      → 解放時・事前推薦マス（`pair_key='PRESURVEY'`）とも候補全件を記録。
+      `was_assigned=1` は選ばれた1件のみ（`src/lib/bingo/ensureCard.ts`）
 - [x] `interest_match` と `attributes` を**推薦時点の値で凍結**して保存する
 - [x] `card_unlock_events` に `phase` / `decision_table_size` / `global_checkin_count` を必ず入れる
 - [x] カード外訪問を `cell_id = NULL` で必ず記録する（対照群になる）

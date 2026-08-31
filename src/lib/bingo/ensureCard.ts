@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DbClient } from '../../db/client.js'
 import { utcMysqlNow } from '../datetime.js'
-import { pickPreSurveyBooth } from './pickPreSurveyBooth.js'
+import { pickPreSurveyBoothWithCandidates } from './pickPreSurveyBooth.js'
 import { CENTER_POSITIONS } from './unlockPairs.js'
 
 export const ALL_POSITIONS: readonly number[] = Array.from({ length: 16 }, (_, i) => i)
@@ -62,8 +62,12 @@ export async function ensureCard(db: DbClient, eventId: string, userId: string):
 }
 
 async function createCells(db: DbClient, eventId: string, userId: string, cardId: string): Promise<void> {
-  // E1/E3: pickPreSurveyBooth は例外を投げない。事前アンケート未回答でもカード生成は必ず成功する。
-  const preSurveyBoothId = await pickPreSurveyBooth(db, eventId, userId)
+  // E1/E3: pickPreSurveyBoothWithCandidates は例外を投げない。事前アンケート未回答でもカード生成は必ず成功する。
+  const { chosen: preSurveyBoothId, candidateBoothIds } = await pickPreSurveyBoothWithCandidates(
+    db,
+    eventId,
+    userId,
+  )
   const now = utcMysqlNow()
 
   const values: unknown[] = []
@@ -105,7 +109,7 @@ async function createCells(db: DbClient, eventId: string, userId: string, cardId
   const assignedBoothId = await readPreSurveyBoothId(db, cardId)
   if (!assignedBoothId) return
 
-  await recordPreSurveyUnlockEvent(db, eventId, cardId, userId, assignedBoothId)
+  await recordPreSurveyUnlockEvent(db, eventId, cardId, userId, assignedBoothId, candidateBoothIds)
 }
 
 /** カードに実際に載っている事前推薦ブース。未割当なら null。 */
@@ -123,16 +127,17 @@ async function readPreSurveyBoothId(db: DbClient, cardId: string): Promise<strin
  * pair_key='PRESURVEY', line_index=-1, released_positions='5', phase='PRESURVEY' の
  * card_unlock_events を1行作る。
  *
- * pickPreSurveyBooth は候補全件のスコアを返さないため、ここでは選ばれた1件のみを
- * was_assigned=1 で記録する（D-10 が求める「全候補」までは満たせていない。判断メモ:
- * event-support-server 側の実装ドキュメントに記載）。
+ * D-10: 除外されていない候補ブース全件を recommendation_scores に記録する。
+ * `was_assigned = 1` は実際にカードへ載った1件のみ。
+ * 冪等性は card_unlock_events の uq_unlock_card_pair（affectedRows===1 のときだけ先へ進む）で担保する。
  */
 async function recordPreSurveyUnlockEvent(
   db: DbClient,
   eventId: string,
   cardId: string,
   userId: string,
-  boothId: string,
+  assignedBoothId: string,
+  candidateBoothIds: string[],
 ): Promise<void> {
   // ADR 0001: 一意制約に依存する INSERT は事前に SELECT で確認する
   const [existingRows] = await db.query(
@@ -162,10 +167,26 @@ async function recordPreSurveyUnlockEvent(
   // 追記テーブルなので、ここで止めないと同じ推薦が二重に残る
   if (Number((header as { affectedRows?: number }).affectedRows ?? 0) !== 1) return
 
-  await db.execute(
-    `INSERT INTO recommendation_scores
-       (id, unlock_event_id, user_id, booth_id, score, rank_in_event, was_assigned, interest_match, attributes, reason_payload)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    [randomUUID(), unlockEventId, userId, boothId, null, 1, 1, 'UNKNOWN', null, null],
-  )
+  // 除外されていない候補全件を記録する（D-10）。実際にカードへ載ったブースは
+  // 候補リストに含まれないことがある（競合の勝者が別プロセスで別候補を選んだ場合）ので必ず足す。
+  const boothIds = [...new Set([...candidateBoothIds, assignedBoothId])]
+  for (const [i, boothId] of boothIds.entries()) {
+    await db.execute(
+      `INSERT INTO recommendation_scores
+         (id, unlock_event_id, user_id, booth_id, score, rank_in_event, was_assigned, interest_match, attributes, reason_payload)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [
+        randomUUID(),
+        unlockEventId,
+        userId,
+        boothId,
+        null,
+        i + 1, // 訪問者数の少ない順の並び。assignedBoothId を末尾に足した場合もその順位を振る
+        boothId === assignedBoothId ? 1 : 0,
+        'UNKNOWN',
+        null,
+        null,
+      ],
+    )
+  }
 }
