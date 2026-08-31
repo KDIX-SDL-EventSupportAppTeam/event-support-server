@@ -76,6 +76,15 @@ export async function pickPreSurveyBooth(
 `card_unlock_events` の `UNIQUE (card_id, pair_key)` で担保する
 （この行の INSERT が `affectedRows = 1` を返したときだけ `recommendation_scores` を書く）。
 
+- **`score` / `rank_in_event` は NULL にする。** この2列は「推薦エンジンが付けた値」を
+  入れる場所であり、事前推薦は推薦エンジンを通していない（訪問者数の少ない順に選ぶだけ）。
+  選定順の連番を入れると、分析側がエンジンの順位と区別できなくなる。
+  解放時も、推薦エンジンが返さなかった候補は NULL で記録している。
+- **書き込みは1回の複数行 INSERT にまとめる。** 本番 DB は 1リクエスト = 1SQL のため、
+  候補1件ごとに INSERT すると候補数ぶんの往復になる。カードの初回発行は
+  開場直後に全員が同時に通る経路なので、ここを N 往復にしてはならない
+  （解放側 `assignOuterCells.ts` の C-2 と同じ方針）。
+
 これにより「事前推薦マスへの訪問率」も他の推薦と同じ方法で分析できる。
 
 ## 冪等性

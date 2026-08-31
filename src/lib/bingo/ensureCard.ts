@@ -130,6 +130,10 @@ async function readPreSurveyBoothId(db: DbClient, cardId: string): Promise<strin
  * D-10: 除外されていない候補ブース全件を recommendation_scores に記録する。
  * `was_assigned = 1` は実際にカードへ載った1件のみ。
  * 冪等性は card_unlock_events の uq_unlock_card_pair（affectedRows===1 のときだけ先へ進む）で担保する。
+ *
+ * 書き込みは**1回の複数行 INSERT**にまとめる。本番 DB は 1リクエスト = 1SQL のため、
+ * 候補1件ごとに INSERT すると候補数ぶんの往復になり、開場直後（全員が同時にカードを
+ * 初回発行する瞬間）に効いてくる。解放側 assignOuterCells.ts の C-2 と同じ方針。
  */
 async function recordPreSurveyUnlockEvent(
   db: DbClient,
@@ -170,23 +174,33 @@ async function recordPreSurveyUnlockEvent(
   // 除外されていない候補全件を記録する（D-10）。実際にカードへ載ったブースは
   // 候補リストに含まれないことがある（競合の勝者が別プロセスで別候補を選んだ場合）ので必ず足す。
   const boothIds = [...new Set([...candidateBoothIds, assignedBoothId])]
-  for (const [i, boothId] of boothIds.entries()) {
-    await db.execute(
-      `INSERT INTO recommendation_scores
-         (id, unlock_event_id, user_id, booth_id, score, rank_in_event, was_assigned, interest_match, attributes, reason_payload)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [
-        randomUUID(),
-        unlockEventId,
-        userId,
-        boothId,
-        null,
-        i + 1, // 訪問者数の少ない順の並び。assignedBoothId を末尾に足した場合もその順位を振る
-        boothId === assignedBoothId ? 1 : 0,
-        'UNKNOWN',
-        null,
-        null,
-      ],
+
+  const placeholders: string[] = []
+  const params: unknown[] = []
+  for (const boothId of boothIds) {
+    placeholders.push('(?,?,?,?,?,?,?,?,?,?)')
+    params.push(
+      randomUUID(),
+      unlockEventId,
+      userId,
+      boothId,
+      null, // score: 事前推薦はスコアを持たない
+      // rank_in_event は「推薦エンジンが付けた順位」を入れる列。事前推薦は
+      // 推薦エンジンを通していない（訪問者数の少ない順に選ぶだけ）ので NULL のままにする。
+      // ここで並び順の連番を入れると、分析側がエンジンの順位と区別できなくなる。
+      // 解放側でも推薦が返さなかった候補は NULL（assignOuterCells.ts のフォールバック分）。
+      null,
+      boothId === assignedBoothId ? 1 : 0,
+      'UNKNOWN',
+      null,
+      null,
     )
   }
+
+  await db.execute(
+    `INSERT INTO recommendation_scores
+       (id, unlock_event_id, user_id, booth_id, score, rank_in_event, was_assigned, interest_match, attributes, reason_payload)
+     VALUES ${placeholders.join(',')}`,
+    params,
+  )
 }
