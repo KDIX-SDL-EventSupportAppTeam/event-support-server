@@ -11,6 +11,8 @@ const envSchema = z.object({
   WEBHOOK_API_KEY: z.string().optional().default(''),
   RECOMMENDER_URL: z.string().optional().default(''),
   RECOMMENDER_TIMEOUT_MS: z.coerce.number().int().min(1).default(1000),
+  RECOMMENDER_OPS_TOKEN: z.string().optional().default(''),
+  RECOMMENDER_STATE_TIMEOUT_MS: z.coerce.number().int().min(1).default(2000),
   CHECKIN_COOLDOWN_SEC: z.coerce.number().int().min(0).default(0),
   RATING_SCALE: z.coerce.number().int().min(2).max(10).default(4),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
@@ -35,6 +37,8 @@ export type AppConfig = {
   webhookApiKey: string
   recommenderUrl: string
   recommenderTimeoutMs: number
+  recommenderOpsToken: string
+  recommenderStateTimeoutMs: number
   checkinCooldownSec: number
   ratingScale: number
   corsOrigin: string
@@ -98,6 +102,8 @@ export function loadConfig(): AppConfig {
     webhookApiKey: e.WEBHOOK_API_KEY,
     recommenderUrl: e.RECOMMENDER_URL,
     recommenderTimeoutMs: e.RECOMMENDER_TIMEOUT_MS,
+    recommenderOpsToken: e.RECOMMENDER_OPS_TOKEN,
+    recommenderStateTimeoutMs: e.RECOMMENDER_STATE_TIMEOUT_MS,
     checkinCooldownSec: e.CHECKIN_COOLDOWN_SEC,
     ratingScale: e.RATING_SCALE,
     corsOrigin: e.CORS_ORIGIN,
