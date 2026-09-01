@@ -20,6 +20,8 @@
 | `ORGANIZER_SIGNUP_MODE` | — | `invite`（既定・キー必須）\| `open`（誰でも登録可）\| `disabled`（登録停止・410、本番推奨） |
 | `RECOMMENDER_URL` | — | 推薦エンジン（`event-support-recommend`）のベース URL。**未設定・空文字なら呼び出さず即フォールバック**（訪問者数の少ない順。人気順にはしない） |
 | `RECOMMENDER_TIMEOUT_MS` | — | 推薦呼び出しのタイムアウト（既定 `1000`）。超えたらフォールバックへ |
+| `RECOMMENDER_OPS_TOKEN` | — | 推薦エンジンの `/ops/state` 中継に使う共有シークレット。推薦側の `OPS_TOKEN`・分析側の `RECOMMEND_OPS_TOKEN` と**同一の値**。`X-Ops-Token` ヘッダーで送る（`Authorization` は使わない）。応答にもログにも値を出さない |
+| `RECOMMENDER_STATE_TIMEOUT_MS` | — | `/ops/state` 中継のタイムアウト（既定 `2000`）。解放経路の `RECOMMENDER_TIMEOUT_MS` とは別物。到達不能時は 200 で `available:false` を返す |
 | `RATING_SCALE` | — | 評価の段階数（既定 `4`）。`booth_ratings.scale` に保存し、API が参加者へ配信する |
 | `CHECKIN_COOLDOWN_SEC` | — | 同一ユーザーの連続チェックインを拒否する最短間隔（既定 `0` = 無効） |
 | `CORS_ORIGIN` | — | 許可するオリジン（カンマ区切り。未設定時は `http://localhost:5173`） |
