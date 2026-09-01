@@ -38,7 +38,9 @@
 
 ## 当日に備える
 
-- [ ] 運営が `is_enabled` / `bonus_coins` を変更する手順書を用意する
+- [x] 運営が `is_enabled` / `bonus_coins` を変更する手順書を用意する
+      → [docs/operations/run-day-guide.md](../../operations/run-day-guide.md) §1
 - [ ] コイン使用状況を当日リアルタイムで見られる（admin stats）
-- [ ] 誤使用の救済は `bonus_coins` +1 で行うと運営に周知する（**台帳から行を消さない**）
+- [x] 誤使用の救済は `bonus_coins` +1 で行うと運営に周知する（**台帳から行を消さない**）
+      → [docs/operations/run-day-guide.md](../../operations/run-day-guide.md) §2
 - [ ] 本番相当データ量での負荷確認（ピーク: 1分あたり9.3チェックイン・同時滞在89名）
