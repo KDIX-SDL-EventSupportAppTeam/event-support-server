@@ -62,8 +62,9 @@
 ## データ
 
 - [x] `recommendations` テーブルを DROP し、**既存データも削除する**
-- [ ] △ `recommendation_scores` に**候補全件**を記録する（推薦されなかったものが分母になる）
-      → 解放時は全件記録。**事前推薦マスだけは選ばれた1件のみ**で D-10 に未達
+- [x] `recommendation_scores` に**候補全件**を記録する（推薦されなかったものが分母になる）
+      → 解放時・事前推薦マス（`pair_key='PRESURVEY'`）とも候補全件を記録。
+      `was_assigned=1` は選ばれた1件のみ（`src/lib/bingo/ensureCard.ts`）
 - [x] `interest_match` と `attributes` を**推薦時点の値で凍結**して保存する
 - [x] `card_unlock_events` に `phase` / `decision_table_size` / `global_checkin_count` を必ず入れる
 - [x] カード外訪問を `cell_id = NULL` で必ず記録する（対照群になる）
@@ -85,7 +86,8 @@
 - [x] マイグレーションは**事前アンケート側とまとめて1回**で実行する
       → `09_bingo_staged_unlock.sql` に統合済み
 - [ ] ロールバック手順を書く
-- [ ] 当日トラブル時の運営向け手引きを書く
+- [x] 当日トラブル時の運営向け手引きを書く
+      → [docs/operations/run-day-guide.md](../../operations/run-day-guide.md)（非エンジニア向け）
 - [ ] △ 出展者・運営スタッフのアカウントを分析から除外できる状態にしておく
       → 集計クエリは `role='participant'` で除外済み。分析側の方針は未確認
 

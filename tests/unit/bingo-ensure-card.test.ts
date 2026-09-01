@@ -15,7 +15,12 @@ type CellRow = {
   source: string | null
 }
 type UnlockEventRow = { id: string; card_id: string; pair_key: string }
-type ScoreRow = { unlock_event_id: string; booth_id: string; was_assigned: number }
+type ScoreRow = {
+  unlock_event_id: string
+  booth_id: string
+  was_assigned: number
+  rank_in_event: number | null
+}
 
 /**
  * 一意制約（uq_card_event_user / uq_cell_card_position / uq_unlock_card_pair）を
@@ -33,6 +38,8 @@ function makeDb(opts: { booths: string[] | string[][]; interestCategoryIds?: str
   const cells: CellRow[] = []
   const unlockEvents: UnlockEventRow[] = []
   const scores: ScoreRow[] = []
+  /** recommendation_scores への INSERT 発行回数（往復数の担保用） */
+  const scoreInsertCalls: string[] = []
   /** ブース候補は呼び出しごとに変えられる（競合する2本が別のブースを選ぶ状況の再現用） */
   const boothBatches: string[][] = Array.isArray(booths[0]) ? (booths as string[][]) : [booths as string[]]
   let boothCall = 0
@@ -122,23 +129,23 @@ function makeDb(opts: { booths: string[] | string[][]; interestCategoryIds?: str
       return [{ affectedRows: 1 }, undefined]
     }
     if (/INSERT INTO recommendation_scores/.test(sql)) {
-      const [, unlockEventId, , boothId, , , wasAssigned] = params as [
-        string,
-        string,
-        string,
-        string,
-        unknown,
-        unknown,
-        number,
-      ]
-      scores.push({ unlock_event_id: unlockEventId, booth_id: boothId, was_assigned: wasAssigned })
-      return [{ affectedRows: 1 }, undefined]
+      // 10 カラム × N 行の複数行 INSERT（本番は 1リクエスト = 1SQL のためまとめる）
+      scoreInsertCalls.push(sql)
+      for (let i = 0; i < params.length; i += 10) {
+        scores.push({
+          unlock_event_id: params[i + 1] as string,
+          booth_id: params[i + 3] as string,
+          rank_in_event: params[i + 5] as number | null,
+          was_assigned: params[i + 6] as number,
+        })
+      }
+      return [{ affectedRows: params.length / 10 }, undefined]
     }
     throw new Error(`unmatched EXECUTE: ${sql}`)
   }
 
   const db: DbClient = { query, execute, end: async () => {} }
-  return { db, cards, cells, unlockEvents, scores }
+  return { db, cards, cells, unlockEvents, scores, scoreInsertCalls }
 }
 
 describe('ensureCard', () => {
@@ -168,11 +175,13 @@ describe('ensureCard', () => {
     expect(revealed[0]!.source).toBe('PRESURVEY')
     expect(revealed[0]!.booth_id).not.toBeNull()
 
-    // 事前推薦も推薦の一種として card_unlock_events / recommendation_scores に記録される
+    // 事前推薦も推薦の一種として card_unlock_events / recommendation_scores に記録される。
+    // D-10: 除外されていない候補全件（3件）を記録し、was_assigned=1 は1件だけ。
     expect(unlockEvents).toHaveLength(1)
     expect(unlockEvents[0]!.pair_key).toBe('PRESURVEY')
-    expect(scores).toHaveLength(1)
-    expect(scores[0]!.was_assigned).toBe(1)
+    expect(scores).toHaveLength(3)
+    expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(1)
+    expect(new Set(scores.map((s) => s.booth_id)).size).toBe(3)
   })
 
   it('E1: アンケート未回答でもカード生成は成功し、is_revealed=1の行は0行', async () => {
@@ -191,6 +200,42 @@ describe('ensureCard', () => {
     const first = await ensureCard(db, 'event-1', 'user-1')
     const second = await ensureCard(db, 'event-1', 'user-1')
     expect(second.id).toBe(first.id)
+  })
+
+  it('D-10: 候補全件が recommendation_scores に記録され、再発行しても行が重複しない', async () => {
+    const { db, scores } = makeDb({
+      booths: ['b-1', 'b-2', 'b-3', 'b-4', 'b-5'],
+      interestCategoryIds: ['cat-1'],
+    })
+    await ensureCard(db, 'event-1', 'user-1')
+    expect(scores).toHaveLength(5) // 候補ブース数ぶん
+    expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(1)
+
+    await ensureCard(db, 'event-1', 'user-1') // 二重発行
+    expect(scores).toHaveLength(5) // 増えない（uq_unlock_card_pair で冪等）
+  })
+
+  it('候補が何件でも recommendation_scores の INSERT は1回にまとまる（1リクエスト=1SQL）', async () => {
+    const { db, scoreInsertCalls, scores } = makeDb({
+      booths: Array.from({ length: 25 }, (_, i) => `b-${i}`),
+      interestCategoryIds: ['cat-1'],
+    })
+    await ensureCard(db, 'event-1', 'user-1')
+
+    expect(scores).toHaveLength(25)
+    // 候補25件でも往復は1回。候補ごとに INSERT すると開場直後の初回発行が詰まる
+    expect(scoreInsertCalls).toHaveLength(1)
+  })
+
+  it('事前推薦の rank_in_event は NULL（推薦エンジンを通していないため順位を作らない）', async () => {
+    const { db, scores } = makeDb({
+      booths: ['b-1', 'b-2', 'b-3'],
+      interestCategoryIds: ['cat-1'],
+    })
+    await ensureCard(db, 'event-1', 'user-1')
+
+    expect(scores).toHaveLength(3)
+    expect(scores.every((s) => s.rank_in_event === null)).toBe(true)
   })
 
   it('E3: 関心分野に一致するブースが1つも無くてもカード生成は失敗しない', async () => {
@@ -218,7 +263,9 @@ describe('ensureCard', () => {
     expect(cards).toHaveLength(1)
     expect(cells.filter((c) => c.card_id === a.id)).toHaveLength(16)
     expect(unlockEvents).toHaveLength(1)
-    expect(scores).toHaveLength(1) // 一意制約が無い追記テーブル。二重記録されないこと
+    // 一意制約が無い追記テーブル。候補3件ぶんの行が二重記録されないこと（3件のまま）
+    expect(scores).toHaveLength(3)
+    expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(1)
   })
 
   it('競合に負けた側は、自分が選んだブースではなくカードに載ったブースを記録する', async () => {
@@ -234,9 +281,12 @@ describe('ensureCard', () => {
     ])
 
     const cell5 = cells.find((c) => c.card_id === card.id && c.position === 5)!
-    expect(scores).toHaveLength(1)
-    // recommendation_scores がカードに存在しないブースを指してはならない
-    expect(scores[0]!.booth_id).toBe(cell5.booth_id)
+    // was_assigned=1 の行はちょうど1件で、カードに実際に載ったブースを指す
+    const assigned = scores.filter((s) => s.was_assigned === 1)
+    expect(assigned).toHaveLength(1)
+    expect(assigned[0]!.booth_id).toBe(cell5.booth_id)
+    // 候補ブースは重複せず記録される
+    expect(new Set(scores.map((s) => s.booth_id)).size).toBe(scores.length)
   })
 })
 

@@ -70,6 +70,21 @@ export async function pickPreSurveyBooth(
 **`card_unlock_events` に `pair_key='PRESURVEY'`, `line_index=-1`, `released_positions='5'`,
 `phase='PRESURVEY'` の行を1つ作り、そこへ紐づける。**
 
+**除外されていない候補ブースを全件記録する**（D-10）。解放時と同じく、
+推薦されなかった候補も分母に入れないと研究の対照が取れない。
+`was_assigned = 1` は実際にカードへ載った1件のみ。冪等性は
+`card_unlock_events` の `UNIQUE (card_id, pair_key)` で担保する
+（この行の INSERT が `affectedRows = 1` を返したときだけ `recommendation_scores` を書く）。
+
+- **`score` / `rank_in_event` は NULL にする。** この2列は「推薦エンジンが付けた値」を
+  入れる場所であり、事前推薦は推薦エンジンを通していない（訪問者数の少ない順に選ぶだけ）。
+  選定順の連番を入れると、分析側がエンジンの順位と区別できなくなる。
+  解放時も、推薦エンジンが返さなかった候補は NULL で記録している。
+- **書き込みは1回の複数行 INSERT にまとめる。** 本番 DB は 1リクエスト = 1SQL のため、
+  候補1件ごとに INSERT すると候補数ぶんの往復になる。カードの初回発行は
+  開場直後に全員が同時に通る経路なので、ここを N 往復にしてはならない
+  （解放側 `assignOuterCells.ts` の C-2 と同じ方針）。
+
 これにより「事前推薦マスへの訪問率」も他の推薦と同じ方法で分析できる。
 
 ## 冪等性
@@ -88,7 +103,8 @@ INSERT のあとに必ず SELECT で読み直して返す。
 500 に化ける（[ADR 0001](../../../decisions/adrs/0001-sakura-proxy-error-masking.md)）。
 
 競合に負けた側は、`position 5` に載っているのが相手の選んだブースになる。
-`recommendation_scores` には自分の候補ではなく**実際にカードへ載ったブース**を記録する。
+`recommendation_scores` の `was_assigned = 1` は自分の候補ではなく
+**実際にカードへ載ったブース**に付ける（そのブースが自分の候補全件に含まれていなければ足す）。
 
 ## 検証（テストで固定する）
 
@@ -101,3 +117,6 @@ INSERT のあとに必ず SELECT で読み直して返す。
   `source='PRESURVEY'`、`booth_id` が NOT NULL
 - アンケート未回答の場合: `is_revealed = 1` の行が **0行**、それでもカード生成は成功する
 - `card_unlock_events` は 0 行または `pair_key='PRESURVEY'` の1行のみ
+- アンケート回答済みの場合: `pair_key='PRESURVEY'` の unlock_event に
+  候補ブース数ぶんの `recommendation_scores` 行があり、`was_assigned = 1` は1行だけ
+- カード発行が二重に走っても `recommendation_scores` の行が重複しない
