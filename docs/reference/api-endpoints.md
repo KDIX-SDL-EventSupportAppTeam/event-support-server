@@ -55,7 +55,7 @@
 | GET | `/api/v1/admin/events/:event_id/booths/:booth_id/comments` | Bearer（staff = manager+viewer） | 運営向けコメント一覧（limit/offset。`is_hidden`・表示名を含む） |
 | GET | `/api/v1/admin/events/:event_id/booths` | Bearer（staff = manager+viewer） | 運営向けブース一覧（`sort=checkin_count\|avg_rating\|name`・`order=asc\|desc`、既定 `checkin_count desc`。不正値は既定値にフォールバック） |
 | POST / DELETE | `/api/v1/admin/events/:event_id/sample-data` | Bearer（manager） | サンプルデータ生成・削除 |
-| GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（staff） | 運営ダッシュボード（簡易集計） |
+| GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（staff） | 運営ダッシュボード（簡易集計）。`bingo` は DB の事実のみ（`checkins` / `ratings` / `rating_collection_rate` / `unlocks` / `fallback_rate_last_30min`）。フェーズ情報は返さない → 下記 `recommender/state` を使う |
 | GET | `/api/v1/admin/events/:event_id/recommender/state` | Bearer（staff） | 推薦エンジンの `/ops/state` を中継（10秒キャッシュ）。到達不能でも 200 で `{available:false, reason}`（`UNCONFIGURED`/`UNAUTHORIZED`/`UNREACHABLE`/`BAD_RESPONSE`）。監査ログなし |
 | GET | `/api/v1/admin/events/:event_id/analytics/{booths,participants,checkins,recommendations}` | Bearer（staff） | 分析データ取得（推薦集計の集計元は下記） |
 | CRUD | `/api/v1/admin/events/:event_id/{categories,booths,survey-questions}` ほか | Bearer（manager。GET 系は staff） | カテゴリ/ブース/設問の運営 CRUD・参加者一覧 |
