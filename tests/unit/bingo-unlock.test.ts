@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppConfig } from '../../src/config.js'
 import type { DbClient } from '../../src/db/client.js'
 import { processCenterAchievement, healUnlockedCardIfNeeded } from '../../src/lib/bingo/unlock.js'
-import { CENTER_POSITIONS, OUTER_POSITIONS } from '../../src/lib/bingo/unlockPairs.js'
+import { CENTER_POSITIONS, OUTER_POSITIONS, pairDefinitionByKey } from '../../src/lib/bingo/unlockPairs.js'
 
 const config: AppConfig = {
   port: 3000,
@@ -658,6 +658,78 @@ describe('unlockedPairs（B）', () => {
     expect(result.unlockedPairs.map((p) => p.pair_key).sort()).toEqual(['5-6', '5-9', '6-9'])
     expect(result.unlockedPositions).toHaveLength(6)
   })
+})
+
+// ---------------------------------------------------------------------------
+// 自己修復が解放3回ぶんすべてで動く（issue #92 / 00-must-do.md）
+//
+// is_revealed=0 のマスが残った状態を3パターン（1回目=2マス / 2回目=4マス / 3回目=6マス）
+// 作り、healUnlockedCardIfNeeded が全部埋め、strategy='SELF_HEAL' で記録し、
+// 二重実行しても recommendation_scores が重複しないことを固定する。
+// ---------------------------------------------------------------------------
+describe('自己修復が解放3回ぶんすべてで動く（#92）', () => {
+  /** pair_key の解放イベントを1行入れ、対応する外周マスを is_revealed=0 に戻す。 */
+  async function breakUnlock(db: DbClient, cells: Cell[], id: string, pairKey: string): Promise<number[]> {
+    const def = pairDefinitionByKey(pairKey)!
+    await db.execute(
+      `INSERT INTO card_unlock_events
+         (id, card_id, pair_key, line_index, released_positions, phase, strategy, decision_table_size, global_checkin_count)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [id, 'card-1', pairKey, def.lineIndex, def.releasedPositions.join(','), 'COVERAGE', 'PENDING', null, 10],
+    )
+    for (const pos of def.releasedPositions) {
+      const c = cells.find((x) => x.position === pos)!
+      c.is_revealed = 0
+      c.booth_id = null
+      c.source = null
+    }
+    return [...def.releasedPositions]
+  }
+
+  const rounds: { name: string; pairs: string[]; masu: number }[] = [
+    { name: '1回目の解放が落ちた（2マス）', pairs: ['5-6'], masu: 2 },
+    { name: '2回目の解放が落ちた（4マス）', pairs: ['5-9', '6-9'], masu: 4 },
+    { name: '3回目の解放が落ちた（6マス）', pairs: ['9-10', '6-10', '5-10'], masu: 6 },
+  ]
+
+  for (const round of rounds) {
+    it(`${round.name}: 自己修復が全マスを埋め SELF_HEAL で記録する`, async () => {
+      const cells = buildAllCenterAchievedCard()
+      const { db, unlockEvents, scores } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+
+      const brokenPositions: number[] = []
+      for (const [i, pk] of round.pairs.entries()) {
+        brokenPositions.push(...(await breakUnlock(db, cells, `evt-${i}`, pk)))
+      }
+      expect(brokenPositions).toHaveLength(round.masu)
+
+      await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+
+      // 壊れていたマスがすべて埋まる
+      for (const pos of brokenPositions) {
+        const cell = cells.find((c) => c.position === pos)!
+        expect(cell.is_revealed).toBe(1)
+        expect(cell.booth_id).not.toBeNull()
+      }
+      // 修復されたペアは strategy='SELF_HEAL'
+      const healed = unlockEvents.filter((e) => round.pairs.includes(e.pair_key))
+      expect(healed).toHaveLength(round.pairs.length)
+      expect(healed.every((e) => e.strategy === 'SELF_HEAL')).toBe(true)
+      expect(scores.filter((s) => s.was_assigned === 1)).toHaveLength(round.masu)
+
+      // 二重実行しても recommendation_scores が重複しない
+      const before = scores.length
+      for (const pos of brokenPositions) {
+        const c = cells.find((x) => x.position === pos)!
+        c.is_revealed = 0
+        c.booth_id = null
+      }
+      await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+      expect(scores.length).toBe(before)
+      const keys = scores.map((s) => `${s.unlock_event_id}:${s.booth_id}`)
+      expect(new Set(keys).size).toBe(keys.length)
+    })
+  }
 })
 
 // ---------------------------------------------------------------------------
