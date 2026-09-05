@@ -141,12 +141,25 @@ describe('GET /admin/events/:event_id/dashboard（フェーズ計算の廃止）
     expect(res.json().data.bingo.unlocks).toEqual({ first: 0, second: 0, third: 0 })
   })
 
-  it('T-20/T-21 到達人数の集計 SQL は PRESURVEY と非 participant を除外している', async () => {
+  it('T-20 到達人数の集計 SQL は PRESURVEY を除外している', async () => {
     const log: string[] = []
     await getDashboard(baseHandlers(), log)
     const pairSql = log.find((s) => /AS pair_count/.test(s))!
     expect(pairSql).toMatch(/pair_key <> 'PRESURVEY'/)
+  })
+
+  it('T-21 到達人数の集計 SQL は participant のカードだけを数える（users を JOIN して role で絞る）', async () => {
+    const log: string[] = []
+    await getDashboard(baseHandlers(), log)
+    const pairSql = log.find((s) => /AS pair_count/.test(s))!
+    expect(pairSql).toMatch(/JOIN users u ON u\.id = k\.user_id AND u\.role = 'participant'/)
+    // 評価回収率側も従来どおり participant に絞っている
     const ratingSql = log.find((s) => /AS ratings/.test(s))!
     expect(ratingSql).toMatch(/role = 'participant'/)
+  })
+
+  it('T-17〜T-19 補足: 人数は累積で first >= second >= third（1・3・6 ペアのカードが 1 枚ずつ）', async () => {
+    const res = await getDashboard(baseHandlers({ r6: pairRows([1, 3, 6]) }))
+    expect(res.json().data.bingo.unlocks).toEqual({ first: 3, second: 2, third: 1 })
   })
 })

@@ -1,6 +1,6 @@
 ---
 状態: 実装済み
-最終更新: 2026-08-25
+最終更新: 2026-09-05
 ---
 
 # 運営向け API
@@ -70,6 +70,11 @@
 | `unlocks.third` | 累計ペア数 >= 6 | 中央4マスすべてが埋まった |
 
 `pair_key = 'PRESURVEY'`（事前推薦マス）は解放ではないので数えない。
+
+- 人数は**累積**で数える。3 回目まで到達したカードは 1 回目・2 回目にも数えられるため、常に
+  `first >= second >= third`。「2 回目で止まっている人数」は `second - third` で読む。
+- 数える対象は `card_unlock_events` の行（`strategy` が `RECOMMEND` / `FALLBACK_COVERAGE` / `SELF_HEAL` のいずれでも数える。
+  自己修復で成立した解放も解放である）。`bingo_cells` の状態からは逆算しない。
 
 ## GET /api/v1/admin/events/:event_id/analytics/recommendations（改修）
 
