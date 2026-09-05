@@ -52,9 +52,11 @@ export async function adminRoutes(app: FastifyInstance) {
         // カードごとの解放回数から「1回目/2回目/3回目まで到達した人数」を求める。
         // 2マス目達成で1ペア、3マス目達成で2ペア、4マス目達成で3ペアが同時に成立するため、
         // 累計ペア数のしきい値は 1 / 3 / 6 になる（unlock-pairs.md）。
+        // participant のカードだけを数える（admin-api.md「unlocks の算出式」。出展者・運営の試し操作を除外）
         app.db.query(
           `SELECT k.id AS card_id, COUNT(*) AS pair_count
              FROM bingo_cards k
+             JOIN users u ON u.id = k.user_id AND u.role = 'participant'
              JOIN card_unlock_events e ON e.card_id = k.id AND e.pair_key <> 'PRESURVEY'
             WHERE k.event_id = ?
             GROUP BY k.id`,
