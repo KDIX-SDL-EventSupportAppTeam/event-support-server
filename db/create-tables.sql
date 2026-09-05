@@ -26,7 +26,7 @@
 --   booth_categories, exhibitor_booths, email_verification_tokens, audit_logs,
 --   event_app_access
 --
--- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 09_*.sql（内容を同期すること）
+-- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 12_*.sql（内容を同期すること。順序は db/migrations/README.md）
 -- 設計書: docs/designs/database.md §11、主催者自己管理機能: .sdd/02-data-model.md
 -- ビンゴカード動的段階解放方式: docs/specs/bingo-dynamic-unlock/02-data-model/schema-changes.md
 -- 事前アンケート／アプリ公開ゲート: docs/specs/pre-survey/02-data-model.md
