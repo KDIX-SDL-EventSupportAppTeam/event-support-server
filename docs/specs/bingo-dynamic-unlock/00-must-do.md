@@ -85,7 +85,8 @@
 
 - [x] マイグレーションは**事前アンケート側とまとめて1回**で実行する
       → `09_bingo_staged_unlock.sql` に統合済み
-- [ ] ロールバック手順を書く
+- [x] ロールバック手順を書く
+      → [docs/operations/rollback.md](../../operations/rollback.md)
 - [x] 当日トラブル時の運営向け手引きを書く
       → [docs/operations/run-day-guide.md](../../operations/run-day-guide.md)（非エンジニア向け）
 - [ ] △ 出展者・運営スタッフのアカウントを分析から除外できる状態にしておく
