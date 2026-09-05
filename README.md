@@ -87,7 +87,7 @@ src/
 └── index.ts
 
 db/
-├── migrations/
+├── migrations/                # docker 初回 init が辞書順に適用（番号 = 順序。db/migrations/README.md）
 │   ├── 01_initial_schema.sql
 │   ├── 02_add_user_role.sql
 │   ├── 03_organizer_self_management.sql
@@ -96,8 +96,12 @@ db/
 │   ├── 06_booth_rating_comments.sql
 │   ├── 07_email_verification.sql
 │   ├── 08_event_survey_url.sql
-│   └── 09_bingo_staged_unlock.sql
-└── create-tables.sql          # 空 DB への `npm run db:migrate` はこちらを使う（18 テーブル）
+│   ├── 09_bingo_staged_unlock.sql
+│   ├── 10_gacha_coins.sql
+│   ├── 11_widen_unlock_pair_key.sql
+│   ├── 12_onboarding_completed.sql
+│   └── README.md
+└── create-tables.sql          # 空 DB への `npm run db:migrate` はこちらを使う（21 テーブル）
 ```
 
 ## ローカル開発
