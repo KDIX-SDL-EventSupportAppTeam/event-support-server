@@ -107,14 +107,14 @@ cp .env.example .env      # DATABASE_URL・JWT_SECRET・WEBHOOK_API_KEY を設�
 npm install
 docker compose up -d mysql
 npm run db:seed           # 初回のみ（開発用データ投入）
-npm run dev               # http://localhost:3000
+npm run dev               # http://127.0.0.1:3000
 ```
 
 さくら DB プロキシのローカル検証（任意）:
 
 ```bash
 npm run proxy:mock        # ターミナル A: http://localhost:3001
-SAKURA_PROXY_URL=http://localhost:3001 npm run dev   # ターミナル B
+SAKURA_PROXY_URL=http://127.0.0.1:3001 npm run dev   # ターミナル B
 ```
 
 詳細: [docs/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md](./docs/archive/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)
@@ -122,10 +122,17 @@ SAKURA_PROXY_URL=http://localhost:3001 npm run dev   # ターミナル B
 > **DB スキーマ:** `docker compose up` 初回（空ボリューム）では `db/migrations/` が MySQL init で自動適用される。  
 > `npm run db:migrate` は **Docker 未使用時**、または **init 前の空 DB** 向け。Docker 初回 init 済みなら不要（実行すると「既にテーブルあり」で終了する）。
 
+> **接続先は `localhost` ではなく `127.0.0.1` を使う。**
+> サーバーは `0.0.0.0`（IPv4 のみ）で待ち受けている。Windows では `localhost` が先に
+> IPv6（`::1`）で解決され、接続失敗後に IPv4 へ戻る分だけ毎リクエスト約 200ms 遅くなる
+> （実測: `localhost` 219ms / `127.0.0.1` 5.7ms）。フロントの `.env` の `VITE_API_BASE_URL` も
+> `http://127.0.0.1:3000/api/v1` にする。理由と再検討条件は
+> [ADR 0007](docs/decisions/adrs/0007-keep-ipv4-listen-document-127-0-0-1.md)。
+
 動作確認:
 
 ```bash
-curl http://localhost:3000/health
+curl http://127.0.0.1:3000/health
 # {"ok":true}
 ```
 
