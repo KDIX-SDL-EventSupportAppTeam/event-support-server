@@ -66,21 +66,22 @@ phpMyAdmin の「SQL」タブに `db/create-tables.sql` の中身を貼り、実
 ### 3. 確認（先生。3つのクエリを流して結果を返す）
 
 ```sql
--- (1) テーブルが 21 個できていること
-SELECT COUNT(*) AS tables FROM information_schema.tables
- WHERE table_schema = DATABASE();
+-- (1) テーブルが 21 個できていること（一覧の行数を数える）
+SHOW TABLES;
 
--- (2) pair_key の幅が 16 であること
-SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.columns
- WHERE table_schema = DATABASE()
-   AND table_name = 'card_unlock_events' AND column_name = 'pair_key';
+-- (2) pair_key の幅が 16 であること（Type 列を見る）
+SHOW COLUMNS FROM card_unlock_events LIKE 'pair_key';
 
--- (3) ガチャの設定テーブルができていること
-SELECT COUNT(*) AS ok FROM information_schema.tables
- WHERE table_schema = DATABASE() AND table_name = 'gacha_settings';
+-- (3) ガチャの設定テーブルができていること（1 行返れば成功）
+SHOW TABLES LIKE 'gacha_settings';
 ```
 
-期待値: (1) `21` / (2) `16` / (3) `1`
+期待値: (1) 一覧に **21 行** / (2) Type が **`varchar(16)`** / (3) **1 行**
+
+> **`information_schema` を使うクエリを渡さないこと。**
+> さくらなどの共有サーバーでは権限で拒否される（エラー #1044）。
+> `db/create-tables.sql` 末尾のコメントにも同じ注意がある。
+> 先生に渡す確認手段は `SHOW TABLES` / `SHOW COLUMNS` で組む。
 
 ### 4. ロールバック（問題が起きたときだけ）
 
