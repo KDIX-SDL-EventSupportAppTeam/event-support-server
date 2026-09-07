@@ -49,7 +49,7 @@ function pairRows(counts: number[]): unknown[] {
 function baseHandlers(over: Partial<Record<'r5' | 'r6' | 'r7', unknown[]>> = {}): Handler[] {
   return [
     { match: /AS c FROM users WHERE event_id/, rows: [{ c: 10 }] },
-    { match: /AS c FROM check_ins WHERE event_id/, rows: [{ c: 25 }] },
+    { match: /AS c FROM check_ins/, rows: [{ c: 25 }] },
     { match: /FROM booths b/, rows: [] },
     { match: /time_slot/, rows: [] },
     {
@@ -119,6 +119,15 @@ describe('GET /admin/events/:event_id/dashboard（フェーズ計算の廃止）
     const { summary, bingo } = res.json().data
     expect(summary.total_participants).toBe(10)
     expect(bingo).toHaveProperty('rating_collection_rate')
+  })
+
+  it('T-22 summary の総参加者数・総チェックイン数も participant だけを数える（bingo と母集団を揃える）', async () => {
+    const log: string[] = []
+    await getDashboard(baseHandlers(), log)
+    const usersSql = log.find((s) => /AS c FROM users/.test(s))!
+    expect(usersSql).toMatch(/role = 'participant'/)
+    const checkinsSql = log.find((s) => /AS c FROM check_ins/.test(s))!
+    expect(checkinsSql).toMatch(/JOIN users u ON u\.id = ci\.user_id AND u\.role = 'participant'/)
   })
 
   it('T-17 累計ペア数 1 → 1回目のみ', async () => {
