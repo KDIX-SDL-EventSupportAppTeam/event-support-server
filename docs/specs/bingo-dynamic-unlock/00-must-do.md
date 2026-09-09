@@ -86,7 +86,7 @@
       → `09_bingo_staged_unlock.sql` に統合済み
 - [x] ロールバック手順を書く
       → [docs/operations/rollback.md](../../operations/rollback.md)（判断基準・DB復元・Cloud Run 差し戻し・部分停止。issue #113）。
-      **実地検証（T-1〜T-7）はリハーサル #96 で実施し `docs/tests/runs/` に記録する**
+      **実地検証（T-1〜T-8）は #95 のリハーサル用 DB と #96 の実機リハーサルで実施し `docs/tests/runs/` に記録する**
 - [x] 当日トラブル時の運営向け手引きを書く
       → [docs/operations/run-day-guide.md](../../operations/run-day-guide.md)（非エンジニア向け）
 - [ ] △ 出展者・運営スタッフのアカウントを分析から除外できる状態にしておく

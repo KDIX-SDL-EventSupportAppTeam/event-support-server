@@ -55,7 +55,8 @@
    - マルチステートメントはさくらプロキシ経由では流せない。**phpMyAdmin から直接**行う。
 3. 完了後、`SHOW TABLES;` の行数と主要テーブルの `SELECT COUNT(*)` を控える。
 
-**所要時間の目安**: 未計測。リハーサル（#95 のリハーサル用 DB）で1度実測し、この行を更新する。
+**所要時間の目安**: 未計測。**#95 で用意するリハーサル用 DB** に対して T-1 を実施した際に
+実測し（§6）、この行を更新する。
 
 **戻すと失われるもの**: 適用後〜復元までに入った当日データ（チェックイン・評価・コイン使用・投票）。
 戻す前に §1 で取ったダンプが、その差分を後から救う唯一の材料。
@@ -64,8 +65,14 @@
 
 ## 3. アプリケーションを戻す（Cloud Run のリビジョンを前に戻す）
 
-3リポジトリ（`event-support-server` / `event-support-frontend` / `event-support-recommend`）とも
-`main` への push で Cloud Run へ自動デプロイされる。**誰かが当日マージすると本番が入れ替わる。**
+デプロイ手順は [cloud-run.md](cloud-run.md)（`gcloud run deploy` / `gcloud builds submit` の手動手順）。
+
+**自動デプロイ（`main` push → Cloud Run）のトリガーがどこに設定されているかは、
+このリポジトリからは確認できない。** `.github/workflows/ci.yml` はビルドとテストのみで
+デプロイジョブを持たず（`push: [main, develop]` で `npm run build` と `npm run test` のみ）、
+リポジトリには `cloudbuild.yaml` があるが、それを起動する Cloud Build トリガーの有無は
+リポジトリ内に記録が無い。**「当日誰かが `main` にマージしたら本番が入れ替わるか」は
+イベント前に GCP コンソールの Cloud Build トリガー画面で要確認。**
 
 ### コンソールから（gcloud CLI が使える端末が無い前提）
 
@@ -73,18 +80,27 @@
 2. 「リビジョン」タブ → 1つ前の（正常だった）リビジョンを選ぶ。
 3. 「トラフィックを管理」→ そのリビジョンに **100%** を割り当てて保存。
 4. 数十秒で切り替わる。**ビルドを待つ必要はない**（既存リビジョンへ振り直すだけ）。
+5. **リビジョンを差し替えるとインスタンスが入れ替わり、WebSocket 接続が一度切れる**
+   （socket.io インメモリのため Cloud Run は1インスタンス固定。[ADR 0002](../decisions/adrs/0002-cloud-run-single-instance-for-websocket.md)）。
+   参加者はアプリを再読み込みすれば再接続する。
 
 ### 確認方法
 
 - server: `GET https://<server>/health` が `{"ok":true}` を返す
 - frontend: 素の `/admin/login` を開き、**本番イベント名**が出る（別イベントを指していないこと）
-- recommend: server の `GET /api/v1/admin/events/:id/recommender/state` が `OK` を返す
+- recommend の疎通: 運営ログイン後のトークン（`requireStaff`。manager / viewer いずれか）で
+  `GET /api/v1/admin/events/:event_id/recommender/state` を叩き、封筒 `data.available` が
+  `true` であること。中継は到達不能でも HTTP 200・`{"success":true,"data":{...}}` を返すので、
+  **HTTP ステータスではなく `data.available` を見る**。
+  `data.available:false` のときは `data.reason`（`UNCONFIGURED` / `UNAUTHORIZED` / `UNREACHABLE` / `BAD_RESPONSE`）で切り分ける
+  （[01-ops-state-relay.md](../specs/recommender-phase-linkage/01-ops-state-relay.md)）
 
-### CD を止める（再発防止）
+### 誤マージが起きたら（再発防止）
 
-当日は `main` を凍結する運用（run-day-guide 参照）。もし誤マージが起きたら、
-`main` を正常なコミットへ戻す（revert コミットを push）か、GitHub の branch protection で
-push を一時的に禁止する。**リビジョンを戻しても `main` を直さないと次の push で また入れ替わる。**
+当日は `main` を凍結する運用（[run-day-guide.md](run-day-guide.md) 参照）。
+自動デプロイが有効だった場合は、`main` を正常なコミットへ戻す（revert コミットを push）か、
+GitHub の branch protection で push を一時的に禁止する。
+**リビジョンを戻しても `main` を直さないと、次の push でまた入れ替わる。**
 
 ---
 
@@ -93,10 +109,14 @@ push を一時的に禁止する。**リビジョンを戻しても `main` を�
 | 対象 | 操作 | 効果 |
 |---|---|---|
 | 推薦エンジンだけ切り離す | server の環境変数 `RECOMMENDER_URL` を**空**にして更新（Cloud Run コンソールの「変数とシークレット」→ 保存で新リビジョン） | 推薦呼び出しを止め、**即フォールバック**に切り替わる。解放は成立し続ける（`FALLBACK_COVERAGE`） |
-| ガチャだけ止める | 運営ダッシュボード（`manager`）の「ガチャを止める」／organizer ポータルの `is_enabled = 0` | ガチャのみ「準備中」。獲得済みコインは消えない。詳細は run-day-guide §3 |
+| ガチャだけ止める | **organizer アカウントでポータルの「ガチャ設定」画面から `is_enabled` を無効にする**（[run-day-guide.md](run-day-guide.md) §1） | ガチャのみ「準備中」。獲得済みコインは消えない |
 | アプリ公開ゲートを閉じる | organizer ポータルの「アプリ公開」設定を `closed` にする | 全参加者が待機画面に戻る。**最終手段**（体験が完全に止まる） |
 
 推薦の切り離しは **DB を戻さずにできる**。推薦起因の不調はまずこれを試す。
+
+**`RECOMMENDER_URL` を空にした後は、§3 の recommend 疎通確認が
+`data.available:false` / `data.reason:"UNCONFIGURED"` を返す。これは切り離し後の正常な状態**
+（結線していないことを意味するだけで、解放はフォールバックで成立し続ける）。
 
 ---
 
@@ -116,10 +136,12 @@ push を一時的に禁止する。**リビジョンを戻しても `main` を�
 
 このリストは #113 のクローズ条件。実施したら [docs/tests/runs/](../tests/runs/) に記録する。
 
-- [ ] T-1 リハーサル用 DB で、実際にダンプを取って流し戻す
+- [ ] T-1 **#95 で用意するリハーサル用 DB** に対して、実際にダンプを取って流し戻す（#96 の実機リハーサルに含める）
 - [ ] T-2 T-1 の所要時間を計測し、§2 に書く
 - [ ] T-3 Cloud Run のリビジョン差し戻しを、3リポジトリのうち1つで実際に試す
 - [ ] T-4 `RECOMMENDER_URL` を空にした状態で解放が成立し `FALLBACK_COVERAGE` になることを実環境で1回確認
 - [ ] T-5 ガチャ `is_enabled = 0` で参加者画面が壊れないことを確認
 - [ ] T-6 三上以外のメンバーが、この文書だけで T-1 を実行できる
 - [ ] T-7 §0 を読んで「推薦が遅い」ケースで戻さない判断ができる
+- [ ] T-8 この文書から [run-day-guide.md](run-day-guide.md) への導線があり、両者の内容が重複していない
+      （run-day-guide は「まず何を疑うか」、この文書は「実際に戻す操作」で棲み分ける）
