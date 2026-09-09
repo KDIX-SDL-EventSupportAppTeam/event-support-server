@@ -12,7 +12,9 @@
 
 関連文書:
 
-- スキーマのロールバック（最終手段） … [production-db-apply.md](production-db-apply.md)
+- 本番を「前の状態に戻す」手順（エンジニア向け） … [rollback.md](rollback.md)
+  （戻す/戻さないの判断基準・DB復元・Cloud Run リビジョン差し戻し・推薦の切り離し）
+- スキーマ適用の手順 … [production-db-apply.md](production-db-apply.md)
 - 画面の数字の詳しい定義 … [../reference/api-endpoints.md](../reference/api-endpoints.md)
 
 ---
@@ -138,9 +140,9 @@
 
 ## 7. スキーマのロールバック（最終手段）
 
-DBの構造そのものがおかしくなった場合の戻し方は
-[production-db-apply.md](production-db-apply.md) にある。
-**唯一のロールバック手段は、適用前に取ったダンプの復元。**
+DBの構造・本番アプリを前の状態に戻す手順は [rollback.md](rollback.md) にまとめてある
+（戻す/戻さないの判断基準つき・エンジニア向け）。
+**唯一の DB ロールバック手段は、適用前に取ったダンプの復元。**
 当日の朝にスキーマ適用はしない前提なので、通常この手順を当日使うことはない。
 
 ---
