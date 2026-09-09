@@ -1,6 +1,6 @@
 ---
 状態: 確定
-最終更新: 2026-09-01
+最終更新: 2026-09-05
 ---
 
 # 本番DBへのスキーマ適用（先生への依頼を含む）
@@ -32,9 +32,11 @@
 
 ### 増分適用を選ばない理由
 
-`db/migrations/` には **`10_` で始まるファイルが2つある**（`10_gacha_coins.sql` と
-`10_onboarding_completed.sql`）。適用順が番号から決まらず、人手で順序を指示することになる。
-**当日データを取り直せないイベントの前に、順序を口頭で伝える運用は取らない。**
+本番のさくら DB には `09_bingo_staged_unlock.sql` 以降が適用されておらず（各ファイル冒頭の注記）、
+どこまで当たっているかを人手で確かめてから足りない分だけ流す、という運用になる。
+**当日データを取り直せないイベントの前に、適用状態の判断を人に委ねる運用は取らない。**
+正本 1 本（`db/create-tables.sql`）を流し、確認クエリ 3 本で結果を判定する。
+`db/migrations/` の番号と適用順は [db/migrations/README.md](../../db/migrations/README.md) に固定してある（issue #112）。
 
 ## ⚠️ 破壊的である
 
@@ -64,21 +66,22 @@ phpMyAdmin の「SQL」タブに `db/create-tables.sql` の中身を貼り、実
 ### 3. 確認（先生。3つのクエリを流して結果を返す）
 
 ```sql
--- (1) テーブルが 21 個できていること
-SELECT COUNT(*) AS tables FROM information_schema.tables
- WHERE table_schema = DATABASE();
+-- (1) テーブルが 21 個できていること（一覧の行数を数える）
+SHOW TABLES;
 
--- (2) pair_key の幅が 16 であること
-SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.columns
- WHERE table_schema = DATABASE()
-   AND table_name = 'card_unlock_events' AND column_name = 'pair_key';
+-- (2) pair_key の幅が 16 であること（Type 列を見る）
+SHOW COLUMNS FROM card_unlock_events LIKE 'pair_key';
 
--- (3) ガチャの設定テーブルができていること
-SELECT COUNT(*) AS ok FROM information_schema.tables
- WHERE table_schema = DATABASE() AND table_name = 'gacha_settings';
+-- (3) ガチャの設定テーブルができていること（1 行返れば成功）
+SHOW TABLES LIKE 'gacha_settings';
 ```
 
-期待値: (1) `21` / (2) `16` / (3) `1`
+期待値: (1) 一覧に **21 行** / (2) Type が **`varchar(16)`** / (3) **1 行**
+
+> **`information_schema` を使うクエリを渡さないこと。**
+> さくらなどの共有サーバーでは権限で拒否される（エラー #1044）。
+> `db/create-tables.sql` 末尾のコメントにも同じ注意がある。
+> 先生に渡す確認手段は `SHOW TABLES` / `SHOW COLUMNS` で組む。
 
 ### 4. ロールバック（問題が起きたときだけ）
 
