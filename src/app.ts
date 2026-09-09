@@ -27,6 +27,8 @@ import { bingoRoutes } from './routes/v1/bingo.js'
 import { adminBingoRoutes } from './routes/v1/admin/bingo.js'
 import { gachaRoutes } from './routes/v1/gacha.js'
 import { adminGachaRoutes } from './routes/v1/admin/gacha.js'
+import { awardRoutes } from './routes/v1/awards.js'
+import { adminAwardRoutes } from './routes/v1/admin/awards.js'
 import { organizerGachaSettingsRoutes } from './routes/v1/organizer/gacha-settings.js'
 import { webhookRoutes } from './routes/v1/ops.js'
 import { surveyRoutes } from './routes/v1/survey.js'
@@ -73,6 +75,8 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(adminBingoRoutes)
       await v1.register(gachaRoutes)
       await v1.register(adminGachaRoutes)
+      await v1.register(awardRoutes)
+      await v1.register(adminAwardRoutes)
       await v1.register(organizerGachaSettingsRoutes)
       await v1.register(webhookRoutes)
       await v1.register(adminRoutes)

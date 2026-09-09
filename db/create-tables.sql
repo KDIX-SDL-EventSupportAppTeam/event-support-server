@@ -16,17 +16,17 @@
 --   1. 下の「USE」の行で、実際のデータベース名に書き換える。
 --      （phpMyAdmin 等で対象 DB を選択済みの場合は、USE 行を削除しても構いません。）
 --   2. このファイル全文を SQL 実行画面に貼り付けて実行する。
---   3. 末尾の確認用 SELECT で、テーブル数が 21 であることを確認する。
---      （21 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
+--   3. 末尾の確認用 SELECT で、テーブル数が 24 であることを確認する。
+--      （24 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
 --
--- 【削除 → 再作成されるテーブル（21）】
+-- 【削除 → 再作成されるテーブル（24）】
 --   organizers, events, categories, booths, booth_tags, users, survey_questions,
 --   user_survey_answers, bingo_cards, bingo_cells, check_ins, booth_ratings,
 --   card_unlock_events, recommendation_scores, gacha_coin_uses, gacha_settings,
 --   booth_categories, exhibitor_booths, email_verification_tokens, audit_logs,
 --   event_app_access
 --
--- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 12_*.sql（内容を同期すること。順序は db/migrations/README.md）
+-- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 14_*.sql（内容を同期すること。順序は db/migrations/README.md）
 -- 設計書: docs/designs/database.md §11、主催者自己管理機能: .sdd/02-data-model.md
 -- ビンゴカード動的段階解放方式: docs/specs/bingo-dynamic-unlock/02-data-model/schema-changes.md
 -- 事前アンケート／アプリ公開ゲート: docs/specs/pre-survey/02-data-model.md
@@ -42,6 +42,9 @@ USE `your_database_name`;
 -- 外部キー制約があるため、参照先→参照元の逆順で DROP する
 -- =============================================================================
 SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS award_votes;
+DROP TABLE IF EXISTS award_settings;
+DROP TABLE IF EXISTS awards;
 DROP TABLE IF EXISTS gacha_settings;
 DROP TABLE IF EXISTS gacha_coin_uses;
 DROP TABLE IF EXISTS recommendation_scores;
@@ -299,6 +302,44 @@ CREATE TABLE gacha_settings (
   FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
 );
 
+-- アワード投票（issue #124）
+CREATE TABLE awards (
+  id          CHAR(36)     PRIMARY KEY,
+  event_id    CHAR(36)     NOT NULL,
+  name        VARCHAR(255) NOT NULL,
+  description TEXT,
+  color       VARCHAR(32)  NOT NULL DEFAULT 'pink',
+  sort_order  INT          NOT NULL DEFAULT 0,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_award_name_event (event_id, name)
+);
+
+-- 1参加者 × 1賞 = 1票（付け替えは UPDATE）
+CREATE TABLE award_votes (
+  id         CHAR(36) PRIMARY KEY,
+  event_id   CHAR(36) NOT NULL,
+  award_id   CHAR(36) NOT NULL,
+  user_id    CHAR(36) NOT NULL,
+  booth_id   CHAR(36) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+  FOREIGN KEY (award_id) REFERENCES awards(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE,
+  FOREIGN KEY (booth_id) REFERENCES booths(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_vote_award_user (award_id, user_id),
+  KEY idx_award_votes_tally (event_id, award_id, booth_id)
+);
+
+-- 投票の開閉（gacha_settings と同じ形。行が無いイベントの既定は is_open = 0）
+CREATE TABLE award_settings (
+  event_id   CHAR(36)   PRIMARY KEY,
+  is_open    TINYINT(1) NOT NULL DEFAULT 0,
+  updated_at DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+);
+
 CREATE TABLE booth_categories (
   booth_id    CHAR(36) NOT NULL,
   category_id CHAR(36) NOT NULL,
@@ -351,7 +392,7 @@ CREATE TABLE event_app_access (
   FOREIGN KEY (updated_by) REFERENCES organizers(id) ON DELETE SET NULL
 );
 
--- 確認（一覧に21テーブルが表示されれば成功）
+-- 確認（一覧に24テーブルが表示されれば成功）
 -- ※ さくら等の共有サーバーでは information_schema へのアクセスが権限で拒否される
 --   （#1044）ため、COUNT ではなく SHOW TABLES で確認する。
 SHOW TABLES;
