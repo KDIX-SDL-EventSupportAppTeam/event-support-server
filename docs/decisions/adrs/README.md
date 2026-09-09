@@ -27,6 +27,7 @@ NNNN-kebab-case-title.md
 | 0004 | [0004-split-recommender-repository.md](./0004-split-recommender-repository.md) | 推薦エンジンを別リポジトリに分ける |
 | 0005 | [0005-stacked-pr-merge-order.md](./0005-stacked-pr-merge-order.md) | 積み重ねた PR は上から順にマージし、取り残しを CI で検出する |
 | 0006 | [0006-bingo-card-creation-must-not-fail.md](./0006-bingo-card-creation-must-not-fail.md) | ビンゴカード生成は「作る側1本」に寄せ、重複キーは例外にしない |
+| 0007 | [0007-keep-ipv4-listen-document-127-0-0-1.md](./0007-keep-ipv4-listen-document-127-0-0-1.md) | 待ち受けは 0.0.0.0 のまま。開発時の接続先は 127.0.0.1 と明記する |
 
 ## 関連
 
