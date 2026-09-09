@@ -32,7 +32,9 @@
 
 ```json
 {
+  "is_enabled": true,
   "total_used": 128,
+  "total_earned": 240,
   "users_with_coins": 64,
   "users_who_used": 51,
   "used_by_hour": [{ "hour": "2026-10-16T04:00:00.000Z", "count": 31 }]
@@ -40,3 +42,20 @@
 ```
 
 `idx_gacha_event_used_at` で引く。**参加者 API のレスポンスタイムに影響しないこと**（別クエリ）。
+
+- `is_enabled` … 現在ガチャが有効か（frontend #87 T-3「止まっていることが画面で分かる」用。issue #122）
+- `total_earned` … 換算後の獲得コイン総数。`available = total_earned - total_used`。
+  `role='participant'` のカードだけを数える（スタッフ・出展者は除外）
+
+## PATCH /api/v1/admin/events/:event_id/gacha/enabled（issue #122）
+
+当日会場で運営ダッシュボードを見ている **`manager`** が、ガチャを止める／再開する。
+
+- 認可: `requireManager` ＋ `requireEventMatchesJwt`（**`viewer` は 403**。参加者も 403）
+- ボディ: `{ "is_enabled": boolean }`
+- **`is_enabled` だけを変える。** `coins_per_line` / `max_coins` / `bonus_coins` は触らない
+  （organizer の4項目まとめ PUT は当日の緊急停止に向かないため、別に用意する）
+- `gacha_settings` に行が無いイベントは `DEFAULT_GACHA_SETTINGS` を土台に upsert する
+- 監査ログ `gacha.enabled.update`（`{ before, after }`）を残す
+- 参加者の**獲得済みコインは消えない**（`is_enabled = false` は「使えない」であって「持っていない」ではない）
+- レスポンス: `{ "is_enabled": boolean }`
