@@ -97,7 +97,7 @@ describe('GET /organizer/events（一覧）', () => {
     })
     // 集計に現れないイベントは 0 で埋められる
     expect(data.events[1].stats).toEqual({ participants: 0, booths: 5, checkins: 0 })
-    expect(data.events[0].urls.participant).toBe('https://front.example/join/e1')
+    expect(data.events[0].urls.participant).toBe('https://front.example/e/e1')
     await app.close()
   })
 
