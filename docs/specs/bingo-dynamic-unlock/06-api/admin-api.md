@@ -5,6 +5,49 @@
 
 # 運営向け API
 
+## ブースの掲示コード（issue #121）
+
+チェックインは QR＋手動コードの2方式。**`manual_code` は参加者に見せてはいけない秘密**なので、
+参加者向け API からは外し、運営向けだけで扱う。
+
+### 列
+
+| 列 | 公開 | 用途 |
+|---|---|---|
+| `display_code` `VARCHAR(16) NULL` | **公開してよい** | ブース番号・小間番号。参加者一覧・掲示・ポスターで使う。未設定は `null` |
+| `manual_code` `VARCHAR(6)` | **秘匿** | 手動チェックインの照合コード。**6桁数字（`^[0-9]{6}$`）** |
+
+### `manual_code` の採番
+
+- ブース作成時にサーバーが自動採番する（運営は入力しない）。手入力も受け付けるが**6桁数字のみ**
+- `node:crypto` の `randomInt(0, 1_000_000)` を6桁ゼロ埋め。`Math.random()` は使わない
+- 連番にしない。同一イベント内で衝突したら引き直す（`UNIQUE (event_id, manual_code)`）
+- **生成した値そのものはログ・監査ログの本文に出さない**（「再発番した」事実だけ残す）
+
+### `GET /api/v1/admin/events/:event_id/booths`
+
+各行に次を含める（`viewer` も閲覧可）。
+
+```jsonc
+{
+  "id": "…",
+  "name": "…",
+  "display_code": "A-12",     // 公開・任意（null あり）
+  "manual_code": "481502",     // 秘匿・6桁数字（運営にだけ返す）
+  "checkin_url": "https://<frontend>/checkin?booth_id=<booth_id>"
+}
+```
+
+- `checkin_url` は `src/lib/url.ts` の `buildBoothCheckinUrl`（`frontendBaseUrl ?? corsOrigin[0]`）。
+  `booth_id`（不変の UUID）だけで決まるため作成時点で確定する
+
+### `POST /api/v1/admin/events/:event_id/booths/:booth_id/manual-code/regenerate`
+
+- `manager` 限定。`viewer` は 403
+- 新しい6桁数字を採番して差し替え、`{ booth: { id, manual_code, checkin_url } }` を返す
+- 旧コードでのチェックインは以後 404
+- 監査ログ `booth.manual_code.regenerate` を残す（**コードの値は含めない**）
+
 ## PATCH /api/v1/events/:event_id/admin/booths/:booth_id/active
 
 ブースの当日中止・復帰。既存のまま。`is_active = 0` にしたブースは推薦候補から外れる。

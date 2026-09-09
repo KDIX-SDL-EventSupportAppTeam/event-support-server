@@ -69,7 +69,8 @@ export function sampleParticipantDisplayName(index: number): string {
 }
 
 export function sampleManualCode(index: number): string {
-  return `S${String(index).padStart(3, '0')}`.slice(0, 6)
+  // 手動コードは6桁数字（issue #121）。サンプルは再現性のため固定の擬似ランダム値。
+  return String(((((index + 1) * 133457) % 900000) + 100000))
 }
 
 export function isSampleCategoryName(name: string): boolean {

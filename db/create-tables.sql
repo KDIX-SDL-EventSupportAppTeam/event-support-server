@@ -101,6 +101,7 @@ CREATE TABLE booths (
   id                      CHAR(36)     PRIMARY KEY,
   event_id                CHAR(36)     NOT NULL,
   name                    TEXT         NOT NULL,
+  display_code            VARCHAR(16)  NULL,
   description             TEXT,
   category_id             CHAR(36),
   manual_code             VARCHAR(6)   NOT NULL,

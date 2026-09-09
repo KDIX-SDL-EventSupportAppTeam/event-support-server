@@ -42,7 +42,7 @@
       "is_revealed": true,
       "is_achieved": false,
       "source": "PRESURVEY",
-      "booth": { "id": "…", "name": "…", "manual_code": "…", "description": "…" }
+      "booth": { "id": "…", "name": "…", "display_code": "A-12", "description": "…" }
     }
   ]
 }
@@ -57,14 +57,20 @@
 - `status` は返さない。カードの段階は保存していない（[D-8](../01-concept/decisions.md)）
 - `reason` は返さない（[D-6](../01-concept/decisions.md)）。**ブース説明 `description` は返す**
 - `unlock_events` は解放済みのペアを時刻順に。フロントは演出の再生済み判定に使う
+- **`manual_code` は参加者向けのどのマス・どの一覧でも返さない**（issue #121）。
+  手動チェックインの照合コードは掲示物からしか入手できないようにする。
+  参加者に見せるブース番号は `display_code`（公開してよい小間番号。未設定イベントは `null`）
 
 ## POST /api/v1/events/:event_id/checkins
 
 ```json
 // リクエスト
 { "method": "qr", "booth_id": "…", "checked_in_at": "2026-10-16T04:12:00.000Z" }
-{ "method": "manual", "manual_code": "A1B2C3", "checked_in_at": "…" }
+{ "method": "manual", "manual_code": "481502", "checked_in_at": "…" }
 ```
+
+- `manual_code` は **6桁の数字（`^[0-9]{6}$`）**（issue #121）。桁数違い・英字混じりは 422 `VALIDATION_ERROR`。
+  一致するブースが無ければ 404 `NOT_FOUND`。コードはサーバーが暗号論的乱数で採番し、運営が掲示物で配る
 
 ```json
 // レスポンス

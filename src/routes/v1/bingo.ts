@@ -14,7 +14,7 @@ type CellRow = {
   source: 'PRESURVEY' | 'FREE_VISIT' | 'RECOMMEND' | null
   booth_id: string | null
   booth_name: string | null
-  manual_code: string | null
+  display_code: string | null
   booth_description: string | null
 }
 
@@ -45,7 +45,7 @@ export async function bingoRoutes(app: FastifyInstance) {
 
       const [rows] = await app.db.query(
         `SELECT c.position, c.zone, c.is_revealed, c.is_achieved, c.source, c.booth_id,
-                b.name AS booth_name, b.manual_code, b.description AS booth_description
+                b.name AS booth_name, b.display_code, b.description AS booth_description
            FROM bingo_cells c
            LEFT JOIN booths b ON b.id = c.booth_id
           WHERE c.card_id = ?
@@ -83,7 +83,7 @@ export async function bingoRoutes(app: FastifyInstance) {
           is_achieved: Boolean(c.is_achieved),
           source: c.source,
           booth: c.booth_id
-            ? { id: c.booth_id, name: c.booth_name, manual_code: c.manual_code, description: c.booth_description }
+            ? { id: c.booth_id, name: c.booth_name, display_code: c.display_code, description: c.booth_description }
             : null,
         }
       })

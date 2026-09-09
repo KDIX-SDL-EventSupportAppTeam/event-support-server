@@ -19,7 +19,7 @@ export async function boothRoutes(app: FastifyInstance) {
         boothParams.push(cat)
       }
       const [booths] = await app.db.query(
-        `SELECT b.id, b.name, b.description, b.manual_code, b.category_id, c.name AS category_name,
+        `SELECT b.id, b.name, b.description, b.display_code, b.category_id, c.name AS category_name,
           (SELECT COUNT(*) FROM check_ins ci WHERE ci.booth_id = b.id) AS checkin_count,
           (SELECT AVG(br.rating) FROM booth_ratings br WHERE br.booth_id = b.id) AS avg_rating,
           EXISTS(SELECT 1 FROM check_ins ci WHERE ci.booth_id = b.id AND ci.user_id = ?) AS is_checked_in
@@ -34,7 +34,7 @@ export async function boothRoutes(app: FastifyInstance) {
         id: string
         name: string
         description: string | null
-        manual_code: string | null
+        display_code: string | null
         category_id: string | null
         category_name: string | null
         checkin_count: number
@@ -60,7 +60,7 @@ export async function boothRoutes(app: FastifyInstance) {
         booths: list.map((b) => ({
           id: b.id,
           name: b.name,
-          manual_code: b.manual_code ?? null,
+          display_code: b.display_code ?? null,
           description: b.description ?? '',
           category: b.category_id
             ? { id: b.category_id, name: b.category_name ?? '' }

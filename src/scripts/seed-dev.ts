@@ -24,7 +24,8 @@ const CATEGORY_SEEDS: { id: string; name: string }[] = [
  * ビンゴカードは16マスなので、カードを最後まで埋めるには最低16ブースが要る。
  * さらに解放時の推薦・フォールバックは「カード掲載済み・訪問済み・中止」を候補から除くため、
  * 16 ちょうどだと最後の解放で候補切れ（E7: booth_id=NULL の空マス）になりやすい。
- * 余裕を持たせて20件用意する。manual_code は DEV001〜DEV020。
+ * 余裕を持たせて20件用意する。manual_code は6桁数字（issue #121）。
+ * seed は再現性のため固定の擬似ランダム値を使う（連番ではない。本番はサーバーが randomInt で採番する）。
  */
 const BOOTH_SEEDS: { id: string; name: string; description: string; categoryId: string }[] = [
   { id: seedId(21), name: 'AIスタートアップブース', description: '最新のAI技術を展示しています', categoryId: CAT_TECH },
@@ -241,7 +242,8 @@ async function main() {
       b.name,
       b.description,
       b.categoryId,
-      `DEV${String(i + 1).padStart(3, '0')}`,
+      // 固定の擬似ランダム 6桁数字（seed の再現性のため。連番ではない）
+      String((((i + 1) * 133457) % 900000) + 100000),
       `https://example.invalid/qr/${b.id}`,
       null,
     ]),
@@ -288,7 +290,7 @@ async function main() {
   await ensureDevGachaSettings(pool)
 
   console.log('Seed OK. event_id =', EVENT_ID)
-  console.log(`  Booths: ${BOOTH_SEEDS.length} 件 / manual codes: DEV001〜DEV${String(BOOTH_SEEDS.length).padStart(3, '0')}`)
+  console.log(`  Booths: ${BOOTH_SEEDS.length} 件 / manual codes: 6桁数字（固定擬似ランダム。運営画面で確認）`)
   console.log(`  Categories: ${CATEGORY_SEEDS.map((c) => c.name).join(', ')}`)
   console.log('  Organizer :', ORGANIZER_EMAIL, '/', ORGANIZER_PASSWORD)
   console.log('  Admin(mgr):', ADMIN_EMAIL, '/', ADMIN_PASSWORD)
