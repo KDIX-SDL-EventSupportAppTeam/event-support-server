@@ -88,6 +88,9 @@ SHOW TABLES LIKE 'gacha_settings';
 1 で取ったダンプを phpMyAdmin の「インポート」から流し戻す。
 **それ以外の復旧手段は無い。**
 
+**当日トラブル時の判断基準つきの詳しい手順**（DB復元・Cloud Run リビジョン差し戻し・
+推薦の切り離し・部分停止）は [rollback.md](rollback.md) にまとめてある。
+
 ## 実行のタイミング
 
 | 対象 | いつ | 備考 |
