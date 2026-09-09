@@ -16,17 +16,17 @@
 --   1. 下の「USE」の行で、実際のデータベース名に書き換える。
 --      （phpMyAdmin 等で対象 DB を選択済みの場合は、USE 行を削除しても構いません。）
 --   2. このファイル全文を SQL 実行画面に貼り付けて実行する。
---   3. 末尾の確認用 SELECT で、テーブル数が 24 であることを確認する。
---      （24 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
+--   3. 末尾の確認用 SELECT で、テーブル数が 25 であることを確認する。
+--      （25 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
 --
--- 【削除 → 再作成されるテーブル（24）】
+-- 【削除 → 再作成されるテーブル（25）】
 --   organizers, events, categories, booths, booth_tags, users, survey_questions,
 --   user_survey_answers, bingo_cards, bingo_cells, check_ins, booth_ratings,
 --   card_unlock_events, recommendation_scores, gacha_coin_uses, gacha_settings,
---   booth_categories, exhibitor_booths, email_verification_tokens, audit_logs,
+--   booth_categories, exhibitor_booths, email_verification_tokens, password_reset_tokens, audit_logs,
 --   event_app_access
 --
--- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 14_*.sql（内容を同期すること。順序は db/migrations/README.md）
+-- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 15_*.sql（内容を同期すること。順序は db/migrations/README.md）
 -- 設計書: docs/designs/database.md §11、主催者自己管理機能: .sdd/02-data-model.md
 -- ビンゴカード動的段階解放方式: docs/specs/bingo-dynamic-unlock/02-data-model/schema-changes.md
 -- 事前アンケート／アプリ公開ゲート: docs/specs/pre-survey/02-data-model.md
@@ -55,6 +55,7 @@ DROP TABLE IF EXISTS bingo_cells;
 DROP TABLE IF EXISTS bingo_cards;
 DROP TABLE IF EXISTS event_app_access;
 DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS password_reset_tokens;
 DROP TABLE IF EXISTS email_verification_tokens;
 DROP TABLE IF EXISTS exhibitor_booths;
 DROP TABLE IF EXISTS booth_categories;
@@ -363,6 +364,15 @@ CREATE TABLE email_verification_tokens (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- パスワード再設定トークン（issue #125）。email_verification_tokens とは用途を分ける。
+CREATE TABLE password_reset_tokens (
+  token      CHAR(64) NOT NULL PRIMARY KEY,
+  user_id    CHAR(36) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- 監査ログ（誰が・いつ・何をしたかの操作証跡）
 -- actor_id は users(id) への外部キーを張らない（アカウント削除後も履歴を残すため）
 CREATE TABLE audit_logs (
@@ -392,7 +402,7 @@ CREATE TABLE event_app_access (
   FOREIGN KEY (updated_by) REFERENCES organizers(id) ON DELETE SET NULL
 );
 
--- 確認（一覧に24テーブルが表示されれば成功）
+-- 確認（一覧に25テーブルが表示されれば成功）
 -- ※ さくら等の共有サーバーでは information_schema へのアクセスが権限で拒否される
 --   （#1044）ため、COUNT ではなく SHOW TABLES で確認する。
 SHOW TABLES;

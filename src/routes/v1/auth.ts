@@ -12,6 +12,11 @@ import {
   buildVerifyEmailUrl,
   issueVerificationToken,
 } from '../../lib/email-verification.js'
+import {
+  buildPasswordResetMailText,
+  buildResetPasswordUrl,
+  issuePasswordResetToken,
+} from '../../lib/password-reset.js'
 
 const registerBody = z.object({
   event_id: z.string().uuid(),
@@ -258,5 +263,83 @@ export async function authRoutes(app: FastifyInstance) {
       buildVerificationMailText(u.display_name ?? '', url),
     )
     return sendOk(reply, { sent: true })
+  })
+
+  // --- パスワード再設定（issue #125）。email-verification と同じ形。トークン表は別。 ---
+
+  // users は UNIQUE (email, event_id)。email だけでは利用者を特定できないため event_id が要る。
+  const forgotBody = z.object({
+    event_id: z.string().uuid(),
+    email: z.string().email(),
+  })
+
+  app.post('/forgot-password', async (req, reply) => {
+    const parsed = forgotBody.safeParse(req.body)
+    if (!parsed.success) {
+      return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
+    }
+    const { event_id, email } = parsed.data
+
+    const [rows] = await app.db.query(
+      'SELECT id, display_name FROM users WHERE event_id = ? AND email = ? LIMIT 1',
+      [event_id, email],
+    )
+    const u = (rows as { id: string; display_name: string | null }[])[0]
+
+    // 対象が居る場合だけトークンを発行してメールを送る。
+    // 居ても居なくても常に 200・同じ文言（アカウント列挙対策）。
+    if (u) {
+      try {
+        const token = await issuePasswordResetToken(app.db, u.id)
+        const url = buildResetPasswordUrl(app.config, token)
+        await app.mailer.send(
+          email,
+          '【PRoToFES】パスワード再設定のご案内',
+          buildPasswordResetMailText(u.display_name ?? '', url),
+        )
+      } catch (err) {
+        // 送信失敗でも存在を漏らさないため 200 を返す。トークンはログに出さない。
+        req.log.error({ err }, '[forgot-password] メール送信に失敗しました')
+      }
+    }
+
+    return sendOk(reply, {
+      message: 'メールアドレスが登録されている場合、再設定用のリンクを送信しました',
+    })
+  })
+
+  const resetBody = z.object({
+    token: z.string().regex(/^[0-9a-f]{64}$/),
+    password: z.string().min(8).max(200),
+  })
+
+  app.post('/reset-password', async (req, reply) => {
+    const parsed = resetBody.safeParse(req.body)
+    if (!parsed.success) {
+      return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
+    }
+    const { token, password } = parsed.data
+
+    const [rows] = await app.db.query(
+      'SELECT user_id, expires_at FROM password_reset_tokens WHERE token = ? LIMIT 1',
+      [token],
+    )
+    const row = (rows as { user_id: string; expires_at: string }[])[0]
+    // 存在しない・使用済みは同じ扱い
+    if (!row) {
+      return sendFail(reply, 410, 'TOKEN_EXPIRED', 'この再設定リンクは無効です。もう一度お手続きください')
+    }
+    const expMs = new Date(`${row.expires_at.replace(' ', 'T')}Z`).getTime()
+    if (!Number.isFinite(expMs) || expMs <= Date.now()) {
+      await app.db.execute('DELETE FROM password_reset_tokens WHERE token = ?', [token])
+      return sendFail(reply, 410, 'TOKEN_EXPIRED', '再設定リンクの有効期限が切れています。もう一度お手続きください')
+    }
+
+    const hash = await bcrypt.hash(password, 10)
+    await app.db.execute('UPDATE users SET password_hash = ? WHERE id = ?', [hash, row.user_id])
+    // 1回限り。同じユーザーの他のトークンも消す。email_verified_at は触らない。
+    await app.db.execute('DELETE FROM password_reset_tokens WHERE user_id = ?', [row.user_id])
+
+    return sendOk(reply, { reset: true })
   })
 }
