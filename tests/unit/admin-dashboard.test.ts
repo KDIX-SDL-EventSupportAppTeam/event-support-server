@@ -49,7 +49,7 @@ function pairRows(counts: number[]): unknown[] {
 function baseHandlers(over: Partial<Record<'r5' | 'r6' | 'r7', unknown[]>> = {}): Handler[] {
   return [
     { match: /AS c FROM users WHERE event_id/, rows: [{ c: 10 }] },
-    { match: /AS c FROM check_ins WHERE event_id/, rows: [{ c: 25 }] },
+    { match: /AS c FROM check_ins/, rows: [{ c: 25 }] },
     { match: /FROM booths b/, rows: [] },
     { match: /time_slot/, rows: [] },
     {
@@ -121,6 +121,15 @@ describe('GET /admin/events/:event_id/dashboard（フェーズ計算の廃止）
     expect(bingo).toHaveProperty('rating_collection_rate')
   })
 
+  it('T-22 summary の総参加者数・総チェックイン数も participant だけを数える（bingo と母集団を揃える）', async () => {
+    const log: string[] = []
+    await getDashboard(baseHandlers(), log)
+    const usersSql = log.find((s) => /AS c FROM users/.test(s))!
+    expect(usersSql).toMatch(/role = 'participant'/)
+    const checkinsSql = log.find((s) => /AS c FROM check_ins/.test(s))!
+    expect(checkinsSql).toMatch(/JOIN users u ON u\.id = ci\.user_id AND u\.role = 'participant'/)
+  })
+
   it('T-17 累計ペア数 1 → 1回目のみ', async () => {
     const res = await getDashboard(baseHandlers({ r6: pairRows([1]) }))
     expect(res.json().data.bingo.unlocks).toEqual({ first: 1, second: 0, third: 0 })
@@ -141,12 +150,25 @@ describe('GET /admin/events/:event_id/dashboard（フェーズ計算の廃止）
     expect(res.json().data.bingo.unlocks).toEqual({ first: 0, second: 0, third: 0 })
   })
 
-  it('T-20/T-21 到達人数の集計 SQL は PRESURVEY と非 participant を除外している', async () => {
+  it('T-20 到達人数の集計 SQL は PRESURVEY を除外している', async () => {
     const log: string[] = []
     await getDashboard(baseHandlers(), log)
     const pairSql = log.find((s) => /AS pair_count/.test(s))!
     expect(pairSql).toMatch(/pair_key <> 'PRESURVEY'/)
+  })
+
+  it('T-21 到達人数の集計 SQL は participant のカードだけを数える（users を JOIN して role で絞る）', async () => {
+    const log: string[] = []
+    await getDashboard(baseHandlers(), log)
+    const pairSql = log.find((s) => /AS pair_count/.test(s))!
+    expect(pairSql).toMatch(/JOIN users u ON u\.id = k\.user_id AND u\.role = 'participant'/)
+    // 評価回収率側も従来どおり participant に絞っている
     const ratingSql = log.find((s) => /AS ratings/.test(s))!
     expect(ratingSql).toMatch(/role = 'participant'/)
+  })
+
+  it('T-17〜T-19 補足: 人数は累積で first >= second >= third（1・3・6 ペアのカードが 1 枚ずつ）', async () => {
+    const res = await getDashboard(baseHandlers({ r6: pairRows([1, 3, 6]) }))
+    expect(res.json().data.bingo.unlocks).toEqual({ first: 3, second: 2, third: 1 })
   })
 })

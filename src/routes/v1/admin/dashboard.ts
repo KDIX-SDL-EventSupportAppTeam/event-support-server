@@ -11,12 +11,25 @@ export async function adminRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const eventId = req.params.event_id
       const [r1, r2, r3, r4, r5, r6, r7] = await Promise.all([
-        app.db.query('SELECT COUNT(*) AS c FROM users WHERE event_id = ?', [eventId]),
-        app.db.query('SELECT COUNT(*) AS c FROM check_ins WHERE event_id = ?', [eventId]),
+        // summary も participant だけを数える。bingo 側（checkins / ratings / unlocks）が
+        // participant 限定なので、ここを全ロールにすると分母と分子で母集団が食い違い、
+        // 「到達人数 ÷ 参加者数」を暗算したときに率を実態より低く見積もる（issue #114）。
+        app.db.query(
+          `SELECT COUNT(*) AS c FROM users WHERE event_id = ? AND role = 'participant'`,
+          [eventId],
+        ),
+        app.db.query(
+          `SELECT COUNT(*) AS c FROM check_ins ci
+             JOIN users u ON u.id = ci.user_id AND u.role = 'participant'
+            WHERE ci.event_id = ?`,
+          [eventId],
+        ),
         app.db.query(
           `SELECT b.id, b.name,
                   COUNT(DISTINCT ci.id) AS checkin_count,
                   AVG(br.rating) AS avg_rating
+           -- 注: ブース別の内訳は当日の混雑把握が目的で、全ロールを含む。
+           -- summary / bingo（participant 限定）とは母集団が違う。研究用の集計は analytics 側で行う
            FROM booths b
            LEFT JOIN check_ins ci ON ci.booth_id = b.id
            LEFT JOIN booth_ratings br ON br.booth_id = b.id
@@ -52,9 +65,11 @@ export async function adminRoutes(app: FastifyInstance) {
         // カードごとの解放回数から「1回目/2回目/3回目まで到達した人数」を求める。
         // 2マス目達成で1ペア、3マス目達成で2ペア、4マス目達成で3ペアが同時に成立するため、
         // 累計ペア数のしきい値は 1 / 3 / 6 になる（unlock-pairs.md）。
+        // participant のカードだけを数える（admin-api.md「unlocks の算出式」。出展者・運営の試し操作を除外）
         app.db.query(
           `SELECT k.id AS card_id, COUNT(*) AS pair_count
              FROM bingo_cards k
+             JOIN users u ON u.id = k.user_id AND u.role = 'participant'
              JOIN card_unlock_events e ON e.card_id = k.id AND e.pair_key <> 'PRESURVEY'
             WHERE k.event_id = ?
             GROUP BY k.id`,
