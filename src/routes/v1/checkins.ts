@@ -17,7 +17,8 @@ const checkinBody = z.discriminatedUnion('method', [
   }),
   z.object({
     method: z.literal('manual'),
-    manual_code: z.string().min(1).max(6),
+    // 手動コードは6桁数字に統一（issue #121）。英字・桁数違いは弾く
+    manual_code: z.string().regex(/^[0-9]{6}$/),
     checked_in_at: z.string(),
   }),
 ])

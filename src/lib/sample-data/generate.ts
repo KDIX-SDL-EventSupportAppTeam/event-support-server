@@ -15,9 +15,85 @@ import {
 import { clearSampleData } from './clear.js'
 import { SampleDataConflictError } from './errors.js'
 
-const AGE_RANGES = ['10代', '20代', '30代', '40代', '50代以上']
-const OCCUPATIONS = ['学生', '会社員', '経営者', 'その他']
-const INDUSTRIES = ['IT', '製造', '金融', '医療', 'その他']
+/**
+ * 本番の設問セット（db/migrations/16_pre_survey_questions.sql）と同じ設問・同じ離散コードで
+ * 生成する。生成データで推薦経路をそのまま検証できるようにするため、
+ * 値は日本語ラベルではなく `value` 側のコードを入れる。
+ */
+const PRE_SURVEY_QUESTIONS: {
+  question_key: string
+  question_text: string
+  answer_type: 'single' | 'multi' | 'text'
+  is_required: boolean
+  options: { value: string; label: string }[]
+}[] = [
+  {
+    question_key: 'interest_categories',
+    question_text: '興味のある分野を選んでください（複数選択可）',
+    answer_type: 'multi',
+    is_required: true,
+    options: [], // 配信時に categories から生成する（P-10）
+  },
+  {
+    question_key: 'top_interest_category',
+    question_text: 'その中で、一番興味がある分野を1つ選んでください',
+    answer_type: 'single',
+    is_required: true,
+    options: [], // 同上
+  },
+  {
+    question_key: 'age_range',
+    question_text: '年代を教えてください',
+    answer_type: 'single',
+    is_required: true,
+    options: [
+      { value: 'teens', label: '10代' },
+      { value: 'twenties', label: '20代' },
+      { value: 'thirties', label: '30代' },
+      { value: 'forties', label: '40代' },
+      { value: 'fifties_plus', label: '50代以上' },
+    ],
+  },
+  {
+    question_key: 'occupation',
+    question_text: 'ご職業を教えてください',
+    answer_type: 'single',
+    is_required: true,
+    options: [
+      { value: 'student', label: '学生' },
+      { value: 'engineer', label: 'エンジニア' },
+      { value: 'designer', label: 'デザイナー' },
+      { value: 'planner', label: '企画・営業' },
+      { value: 'other', label: 'その他' },
+    ],
+  },
+  {
+    question_key: 'gender',
+    question_text: '性別を教えてください（任意）',
+    answer_type: 'single',
+    is_required: false,
+    options: [
+      { value: 'male', label: '男性' },
+      { value: 'female', label: '女性' },
+      { value: 'other', label: 'その他' },
+      { value: 'prefer_not_to_say', label: '回答しない' },
+    ],
+  },
+  {
+    question_key: 'exploration_disposition',
+    question_text: '知らない分野のブースも見てみたいですか',
+    answer_type: 'single',
+    is_required: true,
+    options: [
+      { value: 'high', label: '積極的に見たい' },
+      { value: 'mid', label: 'どちらともいえない' },
+      { value: 'low', label: '興味のある分野を中心に回りたい' },
+    ],
+  },
+]
+
+/** 配信時に categories から選択肢が作られる設問（options を保存しない）。 */
+const CATEGORY_DERIVED_KEYS = new Set(['interest_categories', 'top_interest_category'])
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
@@ -160,28 +236,39 @@ export async function generateSampleData(
   }
   await bulkInsert(db, `INSERT INTO booth_tags (id, booth_id, tag) VALUES `, 3, boothTagRows)
 
-  // --- アンケート設問 ---
-  const questionIds: string[] = []
-  const surveyQuestions = [
-    {
-      text: `${SAMPLE_PREFIX} 今日の満足度は？`,
-      options: ['とても満足', '満足', '普通', '不満'],
-    },
-    {
-      text: `${SAMPLE_PREFIX} 再参加意向は？`,
-      options: ['ぜひ参加したい', '参加したい', 'どちらでもない', '参加しない'],
-    },
-  ]
+  // --- アンケート設問（本番の設問セットと同じ6問） ---
+  // 16_pre_survey_questions.sql を流した後のイベントでは既に同じ question_key の設問がある。
+  // question_key はイベント内で一意でなければ分析が設問を特定できないため、
+  // 足りないものだけを入れる（INSERT の前に SELECT で確認する。ADR 0001）。
+  const [existingKeyRows] = await db.query(
+    'SELECT question_key FROM survey_questions WHERE event_id = ? AND question_key IS NOT NULL',
+    [eventId],
+  )
+  const existingKeys = new Set(
+    (existingKeyRows as { question_key: string }[]).map((r) => r.question_key),
+  )
   const questionRows: unknown[][] = []
-  for (const [idx, q] of surveyQuestions.entries()) {
-    const qid = randomUUID()
-    questionIds.push(qid)
-    questionRows.push([qid, eventId, q.text, JSON.stringify(q.options), idx + 1, 0])
+  for (const [idx, q] of PRE_SURVEY_QUESTIONS.entries()) {
+    if (existingKeys.has(q.question_key)) continue
+    questionRows.push([
+      randomUUID(),
+      eventId,
+      // clearSampleData は question_text の接頭辞で消す設問を選ぶ。接頭辞を外すと
+      // サンプル生成した設問が消えずに残るため、表示文言側にだけ接頭辞を付ける。
+      // question_key / answer_type / options の value は本番と同じ契約値のままにする。
+      `${SAMPLE_PREFIX} ${q.question_text}`,
+      JSON.stringify(q.options),
+      idx + 1,
+      q.is_required ? 1 : 0,
+      q.question_key,
+      q.answer_type,
+    ])
   }
   await bulkInsert(
     db,
-    `INSERT INTO survey_questions (id, event_id, question_text, options, display_order, is_required) VALUES `,
-    6,
+    `INSERT INTO survey_questions
+       (id, event_id, question_text, options, display_order, is_required, question_key, answer_type) VALUES `,
+    8,
     questionRows,
   )
 
@@ -232,17 +319,24 @@ export async function generateSampleData(
       }
     }
 
-    const customAnswers: Record<string, string> = {}
-    for (const qid of questionIds) {
-      customAnswers[qid] = pick(['A', 'B', 'C', 'D'])
+    // custom_answers のキーは設問 UUID ではなく question_key。分析・推薦はこちらで設問を特定する。
+    const interestCategories = pickMany(categoryIds, randomInt(1, Math.min(3, categoryIds.length)))
+    const customAnswers: Record<string, string | string[]> = {
+      interest_categories: interestCategories,
+      // 第1希望は必ず interest_categories の中から選ぶ（survey.ts の包含チェックと同じ制約）
+      top_interest_category: pick(interestCategories),
+    }
+    for (const q of PRE_SURVEY_QUESTIONS) {
+      if (CATEGORY_DERIVED_KEYS.has(q.question_key)) continue
+      customAnswers[q.question_key] = pick(q.options).value
     }
     surveyAnswerRows.push([
       randomUUID(),
       userId,
       eventId,
-      pick(AGE_RANGES),
-      pick(OCCUPATIONS),
-      pick(INDUSTRIES),
+      customAnswers.age_range as string,
+      customAnswers.occupation as string,
+      null, // industry: 本番の設問セットに業種は無い
       JSON.stringify(customAnswers),
     ])
   }
@@ -273,6 +367,6 @@ export async function generateSampleData(
     checkins: checkinRows.length,
     ratings: ratingRows.length,
     survey_answers: surveyAnswerRows.length,
-    survey_questions: surveyQuestions.length,
+    survey_questions: questionRows.length,
   }
 }

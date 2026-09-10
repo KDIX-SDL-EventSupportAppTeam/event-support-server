@@ -3,9 +3,12 @@
 ## 番号規則
 
 - ファイル名は `NN_<内容>.sql`。**`NN` は 2 桁・一意**。辞書順 ＝ 適用順。
-- 新しいファイルは **既存の最大番号 + 1**（現在の最大は `12`。次は `13_`）。
+- 新しいファイルは **既存の最大番号 + 1**（現在の最大は `16`。次は `17_`）。
 - 番号を飛ばさない。同じ番号を 2 つ作らない（2026-09 に `10_` が 2 つあった事故の再発防止。issue #112）。
-- 作成したら `db/create-tables.sql`（空 DB 向けの正本・21 テーブル）にも同じ定義を反映する。片方だけ直すと docker 初期化と本番でスキーマが割れる。
+- 作成したら `db/create-tables.sql`（空 DB 向けの正本・25 テーブル）にも同じ定義を反映する。片方だけ直すと docker 初期化と本番でスキーマが割れる。
+- **これは DDL の話である。** `16_` のようなデータ投入は `create-tables.sql` に載せない。
+  同ファイルは全テーブルを DROP して作り直す DDL 専用で、`events` が 1 行も無い時点で実行されるため、
+  イベントに紐づく行を入れようがない。
 
 ## 適用順（2026-09 時点）
 
@@ -23,6 +26,10 @@
 | 10 | `10_gacha_coins.sql` | 01（`events` / `users`） |
 | 11 | `11_widen_unlock_pair_key.sql` | 09（`card_unlock_events`） |
 | 12 | `12_onboarding_completed.sql` | 01（`users`） |
+| 13 | `13_booth_display_code.sql` | 01（`booths`） |
+| 14 | `14_award_vote.sql` | 01（`events` / `users` / `booths`） |
+| 15 | `15_password_reset.sql` | 01（`users`） |
+| 16 | `16_pre_survey_questions.sql` | 01（`events` / `survey_questions`）、pre-survey の `answer_type` / `question_key` 列 |
 
 ## どの経路が何を読むか
 
@@ -31,12 +38,15 @@
 | `docker compose up -d mysql`（初回・空ボリューム） | **このディレクトリを辞書順に全部** | ローカル開発の初回。作り直すときは `docker compose down -v` |
 | `npm run db:migrate` | **`db/create-tables.sql` だけ**（このディレクトリは読まない） | Docker を使わない空 DB。テーブルが 1 つでもあれば中断する |
 | 本番（さくら） | `db/create-tables.sql` を phpMyAdmin で 1 回 | `docs/operations/production-db-apply.md`。**このディレクトリは本番に流さない** |
+| 本番（さくら・データ投入） | **`16_pre_survey_questions.sql` だけは例外**として phpMyAdmin で流す | 事前アンケートの設問は DDL ではなくデータで、`create-tables.sql` に載せられないため。**イベントを作成した後・アンケート配布前に 1 回**。再実行しても無害 |
 | 既存 DB への増分 | 該当ファイルを `mysql` CLI で個別に | 開発中の手元 DB のみ |
 
 ## 再実行の注意
 
 - `02` / `07` / `12` はストアドプロシージャで列の有無を確認するため、2 回流しても無害。
 - `11` は同じ型への `MODIFY` なので 2 回流しても無害。
+- `16` は `question_key` で存在確認してから `INSERT ... SELECT ... WHERE NOT EXISTS` するため、2 回流しても無害。
+  既存の設問文・選択肢は**書き換えない**（文言を直したいときは運営画面か個別の UPDATE で行う）。
 - **`10_gacha_coins.sql` は `gacha_coin_uses` を `DROP` してから作り直す。データの入った DB に再実行するとコイン使用台帳が消える。** 空 DB か「消してよい」と判断した DB にしか流さない。
 - `09_bingo_staged_unlock.sql` も作り直し方式。同上。
 
@@ -46,7 +56,7 @@
 # 番号が一意で辞書順に並んでいること
 ls db/migrations/*.sql | sed -E 's#.*/([0-9]+)_.*#\1#' | sort | uniq -d   # 出力が空なら OK
 
-# docker 初期化後のテーブル数（21）
+# docker 初期化後のテーブル数（25）
 docker exec event-support-mysql mysql -uroot -pdevroot -NBe \
   "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='event_support';"
 ```

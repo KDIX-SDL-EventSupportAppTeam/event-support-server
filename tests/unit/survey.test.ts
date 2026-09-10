@@ -8,6 +8,7 @@ const JWT_SECRET = 'test-secret'
 const EVENT_ID = '11111111-1111-4111-8111-111111111111'
 const USER_ID = '22222222-2222-4222-8222-222222222222'
 const CAT_ID = '33333333-3333-4333-8333-333333333333'
+const CAT_ID_2 = '44444444-4444-4444-8444-444444444444'
 
 const config = {
   port: 3000,
@@ -26,6 +27,7 @@ type Question = {
 
 function makeDb(opts: {
   questions?: Question[]
+  categories?: { id: string; name: string }[]
   preSurveyClosesAt?: string | null
   accessMode?: string
   existingAnswerId?: string | null
@@ -78,7 +80,7 @@ function makeDb(opts: {
       return [questions, undefined]
     }
     if (/SELECT id, name FROM categories WHERE event_id = \?/.test(sql)) {
-      return [[{ id: CAT_ID, name: 'AI・機械学習' }], undefined]
+      return [opts.categories ?? [{ id: CAT_ID, name: 'AI・機械学習' }], undefined]
     }
     if (/SELECT id FROM user_survey_answers WHERE user_id = \? AND event_id = \?/.test(sql)) {
       return [existingAnswerId ? [{ id: existingAnswerId }] : [], undefined]
@@ -219,6 +221,122 @@ describe('POST /events/:event_id/survey/answers', () => {
     expect(res.statusCode).toBe(200)
     expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.updateCalls).toBe(1)
     expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.insertCalls).toBe(0)
+    await app.close()
+  })
+})
+
+/** 本番の設問セットのうち、カテゴリ由来の2問を含む最小構成。 */
+const CATEGORY_QUESTIONS: Question[] = [
+  {
+    id: 'q-interest',
+    question_text: '興味のある分野を選んでください（複数選択可）',
+    options: [],
+    display_order: 1,
+    is_required: 1,
+    answer_type: 'multi',
+    question_key: 'interest_categories',
+  },
+  {
+    id: 'q-top',
+    question_text: 'その中で、一番興味がある分野を1つ選んでください',
+    options: [],
+    display_order: 2,
+    is_required: 1,
+    answer_type: 'single',
+    question_key: 'top_interest_category',
+  },
+]
+
+const TWO_CATEGORIES = [
+  { id: CAT_ID, name: 'AI・機械学習' },
+  { id: CAT_ID_2, name: 'Web・モバイル' },
+]
+
+describe('top_interest_category の選択肢生成', () => {
+  it('DB の options が空でも categories から生成される', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/pre-survey/questions`,
+    })
+    const { data } = res.json()
+    const top = data.questions.find(
+      (x: { question_key: string }) => x.question_key === 'top_interest_category',
+    )
+    expect(top.answer_type).toBe('single')
+    expect(top.options).toEqual([
+      { value: CAT_ID, label: 'AI・機械学習' },
+      { value: CAT_ID_2, label: 'Web・モバイル' },
+    ])
+    await app.close()
+  })
+
+  it('interest_categories と同じ選択肢になる', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/pre-survey/questions`,
+    })
+    const { data } = res.json()
+    const byKey = (k: string) =>
+      data.questions.find((x: { question_key: string }) => x.question_key === k).options
+    expect(byKey('top_interest_category')).toEqual(byKey('interest_categories'))
+    await app.close()
+  })
+})
+
+describe('POST /events/:event_id/survey/answers の top_interest_category 検証', () => {
+  const post = (payload: unknown) => ({
+    method: 'POST' as const,
+    url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+    headers: authHeader(),
+    payload,
+  })
+
+  it('interest_categories に含まれない top_interest_category は400', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject(
+      post({
+        custom_answers: {
+          interest_categories: [CAT_ID],
+          top_interest_category: CAT_ID_2,
+        },
+      }),
+    )
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+    await app.close()
+  })
+
+  it('interest_categories に含まれていれば200', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject(
+      post({
+        custom_answers: {
+          interest_categories: [CAT_ID, CAT_ID_2],
+          top_interest_category: CAT_ID_2,
+        },
+      }),
+    )
+    expect(res.statusCode).toBe(200)
+    await app.close()
+  })
+
+  it('片方が未回答なら包含チェックではなく必須チェックで400になる', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject(post({ custom_answers: { interest_categories: [CAT_ID] } }))
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.message).toContain('必須')
     await app.close()
   })
 })

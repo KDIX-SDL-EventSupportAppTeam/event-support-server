@@ -7,7 +7,7 @@
 
 # データベース
 
-完全なスキーマの正は `db/create-tables.sql`（**21 テーブル**）。増分は `db/migrations/`（12 ファイル）。
+完全なスキーマの正は `db/create-tables.sql`（**25 テーブル**）。増分は `db/migrations/`（15 ファイル）。
 起動手順・Docker init と `db:migrate` の使い分けは [README.md § ローカル開発](./README.md#ローカル開発) を参照。
 
 > `db/migrations/` の番号は一意で、辞書順 ＝ 適用順（issue #112 で `10_` の重複を解消）。
@@ -19,7 +19,7 @@
 docker exec -it event-support-mysql \
   mysql -u app -pappsecret event_support \
   -NBe "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='event_support';"
-# 21 が返ること
+# 25 が返ること
 
 npm run db:check   # テーブルの過不足と件数をまとめて確認する
 ```

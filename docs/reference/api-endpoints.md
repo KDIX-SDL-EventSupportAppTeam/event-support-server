@@ -15,6 +15,8 @@
 | POST | `/api/v1/auth/login` | — | ログイン・JWT 発行 |
 | GET | `/api/v1/auth/verify-email` | — | メールアドレス確認（トークン照合・`users.email_verified_at` 更新） |
 | POST | `/api/v1/auth/resend-verification` | Bearer | 確認メール再送 |
+| POST | `/api/v1/auth/forgot-password` | — | パスワード再設定リンクを送る（`{ event_id, email }`。存在の有無に関わらず常に 200・同じ文言。メールのリンクは `/reset-password/<token>?event=<event_id>`。issue #125） |
+| POST | `/api/v1/auth/reset-password` | — | 再設定トークンで新パスワードを設定（`{ token, password }`。期限切れ・使用済みは 410 `TOKEN_EXPIRED`） |
 | GET | `/api/v1/events/:event_id/survey/questions` | Bearer | アンケート設問取得 |
 | POST | `/api/v1/events/:event_id/survey/answers` | Bearer | アンケート回答送信 |
 | GET | `/api/v1/events/:event_id/booths` | Bearer | ブース一覧（カテゴリフィルタ可） |

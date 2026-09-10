@@ -4,10 +4,12 @@ import { z } from 'zod'
 import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt } from '../../plugins/auth.js'
 import { fetchAppAccessRow, resolveEffectiveAccess } from '../../lib/app-access.js'
-
-type AnswerType = 'single' | 'multi' | 'text'
-
-type Option = { value: string; label: string }
+import {
+  isCategoryDerivedKey,
+  normalizeOptions,
+  type AnswerType,
+  type Option,
+} from '../../lib/survey-options.js'
 
 type QuestionRow = {
   id: string
@@ -19,45 +21,24 @@ type QuestionRow = {
   question_key: string | null
 }
 
-/** 旧データ（文字列だけの配列）を `{ value, label }` 形式へ正規化する（02-data-model.md）。 */
-function normalizeOptions(raw: unknown): Option[] {
-  let arr: unknown[] = []
-  if (Array.isArray(raw)) arr = raw
-  else if (typeof raw === 'string') {
-    try {
-      const p = JSON.parse(raw) as unknown
-      if (Array.isArray(p)) arr = p
-    } catch {
-      arr = []
-    }
-  }
-  return arr.map((o) => {
-    if (o && typeof o === 'object' && 'value' in o) {
-      const oo = o as { value: unknown; label?: unknown }
-      const value = String(oo.value)
-      const label = oo.label !== undefined ? String(oo.label) : value
-      return { value, label }
-    }
-    const s = String(o)
-    return { value: s, label: s }
-  })
-}
-
-/**
- * 設問一覧を配信用の形へ整形する。`interest_categories` は `options` を DB から読まず、
- * `categories` テーブルから動的生成する（P-10）。
- */
-async function loadQuestionsForDelivery(
-  app: FastifyInstance,
-  eventId: string,
-): Promise<{
+type DeliveryQuestion = {
   id: string
   question_key: string | null
   label: string
   answer_type: AnswerType
   required: boolean
   options: Option[]
-}[]> {
+}
+
+/**
+ * 設問一覧を配信用の形へ整形する。カテゴリ由来の設問（interest_categories /
+ * top_interest_category）は `options` を DB から読まず、`categories` テーブルから
+ * 動的生成する（P-10）。対象キーは lib/survey-options.ts の集合で判定する。
+ */
+async function loadQuestionsForDelivery(
+  app: FastifyInstance,
+  eventId: string,
+): Promise<DeliveryQuestion[]> {
   const [rows] = await app.db.query(
     `SELECT id, question_text, options, display_order, is_required, answer_type, question_key
      FROM survey_questions WHERE event_id = ? ORDER BY display_order ASC, id ASC`,
@@ -66,8 +47,7 @@ async function loadQuestionsForDelivery(
   const questions = rows as QuestionRow[]
 
   let categoryOptions: Option[] | null = null
-  const needsCategories = questions.some((q) => q.question_key === 'interest_categories')
-  if (needsCategories) {
+  if (questions.some((q) => isCategoryDerivedKey(q.question_key))) {
     const [catRows] = await app.db.query(
       'SELECT id, name FROM categories WHERE event_id = ? ORDER BY name ASC',
       [eventId],
@@ -80,8 +60,9 @@ async function loadQuestionsForDelivery(
 
   return questions.map((q) => {
     const answerType: AnswerType = q.answer_type ?? 'single'
-    const options =
-      q.question_key === 'interest_categories' ? (categoryOptions ?? []) : normalizeOptions(q.options)
+    const options = isCategoryDerivedKey(q.question_key)
+      ? (categoryOptions ?? [])
+      : normalizeOptions(q.options)
     return {
       id: q.id,
       question_key: q.question_key,
@@ -199,6 +180,21 @@ export async function surveyRoutes(app: FastifyInstance) {
           if (typeof val !== 'string') {
             return sendFail(reply, 400, 'VALIDATION_ERROR', `${q.question_key} の値が不正です`)
           }
+        }
+      }
+
+      // top_interest_category は interest_categories で選んだ中の第1希望である。
+      // 両方が回答されているときだけ包含関係を検証する（片方が未回答なら上の必須チェックに任せる）。
+      const topInterest = valueByKey.get('top_interest_category')
+      const interestCategories = valueByKey.get('interest_categories')
+      if (typeof topInterest === 'string' && Array.isArray(interestCategories)) {
+        if (!interestCategories.includes(topInterest)) {
+          return sendFail(
+            reply,
+            400,
+            'VALIDATION_ERROR',
+            'top_interest_category は interest_categories で選んだ分野から選んでください',
+          )
         }
       }
 
