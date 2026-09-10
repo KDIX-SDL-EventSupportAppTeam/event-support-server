@@ -1,6 +1,6 @@
 ---
 状態: 実装済み
-最終更新: 2026-08-25
+最終更新: 2026-09-10
 ---
 
 # データモデル
@@ -54,7 +54,7 @@ ALTER TABLE survey_questions
 | 列 | 用途 |
 |---|---|
 | `answer_type` | `single`（単一選択）/ `multi`（複数選択）/ `text`（自由記述） |
-| `question_key` | 設問の安定した識別子（`age_group` / `occupation` / `interest_categories` 等）。**分析側がこれで設問を特定する。** UUID の `id` は環境ごとに変わるため使えない |
+| `question_key` | 設問の安定した識別子（`age_range` / `occupation` / `interest_categories` 等）。**分析側がこれで設問を特定する。** UUID の `id` は環境ごとに変わるため使えない |
 
 ### `options` の形式
 
@@ -62,15 +62,39 @@ ALTER TABLE survey_questions
 `{ "value": "twenties", "label": "20代" }` 形式に統一する。
 値が文字列だけの旧データは、読み取り時に `{ value: s, label: s }` として正規化する。
 
-### 関心分野の設問（`question_key = 'interest_categories'`）
+### 本番の設問セット（必須5問 + 任意1問）
 
-**`options` を保存せず、配信時に `categories` から生成する**（[P-10](01-concept.md)）。
+投入は `db/migrations/16_pre_survey_questions.sql`。
+**`question_key` と `options` の `value` は分析・推薦側との契約であり、変更しない。**
+`label`（表示文言）は運営の裁量で変えてよい。
+
+| # | `question_key` | `answer_type` | 必須 | `value` |
+|---|---|---|:-:|---|
+| 1 | `interest_categories` | `multi` | ✅ | `categories` から動的生成（保存しない） |
+| 2 | `top_interest_category` | `single` | ✅ | 同上。1 で選んだ中の第1希望 |
+| 3 | `age_range` | `single` | ✅ | `teens` / `twenties` / `thirties` / `forties` / `fifties_plus` |
+| 4 | `occupation` | `single` | ✅ | `student` / `engineer` / `designer` / `planner` / `other` |
+| 5 | `gender` | `single` | ⬜︎ 任意 | `male` / `female` / `other` / `prefer_not_to_say` |
+| 6 | `exploration_disposition` | `single` | ✅ | `low` / `mid` / `high` |
+
+- `display_order` は上表の 1〜6
+- `gender` は**層別軸としてのみ**使う。条件属性にも近傍計算にも使わない
+- 要求の背景は
+  [event-support-recommend の 06-pre-survey-requirements.md](../../../../event-support-recommend/docs/specs/06-pre-survey-requirements.md)
+
+### カテゴリ由来の設問（`interest_categories` / `top_interest_category`）
+
+この2問は **`options` を保存せず、配信時に `categories` から生成する**（[P-10](01-concept.md)）。
 
 ```json
 { "value": "<category_id>", "label": "<categories.name>" }
 ```
 
-`answer_type` は `multi`。
+`answer_type` は `interest_categories` が `multi`、`top_interest_category` が `single`。
+DB には空配列（`[]`）を入れておく。
+
+対象キーの集合は `src/lib/survey-options.ts` の `CATEGORY_DERIVED_QUESTION_KEYS` に持つ。
+**1つのキーの等値比較で分岐しない。** カテゴリ由来の設問が増えたときに片方だけ直る事故を防ぐため。
 
 ## `user_survey_answers`（変更）
 
@@ -98,3 +122,10 @@ ALTER TABLE user_survey_answers
 
 **関心分野は `custom_answers.interest_categories` に `category_id` の配列**として入る。
 事前推薦マスの決定と、条件属性「選好一致度」の計算はここを読む。
+
+**第1希望は `custom_answers.top_interest_category` に `category_id` 単体**で入る。
+値は必ず同じ回答の `interest_categories` に含まれる（回答 POST で検証する。[06-api.md](06-api.md)）。
+これにより選好一致度が「一致 / 不一致」の2段階から「第1希望 / 関心あり / 不一致」の3段階になる。
+
+`gender` と `exploration_disposition` には専用列が無いため、`custom_answers` にのみ入る。
+`industry` は本番の設問セットに対応する設問が無く、NULL のままになる。

@@ -23,6 +23,7 @@
 --   organizers, events, categories, booths, booth_tags, users, survey_questions,
 --   user_survey_answers, bingo_cards, bingo_cells, check_ins, booth_ratings,
 --   card_unlock_events, recommendation_scores, gacha_coin_uses, gacha_settings,
+--   awards, award_votes, award_settings,
 --   booth_categories, exhibitor_booths, email_verification_tokens, password_reset_tokens, audit_logs,
 --   event_app_access
 --
@@ -112,8 +113,6 @@ CREATE TABLE booths (
   qr_code_url             TEXT,
   google_form_response_id TEXT,
   is_active               TINYINT(1)   NOT NULL DEFAULT 1,
-  duration_band           ENUM('SHORT','MID','LONG')        NULL,
-  knowledge_level         ENUM('NONE','HELPFUL','REQUIRED') NULL,
   created_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (event_id)    REFERENCES events(id)     ON DELETE CASCADE,

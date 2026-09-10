@@ -1,6 +1,6 @@
 ---
 状態: 確定
-最終更新: 2026-08-28
+最終更新: 2026-09-10
 ---
 
 # API
@@ -71,8 +71,8 @@
   "questions": [
     {
       "id": "…uuid…",
-      "question_key": "age_group",
-      "label": "年代",
+      "question_key": "age_range",
+      "label": "年代を教えてください",
       "answer_type": "single",
       "required": true,
       "options": [{ "value": "twenties", "label": "20代" }]
@@ -89,8 +89,11 @@
 }
 ```
 
-`interest_categories` の `options` は **`categories` テーブルから生成する**（[P-10](01-concept.md)）。
-DB の `options` 列は読まない。
+`interest_categories` と `top_interest_category` の `options` は
+**`categories` テーブルから生成する**（[P-10](01-concept.md)）。この2問は DB の `options` 列を読まない。
+対象キーの集合は `src/lib/survey-options.ts` に持つ（[02-data-model.md](02-data-model.md)）。
+
+返す設問は本番の設問セット6問（必須5 + 任意1）。一覧は [02-data-model.md](02-data-model.md)。
 
 ## POST /api/v1/events/:event_id/survey/answers（既存を変更）
 
@@ -100,8 +103,11 @@ Bearer + `requireEventMatchesJwt`。
 2. `is_required` の設問が欠けていたら 400
 3. `options` に無い `value` が来たら 400（**離散コードの整合性を守る。分析の前提**）
 4. `answer_type` と値の型が一致すること（`single`→文字列 / `multi`→文字列配列 / `text`→文字列）
-5. `(user_id, event_id)` で既存行を SELECT → あれば UPDATE、無ければ INSERT
-6. レスポンスに `{ answered_at }` を返す
+5. `top_interest_category` の値が、**同じ回答の `interest_categories` に含まれていること**。
+   含まれなければ 400（`code: 'VALIDATION_ERROR'`）。
+   検証するのは**両方が回答されているときだけ**で、片方が未回答なら 2 の必須チェックに任せる
+6. `(user_id, event_id)` で既存行を SELECT → あれば UPDATE、無ければ INSERT
+7. レスポンスに `{ answered_at }` を返す
 
 ## GET /api/v1/events/:event_id/me/state（Bearer 必須）
 
@@ -159,7 +165,7 @@ Bearer + `requireEventMatchesJwt`。
 | `GET /events/:event_id/survey/questions` | `question_key` / `answer_type` と正規化済み `options` を返す |
 | `GET /events/:event_id/public` | レスポンスに `app_access`（`is_open` / `mode` / `app_opens_at` / `pre_survey_closes_at`）を含める。完了画面の初期表示で1リクエスト減らせる |
 | `POST /organizer/events` | `event_app_access` の既定行を作成する |
-| `CRUD /admin/events/:event_id/survey-questions` | `question_key` / `answer_type` / `{value,label}` 形式の `options` に対応 |
+| `CRUD /admin/events/:event_id/survey-questions` | `question_key`（省略可・最大50文字）/ `answer_type`（`single`/`multi`/`text`・既定 `single`）を受け付け、GET / POST / PATCH の応答にも含める。`options` は `{value,label}` の配列を受け付け、**旧形式の `string[]` も引き続き受け付けて** `{ value: s, label: s }` に正規化して保存する。同一イベント内で `question_key` が重複する登録は 422（NULL は重複可） |
 
 ## そのまま使うもの
 
@@ -176,5 +182,6 @@ Bearer + `requireEventMatchesJwt`。
 | `src/lib/app-access.ts` | **実効開放状態の算出と既定値生成。判定ロジックはここだけに置く** |
 | `src/routes/v1/survey.ts` | 既存。締切チェック・バリデーション・upsert を追加 |
 | `src/routes/v1/me.ts` | 参加者自身の進行状態（`me/state`）。単一 URL の分岐材料をここに集約する |
+| `src/lib/survey-options.ts` | `options` の正規化とカテゴリ由来キーの集合。**配信経路と運営 API の両方がここを使う**（正規化を二重に書かない） |
 
 `app.ts` の登録順は既存の並び（public → v1 → organizer → admin）に合わせる。
