@@ -4,6 +4,7 @@ import type { AppConfig } from '../../src/config.js'
 import type { DbClient } from '../../src/db/client.js'
 import type { Mailer } from '../../src/lib/mailer.js'
 import { authRoutes } from '../../src/routes/v1/auth.js'
+import { buildResetPasswordUrl } from '../../src/lib/password-reset.js'
 
 const config = {
   port: 3000,
@@ -53,8 +54,25 @@ function makeMailer(shouldThrow = false) {
   return { mailer, sent }
 }
 
-async function buildApp(db: DbClient, mailer: Mailer): Promise<FastifyInstance> {
-  const app = Fastify()
+/** Fastify のログ出力を1本の文字列配列に集める最小ロガー。 */
+function makeLogSink(): { loggerInstance: unknown; lines: string[] } {
+  const lines: string[] = []
+  const rec = (a?: unknown, b?: unknown) => {
+    lines.push(`${typeof a === 'object' ? JSON.stringify(a) : String(a ?? '')} ${String(b ?? '')}`)
+  }
+  const logger: Record<string, unknown> = {
+    level: 'info',
+    fatal: rec, error: rec, warn: rec, info: rec, debug: rec, trace: rec,
+    silent: () => {},
+  }
+  logger.child = () => logger
+  return { loggerInstance: logger, lines }
+}
+
+async function buildApp(db: DbClient, mailer: Mailer, loggerInstance?: unknown): Promise<FastifyInstance> {
+  const app = loggerInstance
+    ? Fastify({ loggerInstance: loggerInstance as never })
+    : Fastify()
   app.decorate('config', config)
   app.decorate('db', db)
   app.decorate('mailer', mailer)
@@ -178,5 +196,74 @@ describe('POST /auth/reset-password（issue #125）', () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/auth/reset-password', payload: { token: 'xyz', password: 'newpassword1' } })
     expect(res.statusCode).toBe(422)
     await app.close()
+  })
+})
+
+describe('再設定リンクにイベント情報を載せる（#125 追補）', () => {
+  describe('buildResetPasswordUrl（純関数）', () => {
+    it('token はパス・event はクエリで、両者が揃う', () => {
+      const url = buildResetPasswordUrl(config, HEX64, EVENT_ID)
+      expect(url).toBe(`https://front.example/reset-password/${HEX64}?event=${EVENT_ID}`)
+    })
+
+    it('起きてはいけない: token がクエリ側に現れない', () => {
+      const url = buildResetPasswordUrl(config, HEX64, EVENT_ID)
+      const [path, query = ''] = url.split('?')
+      expect(path.endsWith(`/reset-password/${HEX64}`)).toBe(true)
+      expect(query).not.toContain(HEX64)
+      expect(query).toBe(`event=${EVENT_ID}`)
+    })
+
+    it('event_id にエンコードが必要な文字が来ても壊れない（encodeURIComponent 済み）', () => {
+      const raw = 'ev id/with?weird&=chars#x'
+      const url = buildResetPasswordUrl(config, HEX64, raw)
+      expect(url).toBe(
+        `https://front.example/reset-password/${HEX64}?event=${encodeURIComponent(raw)}`,
+      )
+      // 生の区切り文字が素通ししていないこと
+      expect(url.split('?')[1]).not.toMatch(/[ /?&#]/)
+      // 復元すると元に戻る
+      expect(decodeURIComponent(url.split('event=')[1])).toBe(raw)
+    })
+
+    it('base 解決は lib/url.ts と同式（frontendBaseUrl 未設定なら corsOrigin の先頭）', () => {
+      const noFront = { ...config, frontendBaseUrl: undefined, corsOrigin: 'https://a.example, https://b.example' }
+      expect(buildResetPasswordUrl(noFront, HEX64, EVENT_ID)).toBe(
+        `https://a.example/reset-password/${HEX64}?event=${EVENT_ID}`,
+      )
+    })
+  })
+
+  describe('POST /auth/forgot-password が送るメール', () => {
+    it('リンクが ?event=<event_id> を含み、その値がリクエストの event_id と一致する', async () => {
+      const db = makeDb([userLookup([{ id: 'u1', display_name: '本人' }]), ...writeHandlers])
+      const { mailer, sent } = makeMailer()
+      const app = await buildApp(db, mailer)
+      await app.inject({
+        method: 'POST', url: '/api/v1/auth/forgot-password',
+        payload: { event_id: EVENT_ID, email: 'known@example.com' },
+      })
+      expect(sent).toHaveLength(1)
+      const link = sent[0].text.split('\n').find((l) => l.includes('/reset-password/'))!
+      expect(link).toContain(`?event=${EVENT_ID}`)
+      // token はパス側にある
+      expect(link).toMatch(new RegExp(`/reset-password/[0-9a-f]{64}\\?event=${EVENT_ID}$`))
+      await app.close()
+    })
+
+    it('起きてはいけない: リンク・トークンが req.log に出ない（送信失敗時も）', async () => {
+      const db = makeDb([userLookup([{ id: 'u1', display_name: '本人' }]), ...writeHandlers])
+      const { loggerInstance, lines } = makeLogSink()
+      const app = await buildApp(db, makeMailer(true).mailer, loggerInstance) // 送信は throw する
+      const res = await app.inject({
+        method: 'POST', url: '/api/v1/auth/forgot-password',
+        payload: { event_id: EVENT_ID, email: 'known@example.com' },
+      })
+      expect(res.statusCode).toBe(200)
+      const joined = lines.join('\n')
+      expect(joined).not.toMatch(/[0-9a-f]{64}/) // トークン
+      expect(joined).not.toContain('/reset-password/') // リンク
+      await app.close()
+    })
   })
 })

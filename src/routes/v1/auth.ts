@@ -291,7 +291,8 @@ export async function authRoutes(app: FastifyInstance) {
     if (u) {
       try {
         const token = await issuePasswordResetToken(app.db, u.id)
-        const url = buildResetPasswordUrl(app.config, token)
+        // event_id はこのリクエストのボディで検証済み。再設定完了後の戻り先（/e/:eventId）に要る
+        const url = buildResetPasswordUrl(app.config, token, event_id)
         await app.mailer.send(
           email,
           '【PRoToFES】パスワード再設定のご案内',

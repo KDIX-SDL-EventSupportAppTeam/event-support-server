@@ -26,10 +26,18 @@ export async function issuePasswordResetToken(db: DbClient, userId: string): Pro
   return token
 }
 
-/** フロントの再設定画面 URL。ルートは `/reset-password/:token`（token はパス）。 */
-export function buildResetPasswordUrl(config: AppConfig, token: string): string {
+/**
+ * フロントの再設定画面 URL。
+ *
+ * - ルートは `/reset-password/:token`（**token はパス**。クエリに移さない）
+ * - `?event=<eventId>` を付ける。フロントの参加者ログイン画面は独立して存在せず入口が
+ *   `/e/:eventId` に統合されているため、再設定完了後の戻り先を決めるのに eventId が要る。
+ *   別端末・別ブラウザで開かれると localStorage の控えが無く行き止まりになる
+ * - base の解決は `lib/url.ts` と同式（変更しない）
+ */
+export function buildResetPasswordUrl(config: AppConfig, token: string, eventId: string): string {
   const base = config.frontendBaseUrl ?? config.corsOrigin.split(',')[0].trim() // lib/url.ts と同式
-  return `${base}/reset-password/${token}`
+  return `${base}/reset-password/${token}?event=${encodeURIComponent(eventId)}`
 }
 
 export function buildPasswordResetMailText(displayName: string, url: string): string {

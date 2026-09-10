@@ -91,6 +91,7 @@ YYYY-MM-DD-kebab-case-summary.md
 | 2026-07-13 | [2026-07-13-organizer-auth-disabled.md](./runs/2026-07-13-organizer-auth-disabled.md) | 主催者ポータルの本番アクセス制限 #56 | `tests/unit/organizer-auth.test.ts` |
 | 2026-08-25 | [2026-08-25-bingo-dynamic-unlock.md](./runs/2026-08-25-bingo-dynamic-unlock.md) | **ビンゴ動的段階解放の実装と検証**（仕様変更対応・性能計測・環境問題） | `tests/unit/bingo-*.test.ts` ほか |
 | 2026-08-28 | [2026-08-28-gacha-coins.md](./runs/2026-08-28-gacha-coins.md) | ガチャコイン：換算の純関数・消費の排他制御・運営API（C-1〜C-10） | `tests/unit/gacha/*.test.ts`, `tests/integration/gacha/*.test.ts` |
+| 2026-09-10 | [2026-09-10-reset-link-event-id.md](./runs/2026-09-10-reset-link-event-id.md) | パスワード再設定リンクに `?event=` を付ける（#125 追補） | `tests/unit/password-reset.test.ts` |
 
 ---
 
