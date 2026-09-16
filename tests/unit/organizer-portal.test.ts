@@ -264,6 +264,7 @@ describe('POST /organizer/events の survey_url バリデーション', () => {
     name: '58検証',
     date_start: '2026-08-01T10:00',
     date_end: '2026-08-01T18:00',
+    mail_from: 'fes@example.com',
     initial_manager: { email: 'mgr@example.com', password: 'password123' },
   }
 
@@ -343,6 +344,32 @@ describe('POST /organizer/events の survey_url バリデーション', () => {
   })
 })
 
+describe('POST /organizer/events の mail_from（送信元メール）', () => {
+  const body = {
+    name: '送信元検証',
+    date_start: '2026-08-01T10:00',
+    date_end: '2026-08-01T18:00',
+    initial_manager: { email: 'mgr@example.com', password: 'password123' },
+  }
+
+  it('mail_from が無いと 422', async () => {
+    const app = await buildTestApp(makeDb([]))
+    const res = await app.inject({ method: 'POST', url: '/api/v1/organizer/events', headers: authHeader(), payload: body })
+    expect(res.statusCode).toBe(422)
+    await app.close()
+  })
+
+  it('メール形式でない mail_from は 422', async () => {
+    const app = await buildTestApp(makeDb([]))
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/organizer/events', headers: authHeader(),
+      payload: { ...body, mail_from: 'not-an-email' },
+    })
+    expect(res.statusCode).toBe(422)
+    await app.close()
+  })
+})
+
 describe('PATCH /organizer/events/:id（イベント情報の修正）', () => {
   const baseRow = {
     id: 'e1',
@@ -406,6 +433,20 @@ describe('PATCH /organizer/events/:id（イベント情報の修正）', () => {
     await app.close()
   })
 
+  it('mail_from を null で消そうとすると 422（必須項目）', async () => {
+    const log: string[] = []
+    const app = await buildTestApp(db(log))
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizer/events/e1',
+      headers: authHeader(),
+      payload: { mail_from: null },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(log.some((sql) => /UPDATE events/.test(sql))).toBe(false)
+    await app.close()
+  })
+
   it('所有していないイベントは 403', async () => {
     const app = await buildTestApp(
       makeDb([{ match: /FROM events WHERE id = \? AND organizer_id = \?/, rows: [] }]),
@@ -453,7 +494,7 @@ describe('POST /organizer/events の日時（タイムゾーン）', () => {
       method: 'POST',
       url: '/api/v1/organizer/events',
       headers: authHeader(),
-      payload: { name: 'x', ...payloadDates, initial_manager: { email: 'mgr@example.com', password: 'password123' } },
+      payload: { name: 'x', ...payloadDates, mail_from: 'fes@example.com', initial_manager: { email: 'mgr@example.com', password: 'password123' } },
     })
     await app.close()
     return { res, params }

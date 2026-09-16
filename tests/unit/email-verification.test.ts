@@ -55,13 +55,14 @@ const writeHandlers: Handler[] = [
 ]
 
 /** 送信を記録し、必要なら throw するフェイク Mailer。 */
-function makeMailer(shouldThrow = false): { mailer: Mailer; sent: { to: string; subject: string; text: string }[] } {
-  const sent: { to: string; subject: string; text: string }[] = []
+type Sent = { to: string; subject: string; text: string; from?: string | null }
+function makeMailer(shouldThrow = false): { mailer: Mailer; sent: Sent[] } {
+  const sent: Sent[] = []
   return {
     mailer: {
-      async send(to, subject, text) {
+      async send(to, subject, text, from) {
         if (shouldThrow) throw new Error('smtp down')
-        sent.push({ to, subject, text })
+        sent.push({ to, subject, text, from })
       },
     },
     sent,
@@ -93,7 +94,7 @@ function makeParticipantToken(uid: string, eventId: string, role: 'participant' 
 const EVENT_ID = 'event-1'
 
 describe('POST /auth/register（メール確認トークン発行）', () => {
-  const eventExists: Handler = { match: /SELECT id FROM events WHERE id = \?\s+LIMIT 1/, rows: [{ id: EVENT_ID }] }
+  const eventExists: Handler = { match: /SELECT id, mail_from FROM events WHERE id = \?\s+LIMIT 1/, rows: [{ id: EVENT_ID, mail_from: 'fes@example.com' }] }
   const dupCheck: Handler = { match: /SELECT id FROM users WHERE event_id = \? AND email = \?\s+LIMIT 1/, rows: [] }
   const dateEnd: Handler = {
     match: /SELECT date_end FROM events WHERE id = \?\s+LIMIT 1/,
@@ -119,6 +120,7 @@ describe('POST /auth/register（メール確認トークン発行）', () => {
     expect(res.json().data.user.email_verified).toBe(false)
     expect(sent).toHaveLength(1)
     expect(sent[0].to).toBe('new@example.com')
+    expect(sent[0].from).toBe('fes@example.com')
     expect(log.some((sql) => /INSERT INTO email_verification_tokens/.test(sql))).toBe(true)
     expect(log.some((sql) => /DELETE FROM email_verification_tokens WHERE user_id = \?/.test(sql))).toBe(true)
     await app.close()
@@ -225,7 +227,7 @@ describe('POST /auth/resend-verification', () => {
     const log: string[] = []
     const db = makeDb(
       [
-        { match: /SELECT email, display_name, email_verified_at FROM users WHERE id = \?/, rows: [{ email: 'u1@example.com', display_name: '本人', email_verified_at: null }] },
+        { match: /SELECT u\.email, u\.display_name, u\.email_verified_at, e\.mail_from\s+FROM users u JOIN events e ON e\.id = u\.event_id WHERE u\.id = \?/, rows: [{ email: 'u1@example.com', display_name: '本人', email_verified_at: null, mail_from: 'fes@example.com' }] },
         ...writeHandlers,
       ],
       log,
@@ -240,6 +242,7 @@ describe('POST /auth/resend-verification', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json().data).toEqual({ sent: true })
     expect(sent).toHaveLength(1)
+    expect(sent[0].from).toBe('fes@example.com')
     expect(log.some((sql) => /DELETE FROM email_verification_tokens WHERE user_id = \?/.test(sql))).toBe(true)
     expect(log.some((sql) => /INSERT INTO email_verification_tokens/.test(sql))).toBe(true)
     await app.close()
@@ -247,7 +250,7 @@ describe('POST /auth/resend-verification', () => {
 
   it('確認済みユーザーは 409 ALREADY_VERIFIED', async () => {
     const db = makeDb([
-      { match: /SELECT email, display_name, email_verified_at FROM users WHERE id = \?/, rows: [{ email: 'u1@example.com', display_name: '本人', email_verified_at: '2026-01-01 00:00:00' }] },
+      { match: /SELECT u\.email, u\.display_name, u\.email_verified_at, e\.mail_from\s+FROM users u JOIN events e ON e\.id = u\.event_id WHERE u\.id = \?/, rows: [{ email: 'u1@example.com', display_name: '本人', email_verified_at: '2026-01-01 00:00:00', mail_from: null }] },
     ])
     const { mailer } = makeMailer()
     const app = await buildTestApp(db, mailer)
