@@ -4,6 +4,7 @@ substitutions:
   _SERVICE: event-support-server
   _REPOSITORY: event-support
   _IMAGE: event-support-server
+  _CLOUDSQL_INSTANCE: event-support-app:asia-northeast1:event-support-db
 
 steps:
   # 1. Docker イメージをビルド
@@ -46,8 +47,13 @@ steps:
       # WebSocket 配信が届かなくなるため、1 インスタンスに固定する。
       # 運営画面のみ socket を張り負荷も軽いため 1 台で十分。
       - --max-instances=1
-      - --update-env-vars=^@^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com@SAKURA_PROXY_URL=https://sutolab.sakura.ne.jp/bingo/query/index.php
-      - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest
+      # Cloud SQL（MySQL 8.0）へ Unix ソケット /cloudsql/<接続名> で繋ぐ。
+      # DATABASE_URL の ?socket= が src/db/parse-mysql-url.ts で socketPath に変換される。
+      - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
+      # update ではなく set。update だと既存サービスに残る SAKURA_PROXY_URL が消えず、
+      # index.ts が従来どおりプロキシ経路を選んでしまい切り替えが無言で失敗する。
+      - --set-env-vars=^@^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com
+      - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest
 
 options:
   logging: CLOUD_LOGGING_ONLY
