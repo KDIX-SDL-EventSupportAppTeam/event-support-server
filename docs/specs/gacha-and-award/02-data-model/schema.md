@@ -57,7 +57,9 @@ CREATE TABLE gacha_settings (
 ## 行が無いとき
 
 `gacha_settings` に行が無いイベントでは、コード側の既定値
-（`is_enabled = false, coins_per_line = 1, max_coins = 4, bonus_coins = 0`）を使う。
+（`is_enabled = true, coins_per_line = 1, max_coins = 4, bonus_coins = 0`）を使う。
+ガチャは既定で使える。止めたいときだけ運営画面（リアルタイム）の「ガチャを停止する」で行を作る
+（2026-09 変更。以前は `is_enabled = false` で、新しいイベントは再開を押すまで使えなかった）。
 **設定行の有無で API が 500 になってはならない。**
 
 ## 消さないもの

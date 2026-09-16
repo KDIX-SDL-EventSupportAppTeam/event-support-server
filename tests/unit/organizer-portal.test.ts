@@ -342,3 +342,132 @@ describe('POST /organizer/events の survey_url バリデーション', () => {
     await app.close()
   })
 })
+
+describe('PATCH /organizer/events/:id（イベント情報の修正）', () => {
+  const baseRow = {
+    id: 'e1',
+    name: '旧名',
+    date_start: '2026-09-17 00:46:00',
+    date_end: '2026-09-17 09:00:00',
+    venue: '旧会場',
+    survey_url: null,
+    created_at: '2026-09-01 00:00:00',
+  }
+
+  function db(log: string[], params: unknown[][] = [], after = baseRow) {
+    let updated = false
+    return makeDb(
+      [
+        {
+          match: /^\s*UPDATE events/,
+          rows: (p) => {
+            params.push(p)
+            updated = true
+            return []
+          },
+        },
+        ...writeHandlers,
+        { match: /FROM events WHERE id = \? AND organizer_id = \?/, rows: () => [updated ? after : baseRow] },
+        { match: /COUNT\(\*\)/, rows: [] },
+      ],
+      log,
+    )
+  }
+
+  it('日時・会場を更新し、日時は UTC の DATETIME で保存・監査ログを残す', async () => {
+    const log: string[] = []
+    const params: unknown[][] = []
+    const after = { ...baseRow, date_start: '2026-10-01 01:00:00', date_end: '2026-10-01 09:00:00', venue: '新会場' }
+    const app = await buildTestApp(db(log, params, after))
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizer/events/e1',
+      headers: authHeader(),
+      payload: { date_start: '2026-10-01T10:00:00+09:00', date_end: '2026-10-01T18:00:00+09:00', venue: '新会場' },
+    })
+    expect(res.statusCode, res.body).toBe(200)
+    expect(params[0]).toEqual(['2026-10-01 01:00:00', '2026-10-01 09:00:00', '新会場', 'e1', ORGANIZER_ID])
+    expect(res.json().data.event.date_start).toBe('2026-10-01T01:00:00Z')
+    expect(log.some((sql) => /INSERT INTO audit_logs/.test(sql))).toBe(true)
+    await app.close()
+  })
+
+  it('終了が開始以前になる変更は 422 で UPDATE しない', async () => {
+    const log: string[] = []
+    const app = await buildTestApp(db(log))
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizer/events/e1',
+      headers: authHeader(),
+      payload: { date_end: '2026-09-16T00:00:00Z' },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(log.some((sql) => /UPDATE events/.test(sql))).toBe(false)
+    await app.close()
+  })
+
+  it('所有していないイベントは 403', async () => {
+    const app = await buildTestApp(
+      makeDb([{ match: /FROM events WHERE id = \? AND organizer_id = \?/, rows: [] }]),
+    )
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizer/events/e1',
+      headers: authHeader(),
+      payload: { name: '新名' },
+    })
+    expect(res.statusCode).toBe(403)
+    await app.close()
+  })
+
+  it('空の名前は 422', async () => {
+    const app = await buildTestApp(db([]))
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizer/events/e1',
+      headers: authHeader(),
+      payload: { name: '' },
+    })
+    expect(res.statusCode).toBe(422)
+    await app.close()
+  })
+})
+
+describe('POST /organizer/events の日時（タイムゾーン）', () => {
+  async function create(payloadDates: { date_start: string; date_end: string }) {
+    const params: unknown[][] = []
+    const db = makeDb([
+      {
+        match: /^\s*INSERT INTO events/,
+        rows: (p) => {
+          params.push(p)
+          return []
+        },
+      },
+      ...writeHandlers,
+      { match: /^SELECT id, name/, rows: [{ id: 'e1', name: 'x', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: null, survey_url: null }] },
+      { match: /^SELECT date_end/, rows: [{ date_end: '2026-08-01 09:00:00' }] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: { name: 'x', ...payloadDates, initial_manager: { email: 'mgr@example.com', password: 'password123' } },
+    })
+    await app.close()
+    return { res, params }
+  }
+
+  it('ISO（Z 付き）はそのまま UTC で保存する', async () => {
+    const { res, params } = await create({ date_start: '2026-08-01T01:00:00.000Z', date_end: '2026-08-01T09:00:00.000Z' })
+    expect(res.statusCode).toBe(201)
+    expect(params[0]?.slice(3, 5)).toEqual(['2026-08-01 01:00:00', '2026-08-01 09:00:00'])
+  })
+
+  it('タイムゾーンの無い値は日本時間として UTC に直す', async () => {
+    const { res, params } = await create({ date_start: '2026-08-01T10:00', date_end: '2026-08-01T18:00' })
+    expect(res.statusCode).toBe(201)
+    expect(params[0]?.slice(3, 5)).toEqual(['2026-08-01 01:00:00', '2026-08-01 09:00:00'])
+  })
+})

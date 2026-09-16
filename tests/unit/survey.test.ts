@@ -138,28 +138,15 @@ describe('GET /events/:event_id/pre-survey/questions（公開）', () => {
     await app.close()
   })
 
-  it('is_pre_survey_open を返す', async () => {
+  it('締切を過ぎた値が残っていても is_pre_survey_open は true', async () => {
     const app = await buildTestApp(makeDb({ preSurveyClosesAt: '2020-01-01 00:00:00' }))
     const res = await app.inject({ method: 'GET', url: `/api/v1/events/${EVENT_ID}/pre-survey/questions` })
-    expect(res.json().data.is_pre_survey_open).toBe(false)
+    expect(res.json().data.is_pre_survey_open).toBe(true)
     await app.close()
   })
 })
 
 describe('POST /events/:event_id/survey/answers', () => {
-  it('締切後は409 PRE_SURVEY_CLOSED', async () => {
-    const app = await buildTestApp(makeDb({ preSurveyClosesAt: '2020-01-01 00:00:00' }))
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
-      headers: authHeader(),
-      payload: { age_range: 'twenties', custom_answers: { interest_categories: [CAT_ID] } },
-    })
-    expect(res.statusCode).toBe(409)
-    expect(res.json().error.code).toBe('PRE_SURVEY_CLOSED')
-    await app.close()
-  })
-
   it('必須設問が欠けていると400', async () => {
     const app = await buildTestApp(makeDb({}))
     const res = await app.inject({

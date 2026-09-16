@@ -255,3 +255,60 @@ describe('GET /admin/events/:event_id/app-access', () => {
     await app.close()
   })
 })
+
+describe('PUT /admin/events/:event_id/app-access（manager の開放スイッチ）', () => {
+  const scheduledRow = {
+    event_id: EVENT_ID,
+    mode: 'closed',
+    app_opens_at: '2026-10-16 00:30:00',
+    app_closes_at: null,
+    pre_survey_closes_at: '2026-10-15 14:59:59',
+    updated_by: null,
+    updated_at: '2026-08-24 00:00:00',
+  }
+
+  it('manager は open に切り替えられ、開放予定時刻・締切は保たれる', async () => {
+    const app = await buildTestApp(makeDb({ access: scheduledRow }))
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/admin/events/${EVENT_ID}/app-access`,
+      headers: staffAuthHeader('manager'),
+      payload: { mode: 'open' },
+    })
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data
+    expect(data.mode).toBe('open')
+    expect(data.app_opens_at).toBe('2026-10-16T00:30:00Z')
+    expect(data.pre_survey_closes_at).toBe('2026-10-15T14:59:59Z')
+    // updated_by は organizers への外部キー。manager の ID は入れず既存値を保つ
+    expect(data.updated_by).toBeNull()
+
+    const pub = await app.inject({ method: 'GET', url: `/api/v1/events/${EVENT_ID}/app-access` })
+    expect(pub.json().data.is_open).toBe(true)
+    await app.close()
+  })
+
+  it('viewer は 403', async () => {
+    const app = await buildTestApp(makeDb({ access: scheduledRow }))
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/admin/events/${EVENT_ID}/app-access`,
+      headers: staffAuthHeader('viewer'),
+      payload: { mode: 'open' },
+    })
+    expect(res.statusCode).toBe(403)
+    await app.close()
+  })
+
+  it('scheduled は受け付けない（422）', async () => {
+    const app = await buildTestApp(makeDb({ access: scheduledRow }))
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/v1/admin/events/${EVENT_ID}/app-access`,
+      headers: staffAuthHeader('manager'),
+      payload: { mode: 'scheduled' },
+    })
+    expect(res.statusCode).toBe(422)
+    await app.close()
+  })
+})

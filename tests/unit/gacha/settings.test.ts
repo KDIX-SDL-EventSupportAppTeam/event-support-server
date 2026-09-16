@@ -26,7 +26,7 @@ describe('fetchGachaSettings', () => {
     const got = await fetchGachaSettings(makeDb([]), EVENT_ID)
     expect(got).toEqual(DEFAULT_GACHA_SETTINGS)
     expect(DEFAULT_GACHA_SETTINGS).toEqual({
-      isEnabled: false,
+      isEnabled: true,
       coinsPerLine: 1,
       maxCoins: 4,
       bonusCoins: 0,
@@ -54,7 +54,7 @@ describe('fetchGachaSettings', () => {
       makeDb([{ is_enabled: null, coins_per_line: null, max_coins: 7, bonus_coins: null }]),
       EVENT_ID,
     )
-    expect(got).toEqual({ isEnabled: false, coinsPerLine: 1, maxCoins: 7, bonusCoins: 0 })
+    expect(got).toEqual({ isEnabled: true, coinsPerLine: 1, maxCoins: 7, bonusCoins: 0 })
   })
 
   it('返り値は毎回新しいオブジェクト（既定値定数を共有しない）', async () => {

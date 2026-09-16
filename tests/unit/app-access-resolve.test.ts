@@ -89,20 +89,12 @@ describe('resolveEffectiveAccess', () => {
   })
 
   describe('is_pre_survey_open', () => {
-    it('pre_survey_closes_at より前なら true', () => {
+    it('締切は設けないため、pre_survey_closes_at を過ぎても true', () => {
       const r = resolveEffectiveAccess(
         row({ pre_survey_closes_at: '2026-10-15 14:59:59' }),
-        new Date('2026-10-15T14:59:58Z'),
+        new Date('2026-10-16T00:00:00Z'),
       )
       expect(r.is_pre_survey_open).toBe(true)
-    })
-
-    it('pre_survey_closes_at 以降は false', () => {
-      const r = resolveEffectiveAccess(
-        row({ pre_survey_closes_at: '2026-10-15 14:59:59' }),
-        new Date('2026-10-15T14:59:59Z'),
-      )
-      expect(r.is_pre_survey_open).toBe(false)
     })
 
     it('pre_survey_closes_at が null なら常に true', () => {
@@ -118,22 +110,13 @@ describe('buildDefaultAccessDefaults', () => {
     expect(d.app_opens_at).toBe('2026-10-16 00:30:00')
   })
 
-  it('mode は scheduled', () => {
+  it('mode は closed（manager が手動で開放する）', () => {
     const d = buildDefaultAccessDefaults('2026-10-16 01:00:00')
-    expect(d.mode).toBe('scheduled')
+    expect(d.mode).toBe('closed')
   })
 
-  it('pre_survey_closes_at は開催日前日23:59:59（JST基準）をUTCで保存する', () => {
-    // date_start = 2026-10-16 10:00 UTC = 2026-10-16 19:00 JST
-    // 前日23:59:59 JST = 2026-10-15 23:59:59 JST = 2026-10-15 14:59:59 UTC
+  it('pre_survey_closes_at は既定で締切なし（null）', () => {
     const d = buildDefaultAccessDefaults('2026-10-16 10:00:00')
-    expect(d.pre_survey_closes_at).toBe('2026-10-15 14:59:59')
-  })
-
-  it('JST の日付境界をまたぐケース（date_start が UTC 深夜=JST早朝）', () => {
-    // date_start = 2026-10-16 00:00 UTC = 2026-10-16 09:00 JST
-    // 前日23:59:59 JST = 2026-10-15 14:59:59 UTC
-    const d = buildDefaultAccessDefaults('2026-10-16 00:00:00')
-    expect(d.pre_survey_closes_at).toBe('2026-10-15 14:59:59')
+    expect(d.pre_survey_closes_at).toBeNull()
   })
 })

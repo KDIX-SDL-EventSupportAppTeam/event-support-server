@@ -35,9 +35,12 @@ CREATE TABLE event_app_access (
 
 | 列 | 既定値 |
 |---|---|
-| `mode` | `scheduled` |
-| `app_opens_at` | `events.date_start` の30分前 |
-| `pre_survey_closes_at` | `events.date_start` の前日 23:59:59（JST 基準で計算し保存形式に合わせる） |
+| `mode` | `closed`（manager が開催直前に `/admin` の開放スイッチで `open` にする） |
+| `app_opens_at` | `events.date_start` の30分前（`closed` / `open` では判定に使わない。`scheduled` へ切り替えたときの目安） |
+| `pre_survey_closes_at` | `NULL`（締切なし） |
+
+> 2026-09 変更: 以前は `mode = scheduled`・締切 = 開催前日 23:59:59（JST）だった。
+> 開始日を当日にするとイベント作成直後から回答を受け付けなくなるため、手動開放・締切なしを既定にした。
 
 マイグレーション時、既存イベントにも同じ規則で1行を backfill する（`INSERT ... SELECT`）。
 過去日程のイベントは結果的に `is_open = true` になるが、実運用上問題ない。

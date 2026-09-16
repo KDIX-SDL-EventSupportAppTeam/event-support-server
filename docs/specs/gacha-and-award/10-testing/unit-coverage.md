@@ -59,6 +59,6 @@
 
 `src/lib/gacha/settings.ts` の単体テスト。
 
-- 行が無いとき既定値 `{ isEnabled: false, coinsPerLine: 1, maxCoins: 4, bonusCoins: 0 }` を返す
+- 行が無いとき既定値 `{ isEnabled: true, coinsPerLine: 1, maxCoins: 4, bonusCoins: 0 }` を返す
 - 一部の列が NULL のとき、その列だけ既定値で埋める
 - **行が無いことが例外にならない**
