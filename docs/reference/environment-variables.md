@@ -30,14 +30,14 @@
 | `SMTP_PORT` | — | SMTP ポート（既定: `587`。`465` のみ暗黙TLS、それ以外は STARTTLS） |
 | `SMTP_USER` | — | SMTP 認証ユーザー |
 | `SMTP_PASS` | — | SMTP 認証パスワード |
-| `MAIL_FROM` | — | 確認メールの送信元（既定: `PRoToFES <no-reply@example.com>`） |
+| `MAIL_FROM` | — | 確認メールの送信元の**既定値**（既定: `PRoToFES <no-reply@example.com>`）。イベントに `events.mail_from` があればそちらを From / Reply-To に使う |
 
 > `DATABASE_URL` と `SAKURA_PROXY_URL` の**どちらか一方**は必須。両方あると `SAKURA_PROXY_URL` が勝つ（`src/index.ts`）。本番は Cloud SQL なので `DATABASE_URL` のみを渡し、`SAKURA_PROXY_URL` は**残さない**（[ADR 0008](../decisions/adrs/0008-move-production-db-to-cloud-sql.md)）。
 
 ### 本番（Cloud Run）向けの渡し方
 
-- `JWT_SECRET` / `WEBHOOK_API_KEY` / `DATABASE_URL` / `ADMIN_REGISTRATION_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
-- `CORS_ORIGIN` / `RECOMMENDER_URL` は `--set-env-vars` で渡す。**`--update-env-vars` は使わない**（既存サービスに残った `SAKURA_PROXY_URL` が消えず、プロキシ経路のまま動く）
+- `JWT_SECRET` / `WEBHOOK_API_KEY` / `DATABASE_URL` / `ADMIN_REGISTRATION_KEY` / `SMTP_PASS` / `ORGANIZER_REGISTRATION_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
+- `CORS_ORIGIN` / `RECOMMENDER_URL` / `FRONTEND_BASE_URL` / `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `MAIL_FROM` は `--set-env-vars` で渡す。**`--update-env-vars` は使わない**（既存サービスに残った `SAKURA_PROXY_URL` が消えず、プロキシ経路のまま動く）
 - `DATABASE_URL` は Cloud Run 用（`?socket=/cloudsql/...`）とローカルから `cloud-sql-proxy` 経由で触る用（`127.0.0.1:3307`）で**別の文字列**になる
 - 値はリポジトリにコミットしない（`.env` は `.gitignore` 済み）
 - 詳細手順: [docs/operations/cloud-run.md](../operations/cloud-run.md)
