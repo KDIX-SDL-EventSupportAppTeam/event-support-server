@@ -92,6 +92,7 @@ npm run db:check   # テーブルの過不足と件数をまとめて確認す�
 
 `db/create-tables.sql` を渡す（先頭の `USE` を実 DB 名に書き換えて全文実行）。
 
-本番 DB はさくらの HTTP プロキシ経由で **1 リクエスト = 1 SQL**。
-トランザクションも行ロックも無い（[ADR 0001](../decisions/adrs/0001-sakura-proxy-error-masking.md)）。
+本番 DB は Cloud SQL（MySQL 8.0）への直接接続で、トランザクションが使える（[ADR 0008](../decisions/adrs/0008-move-production-db-to-cloud-sql.md)）。
+ただしさくらプロキシ（**1 リクエスト = 1 SQL**、トランザクション・行ロック無し）へ切り戻せるよう、
+その前提で書いたコードは当面そのまま残す（[ADR 0001](../decisions/adrs/0001-sakura-proxy-error-masking.md)）。
 排他は条件付き `UPDATE` の `affectedRows` と、追記専用テーブルの一意制約で取る。

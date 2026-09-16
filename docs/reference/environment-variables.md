@@ -1,6 +1,6 @@
 ---
 状態: 実装済み
-最終更新: 2026-08-24
+最終更新: 2026-09-16
 ---
 
 > **現状の事実を記録する文書。** 「これからどうするか」は [../specs/](../specs/README.md) を見ること。
@@ -9,9 +9,9 @@
 
 | 変数名 | 必須 | 説明 |
 |--------|------|------|
-| `DATABASE_URL` | △ | `mysql://user:pass@host:3306/dbname`。`SAKURA_PROXY_URL` 未設定時は必須 |
-| `SAKURA_PROXY_URL` | △ | さくら上ラッパー API のベース URL（例: `https://example.sakura.ne.jp/proxy`）。設定時は HTTP プロキシ経由で DB アクセス |
-| `SAKURA_PROXY_KEY` | プロキシ使用時 ✅ | ラッパー API 認証キー（`X-Proxy-Key` ヘッダー。本番は Secret Manager） |
+| `DATABASE_URL` | △ | TCP: `mysql://user:pass@host:3306/dbname`。Unix ソケット: `mysql://user:pass@localhost/dbname?socket=/cloudsql/<接続名>`（本番 Cloud Run → Cloud SQL）。`SAKURA_PROXY_URL` 未設定時は必須 |
+| `SAKURA_PROXY_URL` | △ | **旧本番（切り戻し用）。** さくら上ラッパー API のベース URL。**設定されていると `DATABASE_URL` より優先される** |
+| `SAKURA_PROXY_KEY` | プロキシ使用時 ✅ | ラッパー API 認証キー（`X-Proxy-Key` ヘッダー） |
 | `JWT_SECRET` | ✅ | JWT 署名キー（本番は 32 文字以上のランダム文字列） |
 | `WEBHOOK_API_KEY` | 本番 ✅ | Google Apps Script から受け取る Webhook 認証キー（開発は空でも可） |
 | `ADMIN_REGISTRATION_KEY` | ✅ | 運営アカウント登録（`POST /auth/register/admin`）の `X-Admin-Key` 検証キー。開発でも必須 |
@@ -32,13 +32,13 @@
 | `SMTP_PASS` | — | SMTP 認証パスワード |
 | `MAIL_FROM` | — | 確認メールの送信元（既定: `PRoToFES <no-reply@example.com>`） |
 
-> `DATABASE_URL` と `SAKURA_PROXY_URL` の**どちらか一方**は必須。本番（さくら Standard）は外部から MySQL 直接接続不可のため、通常は `SAKURA_PROXY_URL` + `SAKURA_PROXY_KEY` を使う。
+> `DATABASE_URL` と `SAKURA_PROXY_URL` の**どちらか一方**は必須。両方あると `SAKURA_PROXY_URL` が勝つ（`src/index.ts`）。本番は Cloud SQL なので `DATABASE_URL` のみを渡し、`SAKURA_PROXY_URL` は**残さない**（[ADR 0008](../decisions/adrs/0008-move-production-db-to-cloud-sql.md)）。
 
 ### 本番（Cloud Run）向けの渡し方
 
-- `JWT_SECRET` / `WEBHOOK_API_KEY` / `SAKURA_PROXY_KEY` / `ADMIN_REGISTRATION_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
-- `SAKURA_PROXY_URL` / `PORT` / `CORS_ORIGIN` / `RECOMMENDER_URL` は `--set-env-vars` で渡す
-- 本番（さくら Standard）では `SAKURA_PROXY_URL` 経由が前提。`DATABASE_URL` は Cloud Run から不要（ラッパー API がさくら内から MySQL に接続）
+- `JWT_SECRET` / `WEBHOOK_API_KEY` / `DATABASE_URL` / `ADMIN_REGISTRATION_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
+- `CORS_ORIGIN` / `RECOMMENDER_URL` は `--set-env-vars` で渡す。**`--update-env-vars` は使わない**（既存サービスに残った `SAKURA_PROXY_URL` が消えず、プロキシ経路のまま動く）
+- `DATABASE_URL` は Cloud Run 用（`?socket=/cloudsql/...`）とローカルから `cloud-sql-proxy` 経由で触る用（`127.0.0.1:3307`）で**別の文字列**になる
 - 値はリポジトリにコミットしない（`.env` は `.gitignore` 済み）
 - 詳細手順: [docs/operations/cloud-run.md](../operations/cloud-run.md)
 

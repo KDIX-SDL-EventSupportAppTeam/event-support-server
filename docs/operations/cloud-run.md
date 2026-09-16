@@ -11,10 +11,10 @@
   - Artifact Registry API
   - Secret Manager API
   - Cloud Build API
-- **さくら上のラッパー API** が設置済み（`src/scripts/sakura-proxy-mock.ts` をベースに先生が HTTPS で公開）
-- DB スキーマ適用済み（さくら DB 上で `db/create-tables.sql` 等を実行済み）
+  - Cloud SQL Admin API
+- Cloud SQL インスタンス作成・スキーマ適用済み（[production-db-apply.md](production-db-apply.md)）
 
-> さくら Standard は外部から MySQL 直接接続不可。Cloud Run は `SAKURA_PROXY_URL` 経由でラッパー API を呼ぶ（[完了メモ](../archive/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)）。
+> 本番DBは Cloud SQL。Cloud Run からは `--add-cloudsql-instances` で Unix ソケットに直結する（[ADR 0008](../decisions/adrs/0008-move-production-db-to-cloud-sql.md)）。
 
 ---
 
@@ -59,13 +59,12 @@ echo -n "$(node -e "console.log(require('crypto').randomBytes(48).toString('base
 echo -n "$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")" \
   | gcloud secrets create WEBHOOK_API_KEY --data-file=-
 
-# SAKURA_PROXY_KEY（ラッパー API 認証キー。さくら側と同じ値）
-echo -n "$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")" \
-  | gcloud secrets create SAKURA_PROXY_KEY --data-file=-
+# DATABASE_URL（Cloud SQL へ Unix ソケットで繋ぐ。ローカル用の 127.0.0.1:3307 とは別物）
+echo -n "mysql://app:<password>@localhost/event_support?socket=/cloudsql/$PROJECT_ID:$REGION:event-support-db" \
+  | gcloud secrets create DATABASE_URL --data-file=-
 ```
 
-> 値を更新したい場合は `gcloud secrets versions add <NAME> --data-file=-` で新バージョンを作る。  
-> `DATABASE_URL` は Cloud Run から不要（ラッパー API がさくら内から MySQL に接続する）。
+> 値を更新したい場合は `gcloud secrets versions add <NAME> --data-file=-` で新バージョンを作る。
 
 Cloud Run のサービスアカウントに参照権限を付与:
 
@@ -73,11 +72,16 @@ Cloud Run のサービスアカウントに参照権限を付与:
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
 SA=$PROJECT_NUMBER-compute@developer.gserviceaccount.com
 
-for s in JWT_SECRET WEBHOOK_API_KEY SAKURA_PROXY_KEY; do
+for s in JWT_SECRET WEBHOOK_API_KEY DATABASE_URL ADMIN_REGISTRATION_KEY; do
   gcloud secrets add-iam-policy-binding $s \
     --member="serviceAccount:$SA" \
     --role="roles/secretmanager.secretAccessor"
 done
+
+# Cloud SQL へのソケット接続権限
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$SA" \
+  --role="roles/cloudsql.client"
 ```
 
 ---
@@ -119,8 +123,9 @@ gcloud run deploy $SERVICE \
   --timeout=3600 \
   --cpu=1 \
   --memory=512Mi \
-  --set-env-vars="CORS_ORIGIN=<FRONTEND_ORIGIN>,SAKURA_PROXY_URL=https://<sakura-host>/proxy" \
-  --set-secrets="JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest"
+  --add-cloudsql-instances=$PROJECT_ID:$REGION:event-support-db \
+  --set-env-vars="^@^CORS_ORIGIN=<FRONTEND_ORIGIN>" \
+  --set-secrets="JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest"
 ```
 
 | フラグ | 理由 |
@@ -183,8 +188,8 @@ firebase deploy --only hosting --project event-support-app
 
 ## 注意点・既知の落とし穴
 
-- **さくら Standard の MySQL**: Cloud Run から 3306 直接接続は不可。ラッパー API（HTTPS）経由のみ
-- **ラッパー API はエラーを 500 に潰す**: MySQL のエラーコードが取れないため、一意制約は INSERT 前に SELECT で確認する（[ADR 0001](../decisions/adrs/0001-sakura-proxy-error-masking.md)）
+- **`--update-env-vars` を使わない**: 既存サービスに残った `SAKURA_PROXY_URL` が消えず、`src/index.ts` がさくら経路を選んで**無言で**旧DBに繋がる。`--set-env-vars`（全置換）を使う
+- **一意制約は INSERT 前に SELECT で確認する書き方を維持**: さくらプロキシへ切り戻せるようにするため（[ADR 0001](../decisions/adrs/0001-sakura-proxy-error-masking.md)・[ADR 0008](../decisions/adrs/0008-move-production-db-to-cloud-sql.md)）
 - **WebSocket は 1 インスタンス固定が前提**: `--max-instances=1` 等が無いとリアルタイム配信が届かない（[ADR 0002](../decisions/adrs/0002-cloud-run-single-instance-for-websocket.md)）
-- **ラッパー API の HTTPS**: 本番は必ず HTTPS。ローカルモック（`npm run proxy:mock`）は HTTP の開発専用
-- **DB スキーマの適用**: さくら DB 上で `db/create-tables.sql` を実行。`db:check` / `db:seed:prod` は **ローカルまたはさくら内** から実行
+- **DB スキーマの適用**: `cloud-sql-proxy` 経由で `npm run db:migrate`（[production-db-apply.md](production-db-apply.md)）
+- **Cloud SQL は常時課金**: Cloud Run と違いゼロスケールしない。イベント期間外は `gcloud sql instances patch event-support-db --activation-policy=NEVER` で停止できる

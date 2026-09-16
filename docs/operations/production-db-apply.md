@@ -1,117 +1,102 @@
 ---
 状態: 確定
-最終更新: 2026-09-05
+最終更新: 2026-09-16
 ---
 
-# 本番DBへのスキーマ適用（先生への依頼を含む）
+# 本番DBへのスキーマ適用（Cloud SQL）
 
-**本番（さくら）へのスキーマ適用は、phpMyAdmin から SQL を流す以外に経路が無い。**
-この文書はその手順と、先生にお願いする内容をまとめたものである。
+本番DBは Cloud SQL for MySQL 8.0（[ADR 0008](../decisions/adrs/0008-move-production-db-to-cloud-sql.md)）。
+スキーマ適用・バックアップ・復元はすべて自分たちで行える。**先生への依頼は不要。**
 
-## なぜ自動化できないのか
-
-| 手段 | 使えない理由 |
+| 項目 | 値 |
 |---|---|
-| `npm run db:migrate` | **`DATABASE_URL` の直接接続専用。** さくらプロキシ経由では実行できず、スクリプト自身が拒否して終了する。さらに**空のDBにしか実行できない**（既存テーブルが1つでもあれば中断） |
-| さくらプロキシ経由 | **1リクエスト = 1SQL。** マルチステートメントを流せない |
-| MySQL への直接接続 | さくら Standard が外部接続を許さない |
+| プロジェクト | `event-support-app` |
+| インスタンス | `event-support-db`（接続名 `event-support-app:asia-northeast1:event-support-db`） |
+| DB / ユーザー | `event_support` / `app` |
+| フラグ | `character_set_server=utf8mb4`、`default_time_zone=+00:00`（**必須**。`pool.ts` の `timezone: 'Z'` と揃える） |
 
-したがって、**さくらの phpMyAdmin を開ける人（先生）に実行してもらう**必要がある。
+> コマンドは PowerShell 前提。カンマを含む引数（`--database-flags=a=b,c=d` 等）は**全体をクォートする**。
+> しないと PowerShell が配列として解釈し、カンマがスペースに化ける。
 
-## 適用するもの
+## 1. ローカルから Cloud SQL に繋ぐ
 
-**`db/create-tables.sql` を1本流す（作り直し方式）。**
+`cloud-sql-proxy` を起動し、`127.0.0.1:3307` で TCP 接続する（ローカル docker の 3306 と衝突させない）。
+Windows 版バイナリは GitHub Releases の `cloud-sql-proxy.x64.exe`。
 
-このファイルは増分ではなく**完全な正本**であり、以下をすべて含む。
-
-- 21 テーブル
-- `gacha_settings` / `gacha_coin_uses`（ユニーク制約つき）
-- `users.onboarding_completed_at`
-- `card_unlock_events.pair_key VARCHAR(16)`（`'PRESURVEY'` の9文字が入る幅）
-- `recommendation_scores`（旧 `recommendations` は廃止済み）
-
-### 増分適用を選ばない理由
-
-本番のさくら DB には `09_bingo_staged_unlock.sql` 以降が適用されておらず（各ファイル冒頭の注記）、
-どこまで当たっているかを人手で確かめてから足りない分だけ流す、という運用になる。
-**当日データを取り直せないイベントの前に、適用状態の判断を人に委ねる運用は取らない。**
-正本 1 本（`db/create-tables.sql`）を流し、確認クエリ 3 本で結果を判定する。
-`db/migrations/` の番号と適用順は [db/migrations/README.md](../../db/migrations/README.md) に固定してある（issue #112）。
-
-## ⚠️ 破壊的である
-
-**`db/create-tables.sql` の冒頭には `DROP TABLE IF EXISTS` が並ぶ。実行すると既存データは消える。**
-
-本番DBには第3回（2025年）以前のデータは入っていないが、
-**開発中に投入したテストデータや、事前アンケートの回答が入っている可能性がある。**
-実行前に必ずダンプを取る。
-
-## 手順
-
-### 1. 事前ダンプ（先生・必須）
-
-phpMyAdmin の「エクスポート」から、対象DBを**全テーブル・構造とデータの両方**で
-SQL 形式で書き出し、手元に保存する。
-
-**これが唯一のロールバック手段である。** ダンプを取らずに次へ進まない。
-
-### 2. 適用（先生）
-
-phpMyAdmin の「SQL」タブに `db/create-tables.sql` の中身を貼り、実行する。
-
-- ファイル中の `USE <DB名>;` の行は、**phpMyAdmin で対象DBを選んでから実行する場合は削除する**
-  （選択中のDBと衝突するため）
-- 実行は1回。エラーが出たら**そこで止めて連絡する**。途中まで流れた状態で追加実行しない
-
-### 3. 確認（先生。3つのクエリを流して結果を返す）
-
-```sql
--- (1) テーブルが 21 個できていること（一覧の行数を数える）
-SHOW TABLES;
-
--- (2) pair_key の幅が 16 であること（Type 列を見る）
-SHOW COLUMNS FROM card_unlock_events LIKE 'pair_key';
-
--- (3) ガチャの設定テーブルができていること（1 行返れば成功）
-SHOW TABLES LIKE 'gacha_settings';
+```powershell
+gcloud auth application-default login
+& "$HOME\bin\cloud-sql-proxy.exe" --port 3307 event-support-app:asia-northeast1:event-support-db
 ```
 
-期待値: (1) 一覧に **21 行** / (2) Type が **`varchar(16)`** / (3) **1 行**
+別ターミナルで `.env` を次の形にする。**`SAKURA_PROXY_URL` は書かない**（あると `npm run dev` がさくらに繋がる）。
 
-> **`information_schema` を使うクエリを渡さないこと。**
-> さくらなどの共有サーバーでは権限で拒否される（エラー #1044）。
-> `db/create-tables.sql` 末尾のコメントにも同じ注意がある。
-> 先生に渡す確認手段は `SHOW TABLES` / `SHOW COLUMNS` で組む。
+```
+DATABASE_URL=mysql://app:<password>@127.0.0.1:3307/event_support
+JWT_SECRET=<任意>
+ADMIN_REGISTRATION_KEY=<任意>
+```
 
-### 4. ロールバック（問題が起きたときだけ）
+`db:migrate` / `db:check` も `loadConfig()` を通るので、`JWT_SECRET` と `ADMIN_REGISTRATION_KEY` は値が何であれ必要。
 
-1 で取ったダンプを phpMyAdmin の「インポート」から流し戻す。
-**それ以外の復旧手段は無い。**
+## 2. 事前バックアップ（必須）
 
-**当日トラブル時の判断基準つきの詳しい手順**（DB復元・Cloud Run リビジョン差し戻し・
-推薦の切り離し・部分停止）は [rollback.md](rollback.md) にまとめてある。
+**適用前に必ず取る。**
+
+```powershell
+gcloud sql backups create --instance=event-support-db --project=event-support-app --description="before-schema-apply"
+```
+
+## 3. 適用
+
+```powershell
+npm run db:check    # 接続できて tables: 0 であること
+npm run db:migrate  # Migration OK: 25 tables created
+npm run db:check    # OK: all 25 tables exist
+```
+
+`db:migrate` は**空の DB にしか流せない**（テーブルが1つでもあれば中断する）。
+作り直すときは DB ごと消して作り直す。**データは消える。**
+
+```powershell
+gcloud sql databases delete event_support --instance=event-support-db --project=event-support-app
+gcloud sql databases create event_support --instance=event-support-db --project=event-support-app --charset=utf8mb4 --collation=utf8mb4_general_ci
+```
+
+## 4. 事前アンケートの設問投入（イベント作成の後）
+
+イベント本体は organizer 画面（`POST /organizer/events`）で作る。**設問はイベント作成では入らない。**
+本番の設問セット（必須5問＋任意1問）は `db/migrations/16_pre_survey_questions.sql` にしか無い。
+
+このファイルは**実行時点で存在するイベント全件**に設問を入れる。再実行は無害（`question_key` で存在確認する）。
+イベントを作ったら、そのたびに1回流す。mysql クライアントが無ければ docker で代用できる。
+
+```powershell
+Get-Content db/migrations/16_pre_survey_questions.sql -Raw | docker run --rm -i mysql:8.0 mysql -h host.docker.internal -P 3307 -u app -p<password> event_support
+```
+
+`npm run db:seed:prod` は**使わない。** 既定の設問が旧形式（`question_key` 無し）で、分析・推薦側との契約を満たさない。
+
+## 5. ロールバック
+
+§2 で取ったバックアップから復元する。**インスタンス全体が巻き戻る**（バックアップ以降のデータは消える）。
+
+```powershell
+gcloud sql backups list --instance=event-support-db --project=event-support-app
+gcloud sql backups restore <BACKUP_ID> --restore-instance=event-support-db --project=event-support-app
+```
+
+当日トラブル時の判断基準は [rollback.md](rollback.md)。
 
 ## 実行のタイミング
 
 | 対象 | いつ | 備考 |
 |---|---|---|
-| リハーサル用イベントのDB | リハーサルの前 | 本番と**別のDB**で先に手順を通す |
-| 本番DB | イベント前日 | 当日の朝は行わない（失敗したとき戻す時間が無い） |
-
-**本番より先に、必ずリハーサル側で1回通す。** 手順書の誤りはそこで見つける。
-
-## 先生にお願いすること（まとめ）
-
-1. 適用前に**全テーブルのダンプ**を取って保存する
-2. phpMyAdmin の SQL タブで `db/create-tables.sql` を1回実行する
-3. 確認クエリ3本を流し、結果（21 / 16 / 1）を返す
-4. エラーが出たら**そこで止めて連絡する**
-
-所要は5〜10分。`db/create-tables.sql` は本リポジトリの `db/` にある。
+| リハーサル用DB | リハーサルの前 | 本番と**別の DB**（別インスタンスか別 database）で先に手順を通す |
+| 本番DB | イベント前日まで | 当日の朝は行わない（失敗したとき戻す時間が無い） |
 
 ## 起きてはいけないこと
 
-- **ダンプを取らずに実行すること**
-- **エラーの後に追い実行すること。** 半分だけ適用された状態が最も復旧しにくい
-- **当日の朝に実行すること**
+- **バックアップを取らずに適用すること**
+- **`.env` に `SAKURA_PROXY_URL` を残したまま作業すること**
 - **本番DBでリハーサルを行うこと**（`docs/specs/bingo-dynamic-unlock/00-must-do.md`）
+- **Cloud Run に `--update-env-vars` でデプロイすること**（`SAKURA_PROXY_URL` が残り、無言でさくら経路に戻る）

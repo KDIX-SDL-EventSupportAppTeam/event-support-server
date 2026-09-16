@@ -49,6 +49,10 @@ const EXPECTED_TABLE_NAMES = [
 
 async function main() {
   const config = loadConfig()
+  if (!config.databaseUrl) {
+    console.error('[db:check] DATABASE_URL が未設定です。db:check は直接接続専用です。')
+    process.exit(1)
+  }
   const safeUrl = config.databaseUrl.replace(/:[^:@/]+@/, ':***@')
   console.log(`[db:check] connecting to ${safeUrl}`)
 
