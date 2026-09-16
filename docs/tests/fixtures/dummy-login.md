@@ -1,7 +1,7 @@
 # 開発用ログイン・event_id
 
-`npm run db:seed` 投入データと [src/scripts/seed-dev.ts](../../src/scripts/seed-dev.ts) の定数。  
-フロントエンド接続確認は [AGENTS.md](../../AGENTS.md) § フロントエンドとの接続確認 を参照。
+`npm run db:seed` 投入データと [src/scripts/seed-dev.ts](../../../src/scripts/seed-dev.ts) の定数。  
+フロントエンド接続確認は [README.md](../../../README.md) § ローカル開発 を参照。
 
 ## 参加者（開発用）
 
@@ -10,6 +10,15 @@
 | メール | `dev@example.com` |
 | パスワード | `password123` |
 | 表示名 | `開発用参加者` |
+
+## 出展者（開発用）
+
+| 項目 | 値 |
+|------|-----|
+| メール | `exhibitor@example.com` |
+| パスワード | `password123` |
+| 表示名 | `開発用出展者` |
+| 担当ブース | ブース A（`20000000-0000-4000-8000-000000000021`） |
 
 ## event_id（シード）
 

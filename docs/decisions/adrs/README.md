@@ -1,0 +1,36 @@
+# Architecture Decision Records
+
+設計上の重要な判断を短い ADR として残す。  
+新規 ADR は **`docs/archive/legacy/adrs/` ではなく本ディレクトリ** に追加する。
+
+## ファイル名
+
+```
+NNNN-kebab-case-title.md
+```
+
+`NNNN` は 4 桁の連番（例: `0001-use-fastify.md`）。
+
+## テンプレート（目安）
+
+1. タイトル・日付・ステータス（提案 / 承認 / 廃止）
+2. コンテキスト（なぜ決める必要があったか）
+3. 決定
+4. 結果・トレードオフ
+
+## 一覧
+
+| 番号 | ファイル | 概要 |
+|------|----------|------|
+| 0001 | [0001-sakura-proxy-error-masking.md](./0001-sakura-proxy-error-masking.md) | さくらプロキシは DB エラーを 500 に潰すため、一意制約は INSERT 前に確認する |
+| 0002 | [0002-cloud-run-single-instance-for-websocket.md](./0002-cloud-run-single-instance-for-websocket.md) | WebSocket 配信のため Cloud Run を 1 インスタンスに固定する |
+| 0004 | [0004-split-recommender-repository.md](./0004-split-recommender-repository.md) | 推薦エンジンを別リポジトリに分ける |
+| 0005 | [0005-stacked-pr-merge-order.md](./0005-stacked-pr-merge-order.md) | 積み重ねた PR は上から順にマージし、取り残しを CI で検出する |
+| 0006 | [0006-bingo-card-creation-must-not-fail.md](./0006-bingo-card-creation-must-not-fail.md) | ビンゴカード生成は「作る側1本」に寄せ、重複キーは例外にしない |
+| 0007 | [0007-keep-ipv4-listen-document-127-0-0-1.md](./0007-keep-ipv4-listen-document-127-0-0-1.md) | 待ち受けは 0.0.0.0 のまま。開発時の接続先は 127.0.0.1 と明記する |
+| 0008 | [0008-move-production-db-to-cloud-sql.md](./0008-move-production-db-to-cloud-sql.md) | 本番DBをさくらプロキシから Cloud SQL (MySQL 8.0) へ移す。ADR 0001 の書き方は切り戻し用に当面維持 |
+
+## 関連
+
+- [AGENTS.md](../../../AGENTS.md) — ドキュメント運用
+- [docs/archive/legacy/adrs/](../../archive/legacy/adrs/) — モノレポ移行元（参照のみ）

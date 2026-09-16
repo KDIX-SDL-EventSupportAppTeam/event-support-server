@@ -25,6 +25,7 @@ async function main() {
     const result = await clearSampleData(pool, eventId)
     console.log(`[clear-sample] OK event_id=${eventId}`)
     console.log('  deleted:', result.deleted)
+    console.log(`  割り当てを外したマス: ${result.cleared_cells}`)
   } finally {
     await pool.end()
   }

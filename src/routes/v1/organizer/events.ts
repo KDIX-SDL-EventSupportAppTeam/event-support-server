@@ -8,6 +8,8 @@ import { requireOrganizer } from '../../../plugins/auth.js'
 import { insertAuditLog } from '../../../lib/audit.js'
 import { buildEventUrls } from '../../../lib/url.js'
 import { assertEventOwnedByOrganizer } from '../../../lib/organizer.js'
+import { buildDefaultAccessDefaults } from '../../../lib/app-access.js'
+import { isoToMysqlUtc } from '../../../lib/datetime.js'
 
 /** DB から取得したイベント行（日時は MySQL DATETIME 文字列）。 */
 type EventRow = {
@@ -16,6 +18,7 @@ type EventRow = {
   date_start: string
   date_end: string
   venue: string | null
+  survey_url: string | null
   created_at: string
 }
 
@@ -83,6 +86,7 @@ function toEventPayload(
     date_start: toIso(row.date_start),
     date_end: toIso(row.date_end),
     venue: row.venue,
+    survey_url: row.survey_url,
     created_at: toIso(row.created_at),
     stats,
     urls: buildEventUrls(app.config, row.id),
@@ -94,12 +98,33 @@ const createEventBody = z.object({
   date_start: z.string().min(1),
   date_end: z.string().min(1),
   venue: z.string().max(500).optional(),
+  survey_url: z.string().url().max(2048).regex(/^https?:\/\//).nullable().optional(),
   initial_manager: z.object({
     email: z.string().email(),
     password: z.string().min(8).max(200),
     display_name: z.string().min(1).max(200).optional(),
   }),
 })
+
+/** 部分更新。日時は ISO 8601（タイムゾーン付き）で受け、UTC の DATETIME として保存する。 */
+const patchEventBody = z.object({
+  name: z.string().min(1).max(255).optional(),
+  date_start: z.string().min(1).optional(),
+  date_end: z.string().min(1).optional(),
+  venue: z.string().max(500).nullable().optional(),
+  survey_url: z.string().url().max(2048).regex(/^https?:\/\//).nullable().optional(),
+})
+
+/**
+ * 作成時に受け取る日時を UTC の DATETIME 文字列へ正規化する。
+ * フロントは ISO 8601（`toISOString()`）で送る。タイムゾーンの無い値（旧フロントの
+ * `datetime-local` の生値 `2026-08-01T10:00`）は日本時間として解釈する。
+ * かつては生値をそのまま保存しており、日本時間の入力が UTC として扱われ9時間ずれていた。
+ */
+function createDateToMysqlUtc(value: string): string {
+  const hasZone = /(Z|[+-]\d{2}:?\d{2})$/i.test(value)
+  return isoToMysqlUtc(hasZone ? value : `${value}+09:00`)
+}
 
 export async function organizerEventRoutes(app: FastifyInstance) {
   const pre = [requireOrganizer]
@@ -111,7 +136,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const organizerId = req.organizerUser!.sub
       const [rows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
          FROM events WHERE organizer_id = ?
          ORDER BY date_start DESC`,
         [organizerId],
@@ -141,7 +166,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       const { event_id } = req.params
 
       const [rows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
          FROM events WHERE id = ? AND organizer_id = ? LIMIT 1`,
         [event_id, organizerId],
       )
@@ -149,6 +174,120 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       if (!event) {
         return sendFail(reply, 403, 'FORBIDDEN', 'このイベントへのアクセス権限がありません')
       }
+
+      const stats = await fetchStatsForEvents(app, [event_id])
+      return sendOk(reply, {
+        event: toEventPayload(
+          app,
+          event,
+          stats.get(event_id) ?? { participants: 0, booths: 0, checkins: 0 },
+        ),
+      })
+    },
+  )
+
+  // イベント情報の修正（名前・日時・会場・アンケートURL）。所有していない場合は 403
+  app.patch<{ Params: { event_id: string } }>(
+    '/organizer/events/:event_id',
+    { preHandler: pre },
+    async (req, reply) => {
+      const organizerId = req.organizerUser!.sub
+      const { event_id } = req.params
+
+      const parsed = patchEventBody.safeParse(req.body)
+      if (!parsed.success) {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
+      }
+      const body = parsed.data
+
+      const [beforeRows] = await app.db.query(
+        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
+         FROM events WHERE id = ? AND organizer_id = ? LIMIT 1`,
+        [event_id, organizerId],
+      )
+      const before = (beforeRows as EventRow[])[0]
+      if (!before) {
+        return sendFail(reply, 403, 'FORBIDDEN', 'このイベントへのアクセス権限がありません')
+      }
+
+      let dateStart: string | undefined
+      let dateEnd: string | undefined
+      try {
+        if (body.date_start !== undefined) dateStart = isoToMysqlUtc(body.date_start)
+        if (body.date_end !== undefined) dateEnd = isoToMysqlUtc(body.date_end)
+      } catch {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', '日時の形式が不正です')
+      }
+      // 片方だけ変える場合も、保存後の組み合わせで前後関係を確かめる
+      const startMs = new Date(toIso(dateStart ?? before.date_start)).getTime()
+      const endMs = new Date(toIso(dateEnd ?? before.date_end)).getTime()
+      if (!(startMs < endMs)) {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', '終了日時は開始日時より後にしてください')
+      }
+
+      const fields: string[] = []
+      const params: unknown[] = []
+      if (body.name !== undefined) {
+        fields.push('name = ?')
+        params.push(body.name)
+      }
+      if (dateStart !== undefined) {
+        fields.push('date_start = ?')
+        params.push(dateStart)
+      }
+      if (dateEnd !== undefined) {
+        fields.push('date_end = ?')
+        params.push(dateEnd)
+      }
+      if (body.venue !== undefined) {
+        fields.push('venue = ?')
+        params.push(body.venue)
+      }
+      if (body.survey_url !== undefined) {
+        fields.push('survey_url = ?')
+        params.push(body.survey_url)
+      }
+      if (!fields.length) {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', '更新項目がありません')
+      }
+
+      params.push(event_id, organizerId)
+      await app.db.execute(
+        `UPDATE events SET ${fields.join(', ')} WHERE id = ? AND organizer_id = ?`,
+        params,
+      )
+
+      const [rows] = await app.db.query(
+        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
+         FROM events WHERE id = ? AND organizer_id = ? LIMIT 1`,
+        [event_id, organizerId],
+      )
+      const event = (rows as EventRow[])[0]!
+
+      await insertAuditLog(app.db, {
+        eventId: event_id,
+        actorId: organizerId,
+        actorRole: 'organizer',
+        action: 'update',
+        targetType: 'event',
+        targetId: event_id,
+        detail: {
+          before: {
+            name: before.name,
+            date_start: toIso(before.date_start),
+            date_end: toIso(before.date_end),
+            venue: before.venue,
+            survey_url: before.survey_url,
+          },
+          after: {
+            name: event.name,
+            date_start: toIso(event.date_start),
+            date_end: toIso(event.date_end),
+            venue: event.venue,
+            survey_url: event.survey_url,
+          },
+        },
+      })
 
       const stats = await fetchStatsForEvents(app, [event_id])
       return sendOk(reply, {
@@ -172,6 +311,15 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       const body = parsed.data
       const organizerId = req.organizerUser!.sub
 
+      let dateStart: string
+      let dateEnd: string
+      try {
+        dateStart = createDateToMysqlUtc(body.date_start)
+        dateEnd = createDateToMysqlUtc(body.date_end)
+      } catch {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', '日時の形式が不正です')
+      }
+
       const eventId = randomUUID()
       const managerId = randomUUID()
       const managerHash = await bcrypt.hash(body.initial_manager.password, 10)
@@ -186,13 +334,20 @@ export async function organizerEventRoutes(app: FastifyInstance) {
           await conn.beginTransaction()
 
           await conn.execute(
-            'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue) VALUES (?,?,?,?,?,?)',
-            [eventId, organizerId, body.name, body.date_start, body.date_end, body.venue ?? null],
+            'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue, survey_url) VALUES (?,?,?,?,?,?,?)',
+            [eventId, organizerId, body.name, dateStart, dateEnd, body.venue ?? null, body.survey_url ?? null],
           )
 
           await conn.execute(
             'INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)',
             [managerId, eventId, managerEmail, managerHash, managerDisplayName, 'manager'],
+          )
+
+          const accessDefaults = buildDefaultAccessDefaults(dateStart)
+          await conn.execute(
+            `INSERT INTO event_app_access (event_id, mode, app_opens_at, pre_survey_closes_at)
+             VALUES (?,?,?,?)`,
+            [eventId, accessDefaults.mode, accessDefaults.app_opens_at, accessDefaults.pre_survey_closes_at],
           )
 
           await conn.execute(
@@ -220,14 +375,21 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       } else {
         // getConnection 非対応の場合は順次実行し、失敗時は補償削除する（さくらプロキシ環境等）
         await app.db.execute(
-          'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue) VALUES (?,?,?,?,?,?)',
-          [eventId, organizerId, body.name, body.date_start, body.date_end, body.venue ?? null],
+          'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue, survey_url) VALUES (?,?,?,?,?,?,?)',
+          [eventId, organizerId, body.name, dateStart, dateEnd, body.venue ?? null, body.survey_url ?? null],
         )
 
         try {
           await app.db.execute(
             'INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)',
             [managerId, eventId, managerEmail, managerHash, managerDisplayName, 'manager'],
+          )
+
+          const accessDefaults = buildDefaultAccessDefaults(dateStart)
+          await app.db.execute(
+            `INSERT INTO event_app_access (event_id, mode, app_opens_at, pre_survey_closes_at)
+             VALUES (?,?,?,?)`,
+            [eventId, accessDefaults.mode, accessDefaults.app_opens_at, accessDefaults.pre_survey_closes_at],
           )
 
           await insertAuditLog(app.db, {
@@ -247,7 +409,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       }
 
       const [eventRows] = await app.db.query(
-        'SELECT id, name, date_start, date_end, venue FROM events WHERE id = ? LIMIT 1',
+        'SELECT id, name, date_start, date_end, venue, survey_url FROM events WHERE id = ? LIMIT 1',
         [eventId],
       )
       const event = (eventRows as {
@@ -256,6 +418,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
         date_start: string
         date_end: string
         venue: string | null
+        survey_url: string | null
       }[])[0]
 
       const token = await signAccessToken(

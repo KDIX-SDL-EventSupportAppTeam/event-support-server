@@ -12,6 +12,8 @@ export type SampleClearResult = {
     categories: number
     survey_questions: number
   }
+  /** サンプルブースの割り当てを外したマス数（サンプル以外の参加者のカードに載っていた分） */
+  cleared_cells: number
 }
 
 async function sampleUserIds(db: DbClient, eventId: string): Promise<string[]> {
@@ -46,15 +48,11 @@ export async function clearSampleData(db: DbClient, eventId: string): Promise<Sa
   const categoryIds = await sampleCategoryIds(db, eventId)
 
   if (!userIds.length && !boothIds.length && !categoryIds.length) {
-    return { deleted: { users: 0, booths: 0, categories: 0, survey_questions: 0 } }
+    return { deleted: { users: 0, booths: 0, categories: 0, survey_questions: 0 }, cleared_cells: 0 }
   }
 
   if (userIds.length) {
     const placeholders = userIds.map(() => '?').join(',')
-    await db.execute(`DELETE FROM recommendations WHERE event_id = ? AND user_id IN (${placeholders})`, [
-      eventId,
-      ...userIds,
-    ])
     await db.execute(
       `DELETE FROM user_survey_answers WHERE event_id = ? AND user_id IN (${placeholders})`,
       [eventId, ...userIds],
@@ -100,6 +98,21 @@ export async function clearSampleData(db: DbClient, eventId: string): Promise<Sa
     deletedUsers = (res as { affectedRows?: number }).affectedRows ?? 0
   }
 
+  // bingo_cells.booth_id は ON DELETE RESTRICT のため、サンプルブースが載ったままのマスがあると
+  // 次の DELETE FROM booths が落ちる。サンプル参加者のカードは上の users 削除で CASCADE 消滅するが、
+  // 実参加者のカードに割り当てられたサンプルブースは残るので、ここで割り当てを外す。
+  // 外し方は運営の差し替え救済（admin/bingo/reassign の cleared_cells）と同じく booth_id を NULL にする。
+  let clearedCells = 0
+  if (boothIds.length) {
+    const placeholders = boothIds.map(() => '?').join(',')
+    const [res] = await db.execute(
+      `UPDATE bingo_cells SET booth_id = NULL, is_achieved = 0, source = NULL, achieved_at = NULL
+        WHERE booth_id IN (${placeholders})`,
+      boothIds,
+    )
+    clearedCells = (res as { affectedRows?: number }).affectedRows ?? 0
+  }
+
   let deletedBooths = 0
   if (boothIds.length) {
     const placeholders = boothIds.map(() => '?').join(',')
@@ -133,5 +146,6 @@ export async function clearSampleData(db: DbClient, eventId: string): Promise<Sa
       categories: deletedCategories,
       survey_questions: deletedQuestions,
     },
+    cleared_cells: clearedCells,
   }
 }

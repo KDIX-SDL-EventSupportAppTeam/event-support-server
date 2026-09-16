@@ -48,6 +48,9 @@ export async function adminAuditLogRoutes(app: FastifyInstance) {
       )
       const total = Number((countRows as { total: number }[])[0]?.total ?? 0)
 
+      // LIMIT/OFFSETはプレースホルダにせず zod検証済み整数を直埋めする。
+      // さくらプロキシ（プリペアドステートメント経路）ではLIMITのバインドが失敗し500になるため。
+      // page/limitは z.coerce.number().int().min(1)（limitはmax(200)）済みで injection の余地はない。
       const [rows] = await app.db.query(
         `SELECT al.id, al.event_id, al.actor_id, al.actor_role, al.action,
                 al.target_type, al.target_id, al.detail, al.created_at,
@@ -56,8 +59,8 @@ export async function adminAuditLogRoutes(app: FastifyInstance) {
          LEFT JOIN users u ON u.id = al.actor_id AND u.event_id = al.event_id
          WHERE al.event_id = ?
          ORDER BY al.created_at DESC
-         LIMIT ? OFFSET ?`,
-        [req.params.event_id, limit, offset],
+         LIMIT ${limit} OFFSET ${offset}`,
+        [req.params.event_id],
       )
 
       return sendOk(reply, {

@@ -3,6 +3,7 @@ import cors from '@fastify/cors'
 import type { AppConfig } from './config.js'
 import type { DbClient } from './db/client.js'
 import { sendFail } from './lib/response.js'
+import { createMailer } from './lib/mailer.js'
 import { authRoutes } from './routes/v1/auth.js'
 import { adminRoutes } from './routes/v1/admin/dashboard.js'
 import { adminEventRoutes } from './routes/v1/admin/events.js'
@@ -10,25 +11,40 @@ import { adminCategoryRoutes } from './routes/v1/admin/categories.js'
 import { adminBoothRoutes } from './routes/v1/admin/admin-booths.js'
 import { adminSurveyQuestionRoutes } from './routes/v1/admin/survey-questions.js'
 import { adminParticipantRoutes } from './routes/v1/admin/participants.js'
+import { adminExhibitorRoutes } from './routes/v1/admin/exhibitors.js'
 import { adminAnalyticsRoutes } from './routes/v1/admin/analytics.js'
 import { adminSampleDataRoutes } from './routes/v1/admin/sample-data.js'
-import { adminEventDataRoutes } from './routes/v1/admin/event-data.js'
 import { adminAuditLogRoutes } from './routes/v1/admin/audit-logs.js'
+import { adminBoothCommentRoutes } from './routes/v1/admin/booth-comments.js'
 import { organizerAuthRoutes } from './routes/v1/organizer/auth.js'
 import { organizerEventRoutes } from './routes/v1/organizer/events.js'
 import { organizerStaffRoutes } from './routes/v1/organizer/staff.js'
+import { organizerEventDataRoutes } from './routes/v1/organizer/event-data.js'
+import { exhibitorRoutes } from './routes/v1/exhibitor.js'
 import { boothRoutes } from './routes/v1/booths.js'
 import { checkinRoutes } from './routes/v1/checkins.js'
+import { bingoRoutes } from './routes/v1/bingo.js'
+import { adminBingoRoutes } from './routes/v1/admin/bingo.js'
+import { gachaRoutes } from './routes/v1/gacha.js'
+import { adminGachaRoutes } from './routes/v1/admin/gacha.js'
+import { awardRoutes } from './routes/v1/awards.js'
+import { adminAwardRoutes } from './routes/v1/admin/awards.js'
+import { organizerGachaSettingsRoutes } from './routes/v1/organizer/gacha-settings.js'
 import { webhookRoutes } from './routes/v1/ops.js'
-import { recommendationRoutes } from './routes/v1/recommendations.js'
 import { surveyRoutes } from './routes/v1/survey.js'
+import { meRoutes } from './routes/v1/me.js'
 import { eventsPublicRoutes } from './routes/v1/events-public.js'
+import { appAccessRoutes } from './routes/v1/app-access.js'
+import { organizerAppAccessRoutes } from './routes/v1/organizer/app-access.js'
+import { adminAppAccessRoutes } from './routes/v1/admin/app-access.js'
+import { adminRecommenderStateRoutes } from './routes/v1/admin/recommender-state.js'
 import { registerSocketIO } from './plugins/socket.js'
 
 export async function buildApp(config: AppConfig, db: DbClient) {
   const app = Fastify({ logger: true })
   app.decorate('config', config)
   app.decorate('db', db)
+  app.decorate('mailer', createMailer(config, app.log))
 
   await app.register(cors, {
     origin: config.corsOrigin.split(',').map((s) => s.trim()),
@@ -49,10 +65,19 @@ export async function buildApp(config: AppConfig, db: DbClient) {
     async (v1) => {
       await v1.register(authRoutes, { prefix: '/auth' })
       await v1.register(surveyRoutes)
+      await v1.register(meRoutes)
       await v1.register(eventsPublicRoutes)
+      await v1.register(appAccessRoutes)
       await v1.register(boothRoutes)
+      await v1.register(exhibitorRoutes)
       await v1.register(checkinRoutes)
-      await v1.register(recommendationRoutes)
+      await v1.register(bingoRoutes)
+      await v1.register(adminBingoRoutes)
+      await v1.register(gachaRoutes)
+      await v1.register(adminGachaRoutes)
+      await v1.register(awardRoutes)
+      await v1.register(adminAwardRoutes)
+      await v1.register(organizerGachaSettingsRoutes)
       await v1.register(webhookRoutes)
       await v1.register(adminRoutes)
       await v1.register(adminEventRoutes)
@@ -60,13 +85,18 @@ export async function buildApp(config: AppConfig, db: DbClient) {
       await v1.register(adminBoothRoutes)
       await v1.register(adminSurveyQuestionRoutes)
       await v1.register(adminParticipantRoutes)
+      await v1.register(adminExhibitorRoutes)
       await v1.register(adminAnalyticsRoutes)
       await v1.register(adminSampleDataRoutes)
-      await v1.register(adminEventDataRoutes)
       await v1.register(adminAuditLogRoutes)
+      await v1.register(adminBoothCommentRoutes)
+      await v1.register(adminAppAccessRoutes)
+      await v1.register(adminRecommenderStateRoutes)
       await v1.register(organizerAuthRoutes)
       await v1.register(organizerEventRoutes)
       await v1.register(organizerStaffRoutes)
+      await v1.register(organizerEventDataRoutes)
+      await v1.register(organizerAppAccessRoutes)
     },
     { prefix: '/api/v1' },
   )

@@ -18,6 +18,9 @@ const config = {
   jwtSecret: JWT_SECRET,
   webhookApiKey: '',
   recommenderUrl: '',
+  recommenderTimeoutMs: 1500,
+  checkinCooldownSec: 0,
+  ratingScale: 3,
   corsOrigin: 'http://localhost:5173',
   adminRegistrationKey: 'k',
   frontendBaseUrl: 'https://front.example',
@@ -73,8 +76,8 @@ describe('GET /organizer/events（一覧）', () => {
       {
         match: /FROM events\s+WHERE organizer_id = \?\s+ORDER BY date_start DESC/,
         rows: [
-          { id: 'e1', name: 'Fes A', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: '会場A', created_at: '2026-07-01 00:00:00' },
-          { id: 'e2', name: 'Fes B', date_start: '2026-07-01 01:00:00', date_end: '2026-07-01 09:00:00', venue: null, created_at: '2026-06-01 00:00:00' },
+          { id: 'e1', name: 'Fes A', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: '会場A', survey_url: null, created_at: '2026-07-01 00:00:00' },
+          { id: 'e2', name: 'Fes B', date_start: '2026-07-01 01:00:00', date_end: '2026-07-01 09:00:00', venue: null, survey_url: null, created_at: '2026-06-01 00:00:00' },
         ],
       },
       { match: /FROM users\s+WHERE role = 'participant'/, rows: [{ event_id: 'e1', c: 40 }] },
@@ -89,11 +92,12 @@ describe('GET /organizer/events（一覧）', () => {
     expect(data.events[0]).toMatchObject({
       id: 'e1',
       date_start: '2026-08-01T01:00:00Z',
+      survey_url: null,
       stats: { participants: 40, booths: 18, checkins: 123 },
     })
     // 集計に現れないイベントは 0 で埋められる
     expect(data.events[1].stats).toEqual({ participants: 0, booths: 5, checkins: 0 })
-    expect(data.events[0].urls.participant).toBe('https://front.example/join/e1')
+    expect(data.events[0].urls.participant).toBe('https://front.example/e/e1')
     await app.close()
   })
 
@@ -117,7 +121,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
   it('最後の manager を viewer にすると 409', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
       { match: /COUNT\(\*\) AS c FROM users\s+WHERE event_id = \? AND role IN \('manager','admin'\) AND id != \?/, rows: [{ c: 0 }] },
       ...writeHandlers,
     ])
@@ -131,7 +135,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
   it('participant は対象にできず 404', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [] },
       ...writeHandlers,
     ])
     const app = await buildTestApp(db)
@@ -143,7 +147,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
   it('他の manager が居れば viewer への変更が成功する', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
       { match: /COUNT\(\*\) AS c FROM users/, rows: [{ c: 1 }] },
       ...writeHandlers,
     ])
@@ -158,7 +162,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
     const log: string[] = []
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
       ...writeHandlers,
     ], log)
     const app = await buildTestApp(db)
@@ -174,7 +178,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
     const log: string[] = []
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'v1', email: 'v@x.com', display_name: '閲覧', role: 'viewer', created_at: '2026-07-02 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'v1', email: 'v@x.com', display_name: '閲覧', role: 'viewer', created_at: '2026-07-02 00:00:00' }] },
       // COUNT が呼ばれたら 0（誤って呼ばれた場合 409 になり検出できる）
       { match: /COUNT\(\*\) AS c FROM users/, rows: [{ c: 0 }] },
       ...writeHandlers,
@@ -190,7 +194,7 @@ describe('PATCH /organizer/events/:id/staff/:uid（ロール変更）', () => {
     const log: string[] = []
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'a1', email: 'a@x.com', display_name: '旧管理', role: 'admin', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'a1', email: 'a@x.com', display_name: '旧管理', role: 'admin', created_at: '2026-07-01 00:00:00' }] },
       ...writeHandlers,
     ], log)
     const app = await buildTestApp(db)
@@ -209,7 +213,7 @@ describe('DELETE /organizer/events/:id/staff/:uid（削除）', () => {
   it('最後の manager は削除できず 409', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'u1', email: 'm@x.com', display_name: '管理', role: 'manager', created_at: '2026-07-01 00:00:00' }] },
       { match: /COUNT\(\*\) AS c FROM users/, rows: [{ c: 0 }] },
       ...writeHandlers,
     ])
@@ -222,7 +226,7 @@ describe('DELETE /organizer/events/:id/staff/:uid（削除）', () => {
   it('viewer は manager 数に影響しないので削除できる', async () => {
     const db = makeDb([
       ownership,
-      { match: /FROM users WHERE id = \? AND event_id = \? AND role != 'participant' LIMIT 1/, rows: [{ id: 'v1', email: 'v@x.com', display_name: '閲覧', role: 'viewer', created_at: '2026-07-02 00:00:00' }] },
+      { match: /FROM users WHERE id = \? AND event_id = \? AND role IN \('manager','viewer','admin'\) LIMIT 1/, rows: [{ id: 'v1', email: 'v@x.com', display_name: '閲覧', role: 'viewer', created_at: '2026-07-02 00:00:00' }] },
       ...writeHandlers,
     ])
     const app = await buildTestApp(db)
@@ -234,14 +238,15 @@ describe('DELETE /organizer/events/:id/staff/:uid（削除）', () => {
 })
 
 describe('GET /events/:id/public（公開イベント情報）', () => {
-  it('5 フィールドのみ返す', async () => {
+  it('6 フィールドのみ返す', async () => {
     const db = makeDb([
-      { match: /FROM events WHERE id = \? LIMIT 1/, rows: [{ id: 'e1', name: 'Fes A', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: '会場A' }] },
+      { match: /FROM events WHERE id = \? LIMIT 1/, rows: [{ id: 'e1', name: 'Fes A', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: '会場A', survey_url: null }] },
+      { match: /FROM event_app_access/, rows: [] },
     ])
     const app = await buildTestApp(db)
     const res = await app.inject({ method: 'GET', url: '/api/v1/events/e1/public' })
     expect(res.statusCode).toBe(200)
-    expect(Object.keys(res.json().data.event).sort()).toEqual(['date_end', 'date_start', 'id', 'name', 'venue'])
+    expect(Object.keys(res.json().data.event).sort()).toEqual(['date_end', 'date_start', 'id', 'name', 'survey_url', 'venue'])
     await app.close()
   })
 
@@ -251,5 +256,218 @@ describe('GET /events/:id/public（公開イベント情報）', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/events/nope/public' })
     expect(res.statusCode).toBe(404)
     await app.close()
+  })
+})
+
+describe('POST /organizer/events の survey_url バリデーション', () => {
+  const validBody = {
+    name: '58検証',
+    date_start: '2026-08-01T10:00',
+    date_end: '2026-08-01T18:00',
+    initial_manager: { email: 'mgr@example.com', password: 'password123' },
+  }
+
+  it('有効な URL は 201 で作成され、INSERT の SQL に survey_url が含まれる', async () => {
+    const log: string[] = []
+    const db = makeDb(
+      [
+        ...writeHandlers,
+        {
+          match: /^SELECT id, name/,
+          rows: [{ id: 'e1', name: '58検証', date_start: '2026-08-01 10:00:00', date_end: '2026-08-01 18:00:00', venue: null, survey_url: 'https://forms.gle/abc123' }],
+        },
+        { match: /^SELECT date_end/, rows: [{ date_end: '2026-08-01 18:00:00' }] },
+      ],
+      log,
+    )
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: { ...validBody, survey_url: 'https://forms.gle/abc123' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().data.event.survey_url).toBe('https://forms.gle/abc123')
+    expect(log.some((sql) => /INSERT INTO events/.test(sql) && /survey_url/.test(sql))).toBe(true)
+    await app.close()
+  })
+
+  it('"not-a-url" は 422', async () => {
+    const db = makeDb([])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: { ...validBody, survey_url: 'not-a-url' },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+    await app.close()
+  })
+
+  it('"javascript:alert(1)" は 422', async () => {
+    const db = makeDb([])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: { ...validBody, survey_url: 'javascript:alert(1)' },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+    await app.close()
+  })
+
+  it('survey_url キーを省略しても 201 で作成される（後方互換）', async () => {
+    const db = makeDb([
+      ...writeHandlers,
+      {
+        match: /^SELECT id, name/,
+        rows: [{ id: 'e2', name: '58検証', date_start: '2026-08-01 10:00:00', date_end: '2026-08-01 18:00:00', venue: null, survey_url: null }],
+      },
+      { match: /^SELECT date_end/, rows: [{ date_end: '2026-08-01 18:00:00' }] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().data.event.survey_url).toBeNull()
+    await app.close()
+  })
+})
+
+describe('PATCH /organizer/events/:id（イベント情報の修正）', () => {
+  const baseRow = {
+    id: 'e1',
+    name: '旧名',
+    date_start: '2026-09-17 00:46:00',
+    date_end: '2026-09-17 09:00:00',
+    venue: '旧会場',
+    survey_url: null,
+    created_at: '2026-09-01 00:00:00',
+  }
+
+  function db(log: string[], params: unknown[][] = [], after = baseRow) {
+    let updated = false
+    return makeDb(
+      [
+        {
+          match: /^\s*UPDATE events/,
+          rows: (p) => {
+            params.push(p)
+            updated = true
+            return []
+          },
+        },
+        ...writeHandlers,
+        { match: /FROM events WHERE id = \? AND organizer_id = \?/, rows: () => [updated ? after : baseRow] },
+        { match: /COUNT\(\*\)/, rows: [] },
+      ],
+      log,
+    )
+  }
+
+  it('日時・会場を更新し、日時は UTC の DATETIME で保存・監査ログを残す', async () => {
+    const log: string[] = []
+    const params: unknown[][] = []
+    const after = { ...baseRow, date_start: '2026-10-01 01:00:00', date_end: '2026-10-01 09:00:00', venue: '新会場' }
+    const app = await buildTestApp(db(log, params, after))
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizer/events/e1',
+      headers: authHeader(),
+      payload: { date_start: '2026-10-01T10:00:00+09:00', date_end: '2026-10-01T18:00:00+09:00', venue: '新会場' },
+    })
+    expect(res.statusCode, res.body).toBe(200)
+    expect(params[0]).toEqual(['2026-10-01 01:00:00', '2026-10-01 09:00:00', '新会場', 'e1', ORGANIZER_ID])
+    expect(res.json().data.event.date_start).toBe('2026-10-01T01:00:00Z')
+    expect(log.some((sql) => /INSERT INTO audit_logs/.test(sql))).toBe(true)
+    await app.close()
+  })
+
+  it('終了が開始以前になる変更は 422 で UPDATE しない', async () => {
+    const log: string[] = []
+    const app = await buildTestApp(db(log))
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizer/events/e1',
+      headers: authHeader(),
+      payload: { date_end: '2026-09-16T00:00:00Z' },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(log.some((sql) => /UPDATE events/.test(sql))).toBe(false)
+    await app.close()
+  })
+
+  it('所有していないイベントは 403', async () => {
+    const app = await buildTestApp(
+      makeDb([{ match: /FROM events WHERE id = \? AND organizer_id = \?/, rows: [] }]),
+    )
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizer/events/e1',
+      headers: authHeader(),
+      payload: { name: '新名' },
+    })
+    expect(res.statusCode).toBe(403)
+    await app.close()
+  })
+
+  it('空の名前は 422', async () => {
+    const app = await buildTestApp(db([]))
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/organizer/events/e1',
+      headers: authHeader(),
+      payload: { name: '' },
+    })
+    expect(res.statusCode).toBe(422)
+    await app.close()
+  })
+})
+
+describe('POST /organizer/events の日時（タイムゾーン）', () => {
+  async function create(payloadDates: { date_start: string; date_end: string }) {
+    const params: unknown[][] = []
+    const db = makeDb([
+      {
+        match: /^\s*INSERT INTO events/,
+        rows: (p) => {
+          params.push(p)
+          return []
+        },
+      },
+      ...writeHandlers,
+      { match: /^SELECT id, name/, rows: [{ id: 'e1', name: 'x', date_start: '2026-08-01 01:00:00', date_end: '2026-08-01 09:00:00', venue: null, survey_url: null }] },
+      { match: /^SELECT date_end/, rows: [{ date_end: '2026-08-01 09:00:00' }] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/organizer/events',
+      headers: authHeader(),
+      payload: { name: 'x', ...payloadDates, initial_manager: { email: 'mgr@example.com', password: 'password123' } },
+    })
+    await app.close()
+    return { res, params }
+  }
+
+  it('ISO（Z 付き）はそのまま UTC で保存する', async () => {
+    const { res, params } = await create({ date_start: '2026-08-01T01:00:00.000Z', date_end: '2026-08-01T09:00:00.000Z' })
+    expect(res.statusCode).toBe(201)
+    expect(params[0]?.slice(3, 5)).toEqual(['2026-08-01 01:00:00', '2026-08-01 09:00:00'])
+  })
+
+  it('タイムゾーンの無い値は日本時間として UTC に直す', async () => {
+    const { res, params } = await create({ date_start: '2026-08-01T10:00', date_end: '2026-08-01T18:00' })
+    expect(res.statusCode).toBe(201)
+    expect(params[0]?.slice(3, 5)).toEqual(['2026-08-01 01:00:00', '2026-08-01 09:00:00'])
   })
 })

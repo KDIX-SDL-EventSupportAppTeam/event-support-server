@@ -4,9 +4,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import mysql from 'mysql2/promise'
 import { loadConfig } from '../config.js'
-import { parseMysqlUrl } from '../db/parse-mysql-url.js'
+import { describeTarget, parseMysqlUrl } from '../db/parse-mysql-url.js'
 
-const EXPECTED_TABLES = 15
+const EXPECTED_TABLES = 25
 const MIGRATION_FILE = 'create-tables.sql'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -41,11 +41,7 @@ async function main() {
   const sql = prepareMigrationSql(readFileSync(sqlPath, 'utf8'))
 
   const conn = await mysql.createConnection({
-    host: db.host,
-    port: db.port,
-    user: db.user,
-    password: db.password,
-    database: db.database,
+    ...db,
     multipleStatements: true,
     timezone: 'Z',
   })
@@ -69,7 +65,7 @@ async function main() {
       process.exit(1)
     }
 
-    console.log(`Migration OK: ${after} tables created in "${db.database}" (${db.host}:${db.port}).`)
+    console.log(`Migration OK: ${after} tables created in "${db.database}" (${describeTarget(db)}).`)
   } finally {
     await conn.end()
   }

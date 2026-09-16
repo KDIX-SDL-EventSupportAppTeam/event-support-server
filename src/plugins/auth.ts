@@ -71,5 +71,33 @@ export async function requireOrganizer(
   }
 }
 
+/**
+ * メール確認済みを要求する preHandler。requireBearerAuth の後に置く。
+ * - JWT でなく DB を毎回参照する（確認完了はトークン再発行なしで即反映させるため。#53 の
+ *   「JWT の role だけに頼らない」方針と同じ理由）
+ * - participant 以外（manager/viewer/exhibitor 等）は対象外: 運営発行アカウントは
+ *   実在メールを受信できない可能性があるため（招待スタッフ・初期manager・出展者一括登録）
+ */
+export async function requireVerifiedEmail(
+  this: FastifyInstance,
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const uid = req.jwtUser!.sub
+  const [rows] = await this.db.query(
+    'SELECT role, email_verified_at FROM users WHERE id = ? LIMIT 1',
+    [uid],
+  )
+  const u = (rows as { role: string | null; email_verified_at: string | null }[])[0]
+  if (!u) return sendFail(reply, 401, 'UNAUTHORIZED', 'ユーザーが見つかりません')
+  const isParticipant = !u.role || u.role === 'participant'
+  if (isParticipant && !u.email_verified_at) {
+    return sendFail(
+      reply, 403, 'EMAIL_NOT_VERIFIED',
+      'メールアドレスの確認が完了していません。登録メールの確認URLを開くか、確認メールを再送してください',
+    )
+  }
+}
+
 // 後方互換: requireAdmin は requireManager の別名として保持
 export const requireAdmin = requireManager

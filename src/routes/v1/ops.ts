@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../lib/response.js'
 import { safeCompare } from '../../lib/safe-compare.js'
+import { generateManualCode } from '../../lib/manual-code.js'
 
 const webhookBody = z.object({
   event_id: z.string().uuid(),
@@ -15,12 +16,8 @@ const webhookBody = z.object({
   }),
 })
 
-function randomManualCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let s = ''
-  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)]!
-  return s
-}
+// 手動コードは6桁数字・暗号論的乱数（issue #121。lib/manual-code.ts に統一）
+const randomManualCode = generateManualCode
 
 export async function webhookRoutes(app: FastifyInstance) {
   app.post('/webhook/booths/sync', async (req, reply) => {

@@ -1,0 +1,329 @@
+import { describe, expect, it } from 'vitest'
+import jwt from 'jsonwebtoken'
+import Fastify, { type FastifyInstance } from 'fastify'
+import type { DbClient } from '../../src/db/client.js'
+import { surveyRoutes } from '../../src/routes/v1/survey.js'
+
+const JWT_SECRET = 'test-secret'
+const EVENT_ID = '11111111-1111-4111-8111-111111111111'
+const USER_ID = '22222222-2222-4222-8222-222222222222'
+const CAT_ID = '33333333-3333-4333-8333-333333333333'
+const CAT_ID_2 = '44444444-4444-4444-8444-444444444444'
+
+const config = {
+  port: 3000,
+  jwtSecret: JWT_SECRET,
+} as unknown as import('../../src/config.js').AppConfig
+
+type Question = {
+  id: string
+  question_text: string
+  options: unknown
+  display_order: number | null
+  is_required: number | boolean | null
+  answer_type: 'single' | 'multi' | 'text' | null
+  question_key: string | null
+}
+
+function makeDb(opts: {
+  questions?: Question[]
+  categories?: { id: string; name: string }[]
+  preSurveyClosesAt?: string | null
+  accessMode?: string
+  existingAnswerId?: string | null
+}): DbClient {
+  const questions: Question[] = opts.questions ?? [
+    {
+      id: 'q1',
+      question_text: '年代',
+      options: [{ value: 'twenties', label: '20代' }],
+      display_order: 1,
+      is_required: 1,
+      answer_type: 'single',
+      question_key: 'age_range',
+    },
+    {
+      id: 'q2',
+      question_text: '関心のある分野',
+      options: null,
+      display_order: 2,
+      is_required: 1,
+      answer_type: 'multi',
+      question_key: 'interest_categories',
+    },
+  ]
+  let existingAnswerId = opts.existingAnswerId ?? null
+  let updateCalls = 0
+  let insertCalls = 0
+
+  const run = async (sql: string, params: unknown[] = []): Promise<[unknown, unknown]> => {
+    if (/SELECT id FROM events WHERE id = \?/.test(sql)) {
+      return [[{ id: params[0] }], undefined]
+    }
+    if (/SELECT event_id, mode, app_opens_at, app_closes_at, pre_survey_closes_at/.test(sql)) {
+      return [
+        [
+          {
+            event_id: EVENT_ID,
+            mode: opts.accessMode ?? 'open',
+            app_opens_at: null,
+            app_closes_at: null,
+            pre_survey_closes_at: opts.preSurveyClosesAt ?? null,
+            updated_by: null,
+            updated_at: '2026-08-24 00:00:00',
+          },
+        ],
+        undefined,
+      ]
+    }
+    if (/SELECT id, question_text, options, display_order, is_required, answer_type, question_key\s+FROM survey_questions/.test(sql)) {
+      return [questions, undefined]
+    }
+    if (/SELECT id, name FROM categories WHERE event_id = \?/.test(sql)) {
+      return [opts.categories ?? [{ id: CAT_ID, name: 'AI・機械学習' }], undefined]
+    }
+    if (/SELECT id FROM user_survey_answers WHERE user_id = \? AND event_id = \?/.test(sql)) {
+      return [existingAnswerId ? [{ id: existingAnswerId }] : [], undefined]
+    }
+    if (/UPDATE user_survey_answers/.test(sql)) {
+      updateCalls++
+      return [{ affectedRows: 1 }, undefined]
+    }
+    if (/INSERT INTO user_survey_answers/.test(sql)) {
+      insertCalls++
+      existingAnswerId = 'new-answer-id'
+      return [{ affectedRows: 1 }, undefined]
+    }
+    throw new Error(`unmatched SQL: ${sql} / ${JSON.stringify(params)}`)
+  }
+  const db = { query: run, execute: run, end: async () => {} } as DbClient
+  Object.defineProperty(db, '_counts', { get: () => ({ updateCalls, insertCalls }) })
+  return db
+}
+
+async function buildTestApp(db: DbClient): Promise<FastifyInstance> {
+  const app = Fastify()
+  app.decorate('config', config)
+  app.decorate('db', db)
+  await app.register(async (v1) => {
+    await v1.register(surveyRoutes)
+  }, { prefix: '/api/v1' })
+  await app.ready()
+  return app
+}
+
+function authHeader(): Record<string, string> {
+  const token = jwt.sign(
+    { sub: USER_ID, event_id: EVENT_ID, display_name: 'テスト太郎', role: 'participant' },
+    JWT_SECRET,
+    { expiresIn: '1h' },
+  )
+  return { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+}
+
+describe('GET /events/:event_id/pre-survey/questions（公開）', () => {
+  it('未ログインでも取得できる', async () => {
+    const app = await buildTestApp(makeDb({}))
+    const res = await app.inject({ method: 'GET', url: `/api/v1/events/${EVENT_ID}/pre-survey/questions` })
+    expect(res.statusCode).toBe(200)
+    await app.close()
+  })
+
+  it('interest_categories の選択肢が categories から生成される', async () => {
+    const app = await buildTestApp(makeDb({}))
+    const res = await app.inject({ method: 'GET', url: `/api/v1/events/${EVENT_ID}/pre-survey/questions` })
+    const { data } = res.json()
+    const q = data.questions.find((x: { question_key: string }) => x.question_key === 'interest_categories')
+    expect(q.options).toEqual([{ value: CAT_ID, label: 'AI・機械学習' }])
+    await app.close()
+  })
+
+  it('締切を過ぎた値が残っていても is_pre_survey_open は true', async () => {
+    const app = await buildTestApp(makeDb({ preSurveyClosesAt: '2020-01-01 00:00:00' }))
+    const res = await app.inject({ method: 'GET', url: `/api/v1/events/${EVENT_ID}/pre-survey/questions` })
+    expect(res.json().data.is_pre_survey_open).toBe(true)
+    await app.close()
+  })
+})
+
+describe('POST /events/:event_id/survey/answers', () => {
+  it('必須設問が欠けていると400', async () => {
+    const app = await buildTestApp(makeDb({}))
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { custom_answers: {} },
+    })
+    expect(res.statusCode).toBe(400)
+    await app.close()
+  })
+
+  it('options に無い value は400', async () => {
+    const app = await buildTestApp(makeDb({}))
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { age_range: 'not-a-real-option', custom_answers: { interest_categories: [CAT_ID] } },
+    })
+    expect(res.statusCode).toBe(400)
+    await app.close()
+  })
+
+  it('answer_type と値の型が一致しないと400（multi に文字列を渡す）', async () => {
+    const app = await buildTestApp(makeDb({}))
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { age_range: 'twenties', custom_answers: { interest_categories: CAT_ID } },
+    })
+    expect(res.statusCode).toBe(400)
+    await app.close()
+  })
+
+  it('正常送信で200になり answered_at を返す', async () => {
+    const app = await buildTestApp(makeDb({}))
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { age_range: 'twenties', custom_answers: { interest_categories: [CAT_ID] } },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.answered_at).toBeDefined()
+    await app.close()
+  })
+
+  it('2回送信しても行が増えず UPDATE される（既存行あり）', async () => {
+    const db = makeDb({ existingAnswerId: 'existing-id' })
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { age_range: 'twenties', custom_answers: { interest_categories: [CAT_ID] } },
+    })
+    expect(res.statusCode).toBe(200)
+    expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.updateCalls).toBe(1)
+    expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.insertCalls).toBe(0)
+    await app.close()
+  })
+})
+
+/** 本番の設問セットのうち、カテゴリ由来の2問を含む最小構成。 */
+const CATEGORY_QUESTIONS: Question[] = [
+  {
+    id: 'q-interest',
+    question_text: '興味のある分野を選んでください（複数選択可）',
+    options: [],
+    display_order: 1,
+    is_required: 1,
+    answer_type: 'multi',
+    question_key: 'interest_categories',
+  },
+  {
+    id: 'q-top',
+    question_text: 'その中で、一番興味がある分野を1つ選んでください',
+    options: [],
+    display_order: 2,
+    is_required: 1,
+    answer_type: 'single',
+    question_key: 'top_interest_category',
+  },
+]
+
+const TWO_CATEGORIES = [
+  { id: CAT_ID, name: 'AI・機械学習' },
+  { id: CAT_ID_2, name: 'Web・モバイル' },
+]
+
+describe('top_interest_category の選択肢生成', () => {
+  it('DB の options が空でも categories から生成される', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/pre-survey/questions`,
+    })
+    const { data } = res.json()
+    const top = data.questions.find(
+      (x: { question_key: string }) => x.question_key === 'top_interest_category',
+    )
+    expect(top.answer_type).toBe('single')
+    expect(top.options).toEqual([
+      { value: CAT_ID, label: 'AI・機械学習' },
+      { value: CAT_ID_2, label: 'Web・モバイル' },
+    ])
+    await app.close()
+  })
+
+  it('interest_categories と同じ選択肢になる', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/pre-survey/questions`,
+    })
+    const { data } = res.json()
+    const byKey = (k: string) =>
+      data.questions.find((x: { question_key: string }) => x.question_key === k).options
+    expect(byKey('top_interest_category')).toEqual(byKey('interest_categories'))
+    await app.close()
+  })
+})
+
+describe('POST /events/:event_id/survey/answers の top_interest_category 検証', () => {
+  const post = (payload: unknown) => ({
+    method: 'POST' as const,
+    url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+    headers: authHeader(),
+    payload,
+  })
+
+  it('interest_categories に含まれない top_interest_category は400', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject(
+      post({
+        custom_answers: {
+          interest_categories: [CAT_ID],
+          top_interest_category: CAT_ID_2,
+        },
+      }),
+    )
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+    await app.close()
+  })
+
+  it('interest_categories に含まれていれば200', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject(
+      post({
+        custom_answers: {
+          interest_categories: [CAT_ID, CAT_ID_2],
+          top_interest_category: CAT_ID_2,
+        },
+      }),
+    )
+    expect(res.statusCode).toBe(200)
+    await app.close()
+  })
+
+  it('片方が未回答なら包含チェックではなく必須チェックで400になる', async () => {
+    const app = await buildTestApp(
+      makeDb({ questions: CATEGORY_QUESTIONS, categories: TWO_CATEGORIES }),
+    )
+    const res = await app.inject(post({ custom_answers: { interest_categories: [CAT_ID] } }))
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.message).toContain('必須')
+    await app.close()
+  })
+})

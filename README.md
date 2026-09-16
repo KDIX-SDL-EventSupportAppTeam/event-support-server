@@ -21,7 +21,7 @@
 
 **担当しないこと**
 
-- 推薦アルゴリズムの実装（`event-support-recommender` に委譲）
+- 推薦アルゴリズムの実装（`event-support-recommend` に委譲）
 - フロントエンドの描画ロジック・ビルド
 
 ### 他サービスとの関係
@@ -34,8 +34,8 @@
         │                        │
         │ 内部 HTTP                │ SQL
         ▼                        ▼
-[event-support-recommender]   [MySQL（さくら / Docker）]
-                              ↑ 本番はさくら上ラッパー API 経由（HTTPS）
+[event-support-recommend]    [MySQL（Cloud SQL / Docker）]
+                              ↑ 本番は Cloud SQL へ Unix ソケットで直結
 ```
 
 ## ディレクトリ構造
@@ -56,7 +56,7 @@ src/
 ├── db/
 │   ├── client.ts          # DbClient / DbConnection インターフェース
 │   ├── pool.ts            # mysql2 直接接続
-│   ├── http-proxy.ts      # さくらラッパー API 経由
+│   ├── http-proxy.ts      # さくらラッパー API 経由（旧本番・切り戻し用）
 │   └── parse-mysql-url.ts
 ├── lib/
 │   ├── datetime.ts
@@ -87,7 +87,7 @@ src/
 └── index.ts
 
 db/
-├── migrations/
+├── migrations/                # docker 初回 init が辞書順に適用（番号 = 順序。db/migrations/README.md）
 │   ├── 01_initial_schema.sql
 │   ├── 02_add_user_role.sql
 │   ├── 03_organizer_self_management.sql
@@ -95,8 +95,13 @@ db/
 │   ├── 05_exhibitor_booths.sql
 │   ├── 06_booth_rating_comments.sql
 │   ├── 07_email_verification.sql
-│   └── 08_event_survey_url.sql
-└── create-tables.sql          # 空 DB への `npm run db:migrate` はこちらを使う（15 テーブル）
+│   ├── 08_event_survey_url.sql
+│   ├── 09_bingo_staged_unlock.sql
+│   ├── 10_gacha_coins.sql
+│   ├── 11_widen_unlock_pair_key.sql
+│   ├── 12_onboarding_completed.sql
+│   └── README.md
+└── create-tables.sql          # 空 DB への `npm run db:migrate` はこちらを使う（21 テーブル）
 ```
 
 ## ローカル開発
@@ -106,25 +111,32 @@ cp .env.example .env      # DATABASE_URL・JWT_SECRET・WEBHOOK_API_KEY を設�
 npm install
 docker compose up -d mysql
 npm run db:seed           # 初回のみ（開発用データ投入）
-npm run dev               # http://localhost:3000
+npm run dev               # http://127.0.0.1:3000
 ```
 
 さくら DB プロキシのローカル検証（任意）:
 
 ```bash
 npm run proxy:mock        # ターミナル A: http://localhost:3001
-SAKURA_PROXY_URL=http://localhost:3001 npm run dev   # ターミナル B
+SAKURA_PROXY_URL=http://127.0.0.1:3001 npm run dev   # ターミナル B
 ```
 
-詳細: [docs/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md](./docs/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)
+詳細: [docs/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md](./docs/archive/orders/2026-06-09-完了-さくらDB接続WebAPIプロキシ実装.md)
 
 > **DB スキーマ:** `docker compose up` 初回（空ボリューム）では `db/migrations/` が MySQL init で自動適用される。  
 > `npm run db:migrate` は **Docker 未使用時**、または **init 前の空 DB** 向け。Docker 初回 init 済みなら不要（実行すると「既にテーブルあり」で終了する）。
 
+> **接続先は `localhost` ではなく `127.0.0.1` を使う。**
+> サーバーは `0.0.0.0`（IPv4 のみ）で待ち受けている。Windows では `localhost` が先に
+> IPv6（`::1`）で解決され、接続失敗後に IPv4 へ戻る分だけ毎リクエスト約 200ms 遅くなる
+> （実測: `localhost` 219ms / `127.0.0.1` 5.7ms）。フロントの `.env` の `VITE_API_BASE_URL` も
+> `http://127.0.0.1:3000/api/v1` にする。理由と再検討条件は
+> [ADR 0007](docs/decisions/adrs/0007-keep-ipv4-listen-document-127-0-0-1.md)。
+
 動作確認:
 
 ```bash
-curl http://localhost:3000/health
+curl http://127.0.0.1:3000/health
 # {"ok":true}
 ```
 
@@ -133,14 +145,15 @@ curl http://localhost:3000/health
 | リポジトリ | 役割 |
 |------------|------|
 | `event-support-frontend` | UI（API の呼び出し元） |
-| `event-support-recommender` | 推薦エンジン（内部 HTTP で呼び出す） |
+| `event-support-recommend` | 推薦エンジン（内部 HTTP で呼び出す） |
 
 ## 参照
 
 | 種別 | パス |
 |------|------|
 | 技術詳細 | [AGENTS.md](./AGENTS.md) — 環境変数・エンドポイント・認証・DB・テスト・ドキュメント運用 |
-| AI エージェント | [CLAUDE.md](./CLAUDE.md) · [docs/cursor/README.md](./docs/cursor/README.md) |
+| ドキュメント全体 | [docs/README.md](./docs/README.md) |
+| 規約（Git・実装・テスト） | [docs/rules/](./docs/rules/README.md) |
 | ドメイン用語 | [docs/ubiquitous-language.md](./docs/ubiquitous-language.md) |
 | テスト | [tests/README.md](./tests/README.md) · [docs/tests/README.md](./docs/tests/README.md) |
-| 詳細設計（移行元） | [docs/legacy/designs/](./docs/legacy/designs/) |
+| 詳細設計（移行元・参照のみ） | [docs/archive/legacy/designs/](./docs/archive/legacy/designs/) |

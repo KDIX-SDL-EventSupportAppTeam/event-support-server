@@ -5,7 +5,7 @@ export type JwtPayload = {
   sub: string
   event_id: string
   display_name: string
-  role?: 'manager' | 'viewer' | 'participant'
+  role?: 'manager' | 'viewer' | 'participant' | 'exhibitor'
 }
 
 export type OrganizerJwtPayload = {
@@ -49,6 +49,7 @@ export function verifyAccessToken(secret: string, token: string): JwtPayload {
   let role: JwtPayload['role'] = 'participant'
   if (decoded.role === 'manager') role = 'manager'
   else if (decoded.role === 'viewer') role = 'viewer'
+  else if (decoded.role === 'exhibitor') role = 'exhibitor'
   return {
     sub: decoded.sub,
     event_id: decoded.event_id,

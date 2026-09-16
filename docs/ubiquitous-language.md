@@ -108,7 +108,7 @@
 | JWT トークン | `token` | ログイン・登録時に発行するアクセストークン |
 | JWT ペイロード（参加者/運営） | — | `{ sub: user_id, event_id, display_name, role }`。イベント終了 +24h 有効 |
 | JWT ペイロード（主催者） | — | `{ sub: organizer_id, scope: 'organizer' }`。`event_id` を持たない。30 日有効 |
-| ロール | `role` | JWT に含まれる権限種別。`participant`（参加者）/ `manager`（運営管理者）/ `viewer`（運営閲覧者）。旧 `admin` は `manager` の後方互換値 |
+| ロール | `role` | JWT に含まれる権限種別。`participant`（参加者）/ `manager`（運営管理者）/ `viewer`（運営閲覧者）/ `exhibitor`（出展者）。旧 `admin` は `manager` の後方互換値。出展者の認可は JWT でなくリクエスト時に DB（`users.role` + `exhibitor_booths`）を参照する |
 | Bearer 認証 | — | `Authorization: Bearer <token>` ヘッダーによる認証方式 |
 | `requireBearerAuth` | — | JWT の署名・有効期限を検証する preHandler |
 | `requireEventMatchesJwt` | — | URL の `:event_id` と JWT の `event_id` の一致を検証する preHandler |
@@ -116,6 +116,9 @@
 | `requireStaff` | — | `role: manager` または `viewer`（= 運営）を要求する preHandler |
 | `requireOrganizer` | — | 主催者 JWT（`scope: 'organizer'`）を検証する preHandler |
 | `requireAdmin` | — | `requireManager` の後方互換エイリアス |
+| メール確認 | `email_verified` / `email_verified_at` | 参加者が登録メール内の確認URLを踏んで本人確認を完了したこと。`users.email_verified_at`（DATETIME NULL）が非NULLになる |
+| 確認トークン | `email_verification_tokens` | メール確認用の一時トークン（64桁hex・有効期限24h）。`email_verification_tokens` テーブルで管理。有効なトークンは常に最大1個（発行時に既存を削除） |
+| `requireVerifiedEmail` | — | `role: participant` かつ `email_verified_at IS NULL` の場合に 403 `EMAIL_NOT_VERIFIED` を返す preHandler。manager/viewer 等は対象外 |
 
 ---
 
@@ -127,7 +130,7 @@
 | スタッフ招待 | — | 主催者がイベントに運営スタッフ（manager/viewer）を email・ロール指定で追加すること |
 | スタッフ管理 | — | 主催者がイベントのスタッフを一覧・ロール変更・削除すること（招待は「スタッフ招待」）。監査 action は `staff.role_change` / `staff.remove` |
 | 開催ステータス | — | イベントの時間的状態（準備中 / 開催中 / 終了）。`date_start`/`date_end` と現在時刻から導出する。DB には保存せずフロントエンドで算出する |
-| 監査ログ / Audit Log | `audit_logs` | 誰が・いつ・何をしたかの操作証跡。`actor_role` に `manager` / `viewer` / `organizer` が入る。action は `booth.*` / `category.*` / `survey_question.*` / `staff.invite` / `staff.role_change` / `staff.remove` |
+| 監査ログ / Audit Log | `audit_logs` | 誰が・いつ・何をしたかの操作証跡。`actor_role` に `manager` / `viewer` / `organizer` が入る。action は `booth.*` / `category.*` / `survey_question.*` / `staff.invite` / `staff.role_change` / `staff.remove` / `event_data.clear` / `exhibitor.bulk_register` |
 | 参加者 URL / 運営 URL | — | イベント作成時に発行される、参加者登録画面・運営ログイン画面への入口リンク。`FRONTEND_BASE_URL` から生成 |
 
 ---
@@ -140,6 +143,7 @@
 | 固定設問 | `fixed_questions` | 全イベント共通。コードで定義（年齢層・職業・業種）。`survey_questions` テーブルには入らない |
 | カスタム設問 | `custom_questions` | 運営がイベントごとに設定。`survey_questions` テーブルで管理 |
 | アンケート回答 | `survey_answer` | `user_survey_answers` テーブルで管理。固定設問はカラム、カスタムは JSON カラムに保存 |
+| アンケートURL | `survey_url` | イベント終了時アンケート等の外部フォーム（Google フォーム）URL。`events.survey_url`。未設定は NULL |
 | 年齢層 | `age_range` | `user_survey_answers.age_range` |
 | 職業 | `occupation` | `user_survey_answers.occupation` |
 | 業種 | `industry` | `user_survey_answers.industry` |
@@ -200,6 +204,34 @@
 | `booth_categories` | ブースとカテゴリの多対多 |
 | `organizers` | 主催者 |
 | `audit_logs` | 監査ログ |
+| `exhibitor_booths` | 出展者と担当ブースの多対多 |
+| `email_verification_tokens` | メールアドレス確認トークン |
+| `bingo_cards` | ビンゴカード |
+| `bingo_cells` | マス |
+| `cell_assignment_logs` | 割当ログ |
+
+---
+
+## ビンゴカード段階解放方式（docs/archive/2026-08-bingo-staged-unlock/）
+
+| 用語 | 英名 | 定義 |
+|------|------|------|
+| ビンゴカード | Bingo Card | 参加者1人・1イベントにつき1枚の 4x4=16マス。`bingo_cards` |
+| マス | Cell | カードの1区画。`position` 0..15（行優先: row = pos/4, col = pos%4）。`bingo_cells` |
+| 中央マス | Center Cell | `position` 5, 6, 9, 10 の中央2x2。`zone='CENTER'` |
+| 外側マス | Outer Cell | 中央以外の12マス。`zone='OUTER'` |
+| 段階解放 / 解放 | Unlock | 中央4マスが全て達成された時点で外側12マスにブースを確定し、参加者に開示すること |
+| 参加ボーナス | Signup Bonus | サインアップ時に中央4マスのうち1マスを達成済みで配ること。`source='SIGNUP_BONUS'` |
+| 後出し割当 | Deferred Assignment | 参加者が自分の意思で訪問したブースを、事後的に中央マスへ割り当てること。`source='FREE_VISIT'` |
+| 推薦割当 | Recommended Assignment | 解放時に外側12マスへ推薦ブースを配置すること。`source='RECOMMEND'` |
+| カード外訪問 | Off-Card Visit | カードのどのマスにも対応しないブースへのチェックイン。`check_ins.cell_id IS NULL` |
+| ライン | Line | 4行 + 4列 + 2対角 = 全10通り |
+| ガチャコイン | Gacha Coin | 1ライン成立につき1枚。累計最大4枚でクリップ |
+| クールタイム | Cooldown | 連続チェックインの最短間隔。既定 0 秒＝無効（`CHECKIN_COOLDOWN_SEC`） |
+| 割当戦略 | Assignment Strategy | マスにブースを入れた根拠の識別子。`PURE` / `SERENDIPITY` / `RANDOM` / `FALLBACK_COVERAGE` 等。VARCHAR で持ち、値の追加でスキーマを壊さない |
+| 蓄積量 | Global Checkin Count | 割当を行った時点でのイベント全体の累計チェックイン件数 |
+
+詳細な設計判断は [docs/archive/2026-08-bingo-staged-unlock/README.md](./specs/bingo-dynamic-unlock/README.md) を正本とする。既存の「推薦 / Recommendation」（`recommendations` テーブル）は別系統として残し、本機能の割当根拠は `cell_assignment_logs` に記録する（両者を混ぜない）。
 
 ---
 
@@ -214,3 +246,7 @@
 | 競合 | `CONFLICT` | 二重チェックイン・重複登録（`ER_DUP_ENTRY`）の場合 |
 | バリデーションエラー | `VALIDATION_ERROR` | zod パース失敗など入力値が不正な場合 |
 | サーバーエラー | `INTERNAL_ERROR` | 予期しない例外が発生した場合 |
+| トークン無効 | `TOKEN_INVALID` | メール確認トークンが存在しない・使用済みの場合（`GET /auth/verify-email`） |
+| トークン期限切れ | `TOKEN_EXPIRED` | メール確認トークンの有効期限が切れている場合（`GET /auth/verify-email`） |
+| メール未確認 | `EMAIL_NOT_VERIFIED` | 未確認の participant がチェックイン等の制限対象操作を行った場合 |
+| 確認済み | `ALREADY_VERIFIED` | 確認済みユーザーが確認メール再送を要求した場合（`POST /auth/resend-verification`） |

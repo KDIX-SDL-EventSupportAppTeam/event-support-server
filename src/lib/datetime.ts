@@ -18,3 +18,8 @@ export function isoToMysqlUtc(iso: string): string {
 export function utcMysqlNow(): string {
   return dateToMysqlUtc(new Date())
 }
+
+/** MySQL `DATETIME`（UTC 格納・dateStrings 前提）→ ISO 8601（'...Z'）。 */
+export function mysqlUtcToIso(value: string): string {
+  return new Date(`${String(value).replace(' ', 'T')}Z`).toISOString()
+}
