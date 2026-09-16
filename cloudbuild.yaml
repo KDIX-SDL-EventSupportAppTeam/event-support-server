@@ -9,7 +9,7 @@ substitutions:
   # Secret Manager の SMTP_PASS に入れる。組織ログイン用のメールとは無関係。
   _SMTP_HOST: smtp.gmail.com
   _SMTP_PORT: "587"
-  _SMTP_USER: CHANGE_ME@gmail.com
+  _SMTP_USER: protofesapp@gmail.com
 
 steps:
   # 1. Docker イメージをビルド
