@@ -36,7 +36,7 @@
 
 ### 本番（Cloud Run）向けの渡し方
 
-- `JWT_SECRET` / `WEBHOOK_API_KEY` / `DATABASE_URL` / `ADMIN_REGISTRATION_KEY` / `SMTP_PASS` / `ORGANIZER_REGISTRATION_KEY` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
+- `JWT_SECRET` / `WEBHOOK_API_KEY` / `DATABASE_URL` / `ADMIN_REGISTRATION_KEY` / `SMTP_PASS` は **Secret Manager** に登録し、Cloud Run の `--set-secrets` で渡す
 - `CORS_ORIGIN` / `RECOMMENDER_URL` / `FRONTEND_BASE_URL` / `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `MAIL_FROM` は `--set-env-vars` で渡す。**`--update-env-vars` は使わない**（既存サービスに残った `SAKURA_PROXY_URL` が消えず、プロキシ経路のまま動く）
 - `DATABASE_URL` は Cloud Run 用（`?socket=/cloudsql/...`）とローカルから `cloud-sql-proxy` 経由で触る用（`127.0.0.1:3307`）で**別の文字列**になる
 - 値はリポジトリにコミットしない（`.env` は `.gitignore` 済み）
