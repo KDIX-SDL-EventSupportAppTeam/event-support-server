@@ -57,7 +57,8 @@ describe('GET /gacha/coins（副作用なし・堅牢性）', () => {
     await db.execute(`DELETE FROM gacha_settings WHERE event_id = ?`, [f.eventId])
     const res = await getCoinsReq(app, f.eventId, f.token)
     expect(res.statusCode).toBe(200)
-    expect(res.body.data!.is_enabled).toBe(false)
+    // 行が無いイベントは既定でガチャを使える
+    expect(res.body.data!.is_enabled).toBe(true)
     expect(res.body.data!.max_coins).toBe(4)
   })
 

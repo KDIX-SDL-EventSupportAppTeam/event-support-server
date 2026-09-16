@@ -9,9 +9,13 @@
 import type { DbClient } from '../../db/client.js'
 import type { GachaSettings } from './coins.js'
 
-/** 設定行が無い／列が NULL のときに使う既定値。 */
+/**
+ * 設定行が無い／列が NULL のときに使う既定値。
+ * ガチャは既定で使える（`isEnabled: true`）。運営が明示的に停止したイベントだけ止まる。
+ * イベント作成時に `gacha_settings` の行は作らないため、新しいイベントはこの既定値で動く。
+ */
 export const DEFAULT_GACHA_SETTINGS: GachaSettings = {
-  isEnabled: false,
+  isEnabled: true,
   coinsPerLine: 1,
   maxCoins: 4,
   bonusCoins: 0,
