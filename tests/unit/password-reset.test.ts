@@ -44,11 +44,11 @@ function makeDb(handlers: Handler[], log?: { sql: string; params: unknown[] }[])
 const writeHandlers: Handler[] = [{ match: /^\s*(INSERT|UPDATE|DELETE)/i, rows: [] }]
 
 function makeMailer(shouldThrow = false) {
-  const sent: { to: string; subject: string; text: string }[] = []
+  const sent: { to: string; subject: string; text: string; from?: string | null }[] = []
   const mailer: Mailer = {
-    async send(to, subject, text) {
+    async send(to, subject, text, from) {
       if (shouldThrow) throw new Error('smtp down')
-      sent.push({ to, subject, text })
+      sent.push({ to, subject, text, from })
     },
   }
   return { mailer, sent }
@@ -84,14 +84,14 @@ async function buildApp(db: DbClient, mailer: Mailer, loggerInstance?: unknown):
 const EVENT_ID = '20000000-0000-4000-8000-000000000001'
 const HEX64 = 'a'.repeat(64)
 const userLookup = (rows: unknown[]): Handler => ({
-  match: /SELECT id, display_name FROM users WHERE event_id = \? AND email = \?/,
+  match: /SELECT u\.id, u\.display_name, e\.mail_from\s+FROM users u JOIN events e ON e\.id = u\.event_id\s+WHERE u\.event_id = \? AND u\.email = \?/,
   rows,
 })
 
 describe('POST /auth/forgot-password（issue #125）', () => {
   it('登録済みメールで 200・メール送信・旧トークン削除→新規発行（T-1）', async () => {
     const log: { sql: string; params: unknown[] }[] = []
-    const db = makeDb([userLookup([{ id: 'u1', display_name: '本人' }]), ...writeHandlers], log)
+    const db = makeDb([userLookup([{ id: 'u1', display_name: '本人', mail_from: 'fes@example.com' }]), ...writeHandlers], log)
     const { mailer, sent } = makeMailer()
     const app = await buildApp(db, mailer)
     const res = await app.inject({
@@ -100,6 +100,7 @@ describe('POST /auth/forgot-password（issue #125）', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(sent).toHaveLength(1)
+    expect(sent[0].from).toBe('fes@example.com')
     expect(log.some((e) => /DELETE FROM password_reset_tokens WHERE user_id = \?/.test(e.sql))).toBe(true)
     expect(log.some((e) => /INSERT INTO password_reset_tokens/.test(e.sql))).toBe(true)
     await app.close()
@@ -126,7 +127,7 @@ describe('POST /auth/forgot-password（issue #125）', () => {
     const db = makeDb([userLookup([]), ...writeHandlers], log)
     const app = await buildApp(db, makeMailer().mailer)
     await app.inject({ method: 'POST', url: '/api/v1/auth/forgot-password', payload: { event_id: EVENT_ID, email: 'x@example.com' } })
-    const lookup = log.find((e) => /WHERE event_id = \? AND email = \?/.test(e.sql))!
+    const lookup = log.find((e) => /WHERE u\.event_id = \? AND u\.email = \?/.test(e.sql))!
     expect(lookup.params).toEqual([EVENT_ID, 'x@example.com'])
     await app.close()
   })

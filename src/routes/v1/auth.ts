@@ -59,8 +59,9 @@ export async function authRoutes(app: FastifyInstance) {
     }
     const { event_id, email, password, display_name } = parsed.data
 
-    const [ev] = await app.db.query('SELECT id FROM events WHERE id = ? LIMIT 1', [event_id])
-    if (!(ev as { id: string }[]).length) {
+    const [ev] = await app.db.query('SELECT id, mail_from FROM events WHERE id = ? LIMIT 1', [event_id])
+    const eventRow = (ev as { id: string; mail_from: string | null }[])[0]
+    if (!eventRow) {
       return sendFail(reply, 404, 'NOT_FOUND', 'イベントが見つかりません')
     }
 
@@ -97,6 +98,7 @@ export async function authRoutes(app: FastifyInstance) {
         email.toLowerCase(),
         '【PRoToFES】メールアドレスの確認',
         buildVerificationMailText(display_name, url),
+        eventRow.mail_from,
       )
     } catch (e) {
       req.log.error(e, 'メール確認トークンの発行または送信に失敗')
@@ -242,10 +244,12 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/resend-verification', { preHandler: [requireBearerAuth] }, async (req, reply) => {
     const uid = req.jwtUser!.sub
     const [rows] = await app.db.query(
-      'SELECT email, display_name, email_verified_at FROM users WHERE id = ? LIMIT 1',
+      `SELECT u.email, u.display_name, u.email_verified_at, e.mail_from
+       FROM users u JOIN events e ON e.id = u.event_id WHERE u.id = ? LIMIT 1`,
       [uid],
     )
     const u = (rows as {
+      mail_from: string | null
       email: string
       display_name: string | null
       email_verified_at: string | null
@@ -261,6 +265,7 @@ export async function authRoutes(app: FastifyInstance) {
       u.email,
       '【PRoToFES】メールアドレスの確認',
       buildVerificationMailText(u.display_name ?? '', url),
+      u.mail_from,
     )
     return sendOk(reply, { sent: true })
   })
@@ -281,10 +286,12 @@ export async function authRoutes(app: FastifyInstance) {
     const { event_id, email } = parsed.data
 
     const [rows] = await app.db.query(
-      'SELECT id, display_name FROM users WHERE event_id = ? AND email = ? LIMIT 1',
+      `SELECT u.id, u.display_name, e.mail_from
+       FROM users u JOIN events e ON e.id = u.event_id
+       WHERE u.event_id = ? AND u.email = ? LIMIT 1`,
       [event_id, email],
     )
-    const u = (rows as { id: string; display_name: string | null }[])[0]
+    const u = (rows as { id: string; display_name: string | null; mail_from: string | null }[])[0]
 
     // 対象が居る場合だけトークンを発行してメールを送る。
     // 居ても居なくても常に 200・同じ文言（アカウント列挙対策）。
@@ -297,6 +304,7 @@ export async function authRoutes(app: FastifyInstance) {
           email,
           '【PRoToFES】パスワード再設定のご案内',
           buildPasswordResetMailText(u.display_name ?? '', url),
+          u.mail_from,
         )
       } catch (err) {
         // 送信失敗でも存在を漏らさないため 200 を返す。トークンはログに出さない。

@@ -5,6 +5,11 @@ substitutions:
   _REPOSITORY: event-support
   _IMAGE: event-support-server
   _CLOUDSQL_INSTANCE: event-support-app:asia-northeast1:event-support-db
+  # 確認メールの送信元アカウント（SMTP_USER）。Gmail の場合はアプリパスワードを
+  # Secret Manager の SMTP_PASS に入れる。組織ログイン用のメールとは無関係。
+  _SMTP_HOST: smtp.gmail.com
+  _SMTP_PORT: "587"
+  _SMTP_USER: protofesapp@gmail.com
 
 steps:
   # 1. Docker イメージをビルド
@@ -52,8 +57,11 @@ steps:
       - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
       # update ではなく set。update だと既存サービスに残る SAKURA_PROXY_URL が消えず、
       # index.ts が従来どおりプロキシ経路を選んでしまい切り替えが無言で失敗する。
-      - --set-env-vars=^@^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com
-      - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest
+      # 区切りは @（CORS_ORIGIN がカンマを含むため）。
+      # NODE_ENV=production では SMTP_HOST が無いと起動時に落ちる（src/config.ts）。
+      # 本番はオーガナイザー登録 API を止める（410）。組織アカウントは DB に直接 INSERT する。
+      - --set-env-vars=^@^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com@FRONTEND_BASE_URL=https://event-support-app.web.app@SMTP_HOST=${_SMTP_HOST}@SMTP_PORT=${_SMTP_PORT}@SMTP_USER=${_SMTP_USER}@MAIL_FROM=PRoToFES <${_SMTP_USER}>@ORGANIZER_SIGNUP_MODE=disabled
+      - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest,SMTP_PASS=SMTP_PASS:latest
 
 options:
   logging: CLOUD_LOGGING_ONLY
