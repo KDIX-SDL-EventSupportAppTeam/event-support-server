@@ -124,12 +124,6 @@ export async function surveyRoutes(app: FastifyInstance) {
       const eventId = req.params.event_id
       const uid = req.jwtUser!.sub
 
-      const accessRow = await fetchAppAccessRow(app.db, eventId)
-      const effective = resolveEffectiveAccess(accessRow)
-      if (!effective.is_pre_survey_open) {
-        return sendFail(reply, 409, 'PRE_SURVEY_CLOSED', '事前アンケートの回答受付は終了しました')
-      }
-
       const parsed = surveyAnswersBody.safeParse(req.body)
       if (!parsed.success) {
         return sendFail(reply, 400, 'VALIDATION_ERROR', '入力が不正です')

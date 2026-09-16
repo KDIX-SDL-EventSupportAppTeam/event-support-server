@@ -14,7 +14,8 @@
 | GET | `/api/v1/events/:event_id/app-access` | **なし（公開）** | 実効開放状態の取得。完了画面が参照する |
 | GET | `/api/v1/organizer/events/:event_id/app-access` | Bearer（organizer、所有のみ） | 設定値の取得（`updated_by` / `updated_at` を含む） |
 | PUT | `/api/v1/organizer/events/:event_id/app-access` | Bearer（organizer、所有のみ） | 設定値の更新 |
-| GET | `/api/v1/admin/events/:event_id/app-access` | Bearer（staff） | 運営スタッフ向けの読み取り専用 |
+| GET | `/api/v1/admin/events/:event_id/app-access` | Bearer（staff） | 運営スタッフ向けの設定値取得 |
+| PUT | `/api/v1/admin/events/:event_id/app-access` | Bearer（manager） | 開放スイッチ。body は `{ mode: 'open' \| 'closed' }` のみ。開放予定時刻などは既存値を保つ |
 | GET | `/api/v1/events/:event_id/pre-survey/questions` | **なし（公開）** | 事前アンケート設問。未ログインでも見せる |
 
 ## GET /api/v1/events/:event_id/app-access（公開）
@@ -99,7 +100,7 @@
 
 Bearer + `requireEventMatchesJwt`。
 
-1. `is_pre_survey_open === false` なら **409**（`code: 'PRE_SURVEY_CLOSED'`）
+1. （2026-09 廃止）締切による 409 `PRE_SURVEY_CLOSED` は返さない。事前アンケートは締切を設けず、`is_pre_survey_open` は常に `true`
 2. `is_required` の設問が欠けていたら 400
 3. `options` に無い `value` が来たら 400（**離散コードの整合性を守る。分析の前提**）
 4. `answer_type` と値の型が一致すること（`single`→文字列 / `multi`→文字列配列 / `text`→文字列）
@@ -178,9 +179,9 @@ Bearer + `requireEventMatchesJwt`。
 |---|---|
 | `src/routes/v1/app-access.ts` | 公開 GET |
 | `src/routes/v1/organizer/app-access.ts` | organizer の GET / PUT |
-| `src/routes/v1/admin/app-access.ts` | staff の読み取り専用 GET |
+| `src/routes/v1/admin/app-access.ts` | staff の GET / manager の開放スイッチ PUT |
 | `src/lib/app-access.ts` | **実効開放状態の算出と既定値生成。判定ロジックはここだけに置く** |
-| `src/routes/v1/survey.ts` | 既存。締切チェック・バリデーション・upsert を追加 |
+| `src/routes/v1/survey.ts` | 既存。バリデーション・upsert を追加（締切チェックは 2026-09 に廃止） |
 | `src/routes/v1/me.ts` | 参加者自身の進行状態（`me/state`）。単一 URL の分岐材料をここに集約する |
 | `src/lib/survey-options.ts` | `options` の正規化とカテゴリ由来キーの集合。**配信経路と運営 API の両方がここを使う**（正規化を二重に書かない） |
 

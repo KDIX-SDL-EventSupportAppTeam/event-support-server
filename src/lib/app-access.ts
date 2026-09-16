@@ -69,11 +69,9 @@ export function resolveEffectiveAccess(
     isOpen = Number.isFinite(opensMs) && nowMs >= opensMs && (closesMs === null || nowMs < closesMs)
   }
 
-  let isPreSurveyOpen = true
-  if (preSurveyClosesAt) {
-    const closesMs = new Date(`${preSurveyClosesAt.replace(' ', 'T')}Z`).getTime()
-    isPreSurveyOpen = Number.isFinite(closesMs) ? now.getTime() < closesMs : true
-  }
+  // 事前アンケートの締切は設けない（初回ログイン時に必ず回答させる運用）。
+  // `pre_survey_closes_at` 列は残っているが判定には使わず、常に受付中として返す。
+  const isPreSurveyOpen = true
 
   return {
     event_id: eventId,
@@ -100,14 +98,20 @@ export async function fetchAppAccessRow(db: DbClient, eventId: string): Promise<
 
 /**
  * イベント作成時の既定値（02-data-model.md「既定値の投入」）。
- * `app_opens_at` = `date_start` の30分前、`pre_survey_closes_at` = `date_start` の前日 23:59:59（JST基準）。
+ *
+ * - `mode` = `closed`。開放は manager が開催直前に手動で切り替える（`PUT /admin/events/:id/app-access`）。
+ *   配布 URL を踏んだ参加者は事前アンケートに答えたあと、開放されるまで開放待ちで止まる。
+ * - `app_opens_at` = `date_start` の30分前。`closed` では判定に使わないが、`scheduled` へ
+ *   切り替えたときの目安として残す。
+ * - `pre_survey_closes_at` = null（締切なし）。かつては開催前日 23:59:59（JST）を入れていたが、
+ *   開始日を当日に設定すると作成直後から回答を受け付けなくなるため、既定では締切を設けない。
  *
  * `dateStart` は MySQL DATETIME 文字列（UTC 格納）を渡す。
  */
 export function buildDefaultAccessDefaults(dateStart: string): {
   mode: AppAccessMode
   app_opens_at: string
-  pre_survey_closes_at: string
+  pre_survey_closes_at: string | null
 } {
   const startMs = new Date(`${dateStart.replace(' ', 'T')}Z`).getTime()
   if (!Number.isFinite(startMs)) {
@@ -115,19 +119,9 @@ export function buildDefaultAccessDefaults(dateStart: string): {
   }
   const appOpensAt = new Date(startMs - 30 * 60 * 1000)
 
-  // JST（UTC+9）基準で「開催日前日 23:59:59」を計算し、UTC の DATETIME 文字列として保存する。
-  const jstMs = startMs + 9 * 60 * 60 * 1000
-  const jstDate = new Date(jstMs)
-  const jstYear = jstDate.getUTCFullYear()
-  const jstMonth = jstDate.getUTCMonth()
-  const jstDay = jstDate.getUTCDate()
-  // JST における「前日 23:59:59」を UTC ミリ秒に変換する
-  const prevDayEndJstMs = Date.UTC(jstYear, jstMonth, jstDay - 1, 23, 59, 59) - 9 * 60 * 60 * 1000
-  const preSurveyClosesAt = new Date(prevDayEndJstMs)
-
   return {
-    mode: 'scheduled',
+    mode: 'closed',
     app_opens_at: dateToMysqlUtc(appOpensAt),
-    pre_survey_closes_at: dateToMysqlUtc(preSurveyClosesAt),
+    pre_survey_closes_at: null,
   }
 }
