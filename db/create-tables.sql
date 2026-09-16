@@ -91,6 +91,7 @@ CREATE TABLE events (
   date_end      DATETIME     NOT NULL,
   venue         TEXT,
   survey_url    VARCHAR(2048),
+  mail_from     VARCHAR(255),
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organizer_id) REFERENCES organizers(id) ON DELETE SET NULL
 );

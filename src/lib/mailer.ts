@@ -4,7 +4,8 @@ import type { AppConfig } from '../config.js'
 
 export type Mailer = {
   /** 送信失敗は throw する（呼び出し側で握りつぶすか決める） */
-  send(to: string, subject: string, text: string): Promise<void>
+  /** from はイベントの送信元アドレス。省略時は MAIL_FROM。 */
+  send(to: string, subject: string, text: string, from?: string | null): Promise<void>
 }
 
 /**
@@ -14,8 +15,8 @@ export type Mailer = {
 export function createMailer(config: AppConfig, log: FastifyBaseLogger): Mailer {
   if (!config.smtpHost) {
     return {
-      async send(to, subject, text) {
-        log.info({ to, subject }, `[mail] SMTP未設定のためログ出力のみ:\n${text}`)
+      async send(to, subject, text, from) {
+        log.info({ to, subject, from: from ?? config.mailFrom }, `[mail] SMTP未設定のためログ出力のみ:\n${text}`)
       },
     }
   }
@@ -26,8 +27,16 @@ export function createMailer(config: AppConfig, log: FastifyBaseLogger): Mailer 
     auth: config.smtpUser ? { user: config.smtpUser, pass: config.smtpPass } : undefined,
   })
   return {
-    async send(to, subject, text) {
-      await transporter.sendMail({ from: config.mailFrom, to, subject, text })
+    async send(to, subject, text, from) {
+      // SMTP サーバーによっては認証アカウント以外の From を書き換えるため、
+      // 返信先が確実にイベントの窓口へ向くよう Reply-To にも入れる
+      await transporter.sendMail({
+        from: from ?? config.mailFrom,
+        replyTo: from ?? undefined,
+        to,
+        subject,
+        text,
+      })
     },
   }
 }

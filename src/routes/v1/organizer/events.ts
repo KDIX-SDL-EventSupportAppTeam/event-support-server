@@ -19,6 +19,7 @@ type EventRow = {
   date_end: string
   venue: string | null
   survey_url: string | null
+  mail_from: string | null
   created_at: string
 }
 
@@ -87,6 +88,7 @@ function toEventPayload(
     date_end: toIso(row.date_end),
     venue: row.venue,
     survey_url: row.survey_url,
+    mail_from: row.mail_from,
     created_at: toIso(row.created_at),
     stats,
     urls: buildEventUrls(app.config, row.id),
@@ -99,6 +101,8 @@ const createEventBody = z.object({
   date_end: z.string().min(1),
   venue: z.string().max(500).optional(),
   survey_url: z.string().url().max(2048).regex(/^https?:\/\//).nullable().optional(),
+  // 参加者への確認メール等の送信元。オーガナイザーのログイン用メールとは別に必須で持つ
+  mail_from: z.string().trim().email().max(255),
   initial_manager: z.object({
     email: z.string().email(),
     password: z.string().min(8).max(200),
@@ -113,6 +117,8 @@ const patchEventBody = z.object({
   date_end: z.string().min(1).optional(),
   venue: z.string().max(500).nullable().optional(),
   survey_url: z.string().url().max(2048).regex(/^https?:\/\//).nullable().optional(),
+  // 必須項目のため null（未設定に戻す）は受け付けない
+  mail_from: z.string().trim().email().max(255).optional(),
 })
 
 /**
@@ -136,7 +142,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const organizerId = req.organizerUser!.sub
       const [rows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, mail_from, created_at
          FROM events WHERE organizer_id = ?
          ORDER BY date_start DESC`,
         [organizerId],
@@ -166,7 +172,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       const { event_id } = req.params
 
       const [rows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, mail_from, created_at
          FROM events WHERE id = ? AND organizer_id = ? LIMIT 1`,
         [event_id, organizerId],
       )
@@ -201,7 +207,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       const body = parsed.data
 
       const [beforeRows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, mail_from, created_at
          FROM events WHERE id = ? AND organizer_id = ? LIMIT 1`,
         [event_id, organizerId],
       )
@@ -247,6 +253,10 @@ export async function organizerEventRoutes(app: FastifyInstance) {
         fields.push('survey_url = ?')
         params.push(body.survey_url)
       }
+      if (body.mail_from !== undefined) {
+        fields.push('mail_from = ?')
+        params.push(body.mail_from)
+      }
       if (!fields.length) {
         return sendFail(reply, 422, 'VALIDATION_ERROR', '更新項目がありません')
       }
@@ -258,7 +268,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       )
 
       const [rows] = await app.db.query(
-        `SELECT id, name, date_start, date_end, venue, survey_url, created_at
+        `SELECT id, name, date_start, date_end, venue, survey_url, mail_from, created_at
          FROM events WHERE id = ? AND organizer_id = ? LIMIT 1`,
         [event_id, organizerId],
       )
@@ -278,6 +288,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
             date_end: toIso(before.date_end),
             venue: before.venue,
             survey_url: before.survey_url,
+            mail_from: before.mail_from,
           },
           after: {
             name: event.name,
@@ -285,6 +296,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
             date_end: toIso(event.date_end),
             venue: event.venue,
             survey_url: event.survey_url,
+            mail_from: event.mail_from,
           },
         },
       })
@@ -334,8 +346,8 @@ export async function organizerEventRoutes(app: FastifyInstance) {
           await conn.beginTransaction()
 
           await conn.execute(
-            'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue, survey_url) VALUES (?,?,?,?,?,?,?)',
-            [eventId, organizerId, body.name, dateStart, dateEnd, body.venue ?? null, body.survey_url ?? null],
+            'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue, survey_url, mail_from) VALUES (?,?,?,?,?,?,?,?)',
+            [eventId, organizerId, body.name, dateStart, dateEnd, body.venue ?? null, body.survey_url ?? null, body.mail_from],
           )
 
           await conn.execute(
@@ -375,8 +387,8 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       } else {
         // getConnection 非対応の場合は順次実行し、失敗時は補償削除する（さくらプロキシ環境等）
         await app.db.execute(
-          'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue, survey_url) VALUES (?,?,?,?,?,?,?)',
-          [eventId, organizerId, body.name, dateStart, dateEnd, body.venue ?? null, body.survey_url ?? null],
+          'INSERT INTO events (id, organizer_id, name, date_start, date_end, venue, survey_url, mail_from) VALUES (?,?,?,?,?,?,?,?)',
+          [eventId, organizerId, body.name, dateStart, dateEnd, body.venue ?? null, body.survey_url ?? null, body.mail_from],
         )
 
         try {
@@ -409,7 +421,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       }
 
       const [eventRows] = await app.db.query(
-        'SELECT id, name, date_start, date_end, venue, survey_url FROM events WHERE id = ? LIMIT 1',
+        'SELECT id, name, date_start, date_end, venue, survey_url, mail_from FROM events WHERE id = ? LIMIT 1',
         [eventId],
       )
       const event = (eventRows as {
@@ -419,6 +431,7 @@ export async function organizerEventRoutes(app: FastifyInstance) {
         date_end: string
         venue: string | null
         survey_url: string | null
+        mail_from: string | null
       }[])[0]
 
       const token = await signAccessToken(
