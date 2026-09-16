@@ -34,8 +34,8 @@
         │                        │
         │ 内部 HTTP                │ SQL
         ▼                        ▼
-[event-support-recommend]    [MySQL（さくら / Docker）]
-                              ↑ 本番はさくら上ラッパー API 経由（HTTPS）
+[event-support-recommend]    [MySQL（Cloud SQL / Docker）]
+                              ↑ 本番は Cloud SQL へ Unix ソケットで直結
 ```
 
 ## ディレクトリ構造
@@ -56,7 +56,7 @@ src/
 ├── db/
 │   ├── client.ts          # DbClient / DbConnection インターフェース
 │   ├── pool.ts            # mysql2 直接接続
-│   ├── http-proxy.ts      # さくらラッパー API 経由
+│   ├── http-proxy.ts      # さくらラッパー API 経由（旧本番・切り戻し用）
 │   └── parse-mysql-url.ts
 ├── lib/
 │   ├── datetime.ts

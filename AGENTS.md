@@ -20,9 +20,9 @@
 
 1. **`main` を直接触らない。** 作業ブランチ → `develop` へ PR を出す。
    `develop` → `main` は明示的に指示されたときだけ（[rules/git.md](./docs/rules/git.md)）
-2. **本番 DB は HTTP プロキシ経由で 1 リクエスト = 1 SQL。** トランザクションも行ロックも無い。
-   排他は条件付き UPDATE の `affectedRows`、INSERT の前に SELECT で重複確認
-   （[ADR 0001](./docs/decisions/adrs/0001-sakura-proxy-error-masking.md)）
+2. **本番 DB は Cloud SQL（MySQL 8.0）直結。** ただしさくらプロキシへ切り戻せるよう、
+   排他は条件付き UPDATE の `affectedRows`、INSERT の前に SELECT で重複確認する書き方を**当面維持する**
+   （[ADR 0008](./docs/decisions/adrs/0008-move-production-db-to-cloud-sql.md)・[ADR 0001](./docs/decisions/adrs/0001-sakura-proxy-error-masking.md)）
 3. **Cloud Run は 1 インスタンス固定。** socket.io がインメモリのため
    （[ADR 0002](./docs/decisions/adrs/0002-cloud-run-single-instance-for-websocket.md)）
 4. **「状態: 確定」でない仕様は実装しない。** `09-open-questions/` は勝手に決めない

@@ -1,6 +1,6 @@
 ---
 状態: 確定
-最終更新: 2026-09-10
+最終更新: 2026-09-16
 ---
 
 # ロールバック手順（当日トラブル時に「戻す」ための手引き）
@@ -40,20 +40,20 @@
 
 **何かを戻す前に、いまの状態のダンプ／記録を取る。** 当日データは取り直せない。
 
-- DB: phpMyAdmin の「エクスポート」で**全テーブル・構造＋データ**を SQL で書き出して保存
+- DB: `gcloud sql backups create --instance=event-support-db --project=event-support-app --description="before-rollback"` でバックアップを取る
 - Cloud Run: 現在動いているリビジョン名を3リポジトリぶん控える（コンソールの「リビジョン」タブ）
 
 ---
 
 ## 2. DB を戻す
 
-**唯一の戻し方は、適用前に取ったダンプの復元**（[production-db-apply.md](production-db-apply.md) §1 で取得したもの）。
+**唯一の戻し方は、適用前に取ったバックアップの復元**（[production-db-apply.md](production-db-apply.md) §2 で取得したもの）。
 
-1. **いまの状態のダンプを取る**（§1。適用後に入った当日データを失わないため）。
-2. phpMyAdmin の「インポート」から、適用前ダンプの SQL ファイルを選んで実行する。
-   - ダンプに `DROP TABLE` / `CREATE TABLE` が含まれていることを確認（構造ごと戻す）。
-   - マルチステートメントはさくらプロキシ経由では流せない。**phpMyAdmin から直接**行う。
-3. 完了後、`SHOW TABLES;` の行数と主要テーブルの `SELECT COUNT(*)` を控える。
+1. **いまの状態のバックアップを取る**（§1。適用後に入った当日データを失わないため）。
+2. `gcloud sql backups list --instance=event-support-db --project=event-support-app` で適用前のバックアップ ID を確認し、
+   `gcloud sql backups restore <BACKUP_ID> --restore-instance=event-support-db --project=event-support-app` で復元する。
+   - **インスタンス全体が巻き戻る。** 復元中は DB に繋がらない（その間 Cloud Run はエラーを返す）。
+3. 完了後、`cloud-sql-proxy` 経由で `npm run db:check` を流し、テーブル数と主要テーブルの件数を控える。
 
 **所要時間の目安**: 未計測。**#95 で用意するリハーサル用 DB** に対して T-1 を実施した際に
 実測し（§6）、この行を更新する。
@@ -124,7 +124,7 @@ GitHub の branch protection で push を一時的に禁止する。
 
 | 権限 | 誰が持っているか | 当日会場に居るか |
 |---|---|---|
-| さくら phpMyAdmin（本番DB） | （記入） | （記入） |
+| GCP Cloud SQL（本番DB `event-support-db` のバックアップ・復元） | （記入） | （記入） |
 | GCP コンソール（Cloud Run／環境変数） | （記入） | （記入） |
 | GitHub `main` の branch protection 変更 | （記入） | （記入） |
 
