@@ -1,13 +1,13 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify'
 import type { Server as HttpServer } from 'node:http'
-import { Server } from 'socket.io'
+import { Server, type BroadcastOperator, type DefaultEventsMap } from 'socket.io'
 import { verifyAccessToken } from '../lib/jwt.js'
 
 /** checkins から参照する最小 API（Fastify 起動前に decorate 可能） */
-class SocketIOFacade {
+export class SocketIOFacade {
   #io: Server | null = null
 
-  to(room: string | string[]) {
+  to(room: string | string[]): BroadcastOperator<DefaultEventsMap, unknown> {
     if (!this.#io) {
       throw new Error('Socket.IO is not initialized yet')
     }
@@ -19,7 +19,7 @@ class SocketIOFacade {
     this.#io = null
   }
 
-  init(httpServer: HttpServer, jwtSecret: string, corsOrigins: string[]) {
+  init(httpServer: HttpServer, jwtSecret: string, corsOrigins: string[], logger?: FastifyBaseLogger) {
     const io = new Server(httpServer, {
       cors: { origin: corsOrigins },
     })
@@ -27,18 +27,21 @@ class SocketIOFacade {
     io.use((socket, next) => {
       const token = socket.handshake.auth?.token ?? socket.handshake.query?.token
       if (!token || typeof token !== 'string') {
+        logger?.warn({ clients: io.engine.clientsCount }, 'socket auth failed')
         return next(new Error('Unauthorized'))
       }
       try {
         socket.data.user = verifyAccessToken(jwtSecret, token)
         next()
       } catch {
+        logger?.warn({ clients: io.engine.clientsCount }, 'socket auth failed')
         next(new Error('Unauthorized'))
       }
     })
 
     io.on('connection', (socket) => {
       const user = socket.data.user as ReturnType<typeof verifyAccessToken>
+      const connectedAt = Date.now()
       socket.join(`event:${user.event_id}`)
       // ビンゴ解放通知（bingo:unlocked）用のユーザー個別 room。
       // docs/.sdd/03-card-lifecycle/unlock.md
@@ -46,6 +49,34 @@ class SocketIOFacade {
       if (user.role === 'manager' || user.role === 'viewer') {
         socket.join(`event:${user.event_id}:admin`)
       }
+
+      logger?.info(
+        {
+          socket_id: socket.id,
+          user_id: user.sub,
+          role: user.role,
+          event_id: user.event_id,
+          transport: socket.conn.transport.name,
+          clients: io.engine.clientsCount,
+        },
+        'socket connected',
+      )
+
+      socket.on('disconnect', (reason) => {
+        logger?.info(
+          {
+            socket_id: socket.id,
+            user_id: user.sub,
+            role: user.role,
+            event_id: user.event_id,
+            transport: socket.conn.transport.name,
+            reason,
+            duration_ms: Date.now() - connectedAt,
+            clients: io.engine.clientsCount,
+          },
+          'socket disconnected',
+        )
+      })
     })
 
     this.#io = io
@@ -62,6 +93,7 @@ export function registerSocketIO(app: FastifyInstance): void {
       app.server,
       app.config.jwtSecret,
       app.config.corsOrigin.split(',').map((s) => s.trim()),
+      app.log,
     )
   })
 
