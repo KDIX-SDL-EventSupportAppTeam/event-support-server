@@ -136,6 +136,19 @@
 
 **評価回収率が落ちたときが最優先。** 他の数字は多少ぶれても当日の体験は壊れない。
 
+### WebSocket の接続数を Cloud Logging で数える
+
+socket.io は接続・切断ごとに `info` ログを1行出す（[#142](https://github.com/KDIX-SDL-EventSupportAppTeam/event-support-server/issues/142)）。
+接続過多を疑うときは、直近一定時間の `socket connected` の件数を数える。
+
+```
+resource.type="cloud_run_revision"
+jsonPayload.msg="socket connected"
+```
+
+同じクエリで `jsonPayload.msg="socket disconnected"` にすると切断数、
+`jsonPayload.msg="socket auth failed"` にすると認証失敗の件数が分かる。
+
 ---
 
 ## 7. スキーマのロールバック（最終手段）
