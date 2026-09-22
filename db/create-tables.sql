@@ -230,7 +230,7 @@ CREATE TABLE booth_ratings (
   rating         TINYINT   NOT NULL,
   comment        TEXT,
   is_hidden      TINYINT(1) NOT NULL DEFAULT 0,
-  prompt_context ENUM('NEXT_CHECKIN','MANUAL') NOT NULL DEFAULT 'MANUAL',
+  prompt_context ENUM('NEXT_CHECKIN','MANUAL','IMMEDIATE') NOT NULL DEFAULT 'MANUAL',
   scale          TINYINT   NOT NULL DEFAULT 5,
   rated_at       DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id)    REFERENCES users(id)      ON DELETE CASCADE,

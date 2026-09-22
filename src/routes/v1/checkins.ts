@@ -26,30 +26,8 @@ const checkinBody = z.discriminatedUnion('method', [
 const ratingBody = z.object({
   rating: z.number().int().min(1),
   comment: z.string().max(500).optional(),
-  context: z.enum(['NEXT_CHECKIN', 'MANUAL']).optional().default('MANUAL'),
+  context: z.enum(['IMMEDIATE', 'MANUAL']).optional().default('MANUAL'),
 })
-
-/** そのユーザー・イベントで未評価の最新チェックインを返す（rating-collection.md）。自分自身は除く。 */
-async function getPendingRating(
-  app: FastifyInstance,
-  eventId: string,
-  uid: string,
-  excludeCheckinId: string,
-): Promise<{ checkin_id: string; booth_id: string; booth_name: string } | null> {
-  const [rows] = await app.db.query(
-    `SELECT ci.id, ci.booth_id, b.name AS booth_name
-       FROM check_ins ci
-       JOIN booths b ON b.id = ci.booth_id
-       LEFT JOIN booth_ratings r ON r.checkin_id = ci.id
-      WHERE ci.user_id = ? AND ci.event_id = ? AND ci.id <> ? AND r.id IS NULL
-      ORDER BY ci.checked_in_at DESC
-      LIMIT 1`,
-    [uid, eventId, excludeCheckinId],
-  )
-  const row = (rows as { id: string; booth_id: string; booth_name: string }[])[0]
-  if (!row) return null
-  return { checkin_id: row.id, booth_id: row.booth_id, booth_name: row.booth_name }
-}
 
 async function getAchievedPositions(app: FastifyInstance, cardId: string): Promise<Set<number>> {
   const [rows] = await app.db.query(
@@ -229,8 +207,6 @@ export async function checkinRoutes(app: FastifyInstance) {
       const linesCompleted = countCompletedLines(afterAchieved)
       const newLines = linesCompleted - countCompletedLines(beforeAchieved)
 
-      const pendingRating = await getPendingRating(app, eventId, uid, id)
-
       app.io.to(`event:${eventId}:admin`).emit('checkin:new', {
         booth_id: boothId,
         booth_name: boothName,
@@ -249,7 +225,6 @@ export async function checkinRoutes(app: FastifyInstance) {
         unlocked_pairs: unlockedPairs,
         new_lines: Math.max(newLines, 0),
         lines_completed: linesCompleted,
-        pending_rating: pendingRating,
       })
     },
   )
@@ -261,9 +236,11 @@ export async function checkinRoutes(app: FastifyInstance) {
       const eventId = req.params.event_id
       const uid = req.jwtUser!.sub
       const [rows] = await app.db.query(
-        `SELECT ci.id, ci.booth_id, b.name AS booth_name, ci.checkin_method, ci.checked_in_at, ci.synced_at
+        `SELECT ci.id, ci.booth_id, b.name AS booth_name, ci.checkin_method, ci.checked_in_at, ci.synced_at,
+                r.id AS rating_id
          FROM check_ins ci
          JOIN booths b ON b.id = ci.booth_id
+         LEFT JOIN booth_ratings r ON r.checkin_id = ci.id
          WHERE ci.user_id = ? AND ci.event_id = ?
          ORDER BY ci.checked_in_at DESC`,
         [uid, eventId],
@@ -275,6 +252,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         checkin_method: string
         checked_in_at: string
         synced_at: string | null
+        rating_id: string | null
       }[]).map((r) => ({
         id: r.id,
         booth_id: r.booth_id,
@@ -282,6 +260,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         method: r.checkin_method,
         checked_in_at: `${String(r.checked_in_at).replace(' ', 'T')}Z`,
         synced_at: r.synced_at ? `${String(r.synced_at).replace(' ', 'T')}Z` : null,
+        rated: r.rating_id !== null,
       }))
       return sendOk(reply, { checkins: list })
     },

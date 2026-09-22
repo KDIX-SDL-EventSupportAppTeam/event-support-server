@@ -1,6 +1,6 @@
 ---
 状態: 実装済み
-最終更新: 2026-08-25
+最終更新: 2026-09-23
 ---
 
 # 評価収集（P0 — 理論の成立条件）
@@ -9,13 +9,13 @@
 DRSA を使えるかどうかを決める（[background.md](../01-concept/background.md) 7）。
 回収率が上がらなければ推薦手法そのものが成立しない。**最優先で実装する。**
 
-## 設計
+## 設計（2026-09 改訂: server#133）
 
-**独立した評価画面を作らない。チェックイン処理のモーダル内に組み込む。**
+**チェックイン直後、いま訪問したブースをその場で評価する。**「1つ前の未評価チェックインを
+後追いで聞く」旧方式（`pending_rating` による NEXT_CHECKIN 方式）は廃止した。
 
-「後で評価してね」に依存すると回収率は3割を切る（去年のアワード投票確定率 36.4% が基礎値）。
-次のブースで QR を読んだ瞬間に、**前のブースの評価を1タップで聞く**。
-行動の流れに埋め込まれるため回収率が上がり、記憶も新しい。
+その場で評価しなかったブースは、**あとからブース一覧・ビンゴカードから評価できる**
+（入口は frontend#115）。評価済みのチェックインは再評価できない（409 `CONFLICT`）。
 
 ## UI（[D-7](../01-concept/decisions.md)）
 
@@ -29,33 +29,15 @@ DRSA を使えるかどうかを決める（[background.md](../01-concept/backgr
 
 ## サーバー側の責務
 
-チェックイン API のレスポンスに `pending_rating` を含める。
+`pending_rating` は廃止した。チェックイン API のレスポンスにこのキーは**存在しない**。
 
-```json
-"pending_rating": { "checkin_id": "…", "booth_id": "…", "booth_name": "…" }
-```
-
-未回収がなければ `null`。
-
-**算出規則:** そのユーザー・そのイベントの中で、`booth_ratings` がまだ無いチェックインのうち
-`checked_in_at` が最新のもの。**今まさに作成したチェックイン自身は除く。**
-
-```sql
-SELECT ci.id, ci.booth_id, b.name
-FROM check_ins ci
-JOIN booths b ON b.id = ci.booth_id
-LEFT JOIN booth_ratings r ON r.checkin_id = ci.id
-WHERE ci.user_id=? AND ci.event_id=? AND ci.id <> ? AND r.id IS NULL
-ORDER BY ci.checked_in_at DESC
-LIMIT 1
-```
-
-「直前1件」に限定しないのは、**一度スキップした評価を永久に取り逃さないため**である。
+代わりに、`GET /events/:event_id/checkins` の各要素に `rated: boolean` を返す。
+フロント（ブース一覧・ビンゴカード）はこれで「訪問済みで未評価」を判別し、
+あとから評価する導線を出す。点数そのものはここでは返さない。
 
 - **カード外訪問の評価も同じように求める。** 分岐にカード内外の条件を入れない
   （[D-17](../01-concept/decisions.md)）
-- 最後の1件は構造上取り逃す。マスのタップから手動評価できる導線を用意し
-  `context='MANUAL'` で記録する
+- 評価の保存先ブースは `checkin_id` から引くため、ブースの付け替えは起きない
 
 ## 段階数
 
@@ -70,12 +52,15 @@ LIMIT 1
 既存の `POST /events/:event_id/checkins/:checkin_id/rating` をそのまま使う。
 
 ```json
-{ "rating": 3, "comment": "任意", "context": "NEXT_CHECKIN" }
+{ "rating": 3, "comment": "任意", "context": "IMMEDIATE" }
 ```
 
-- `context` は `NEXT_CHECKIN` / `MANUAL`。省略時は `MANUAL`
+- `context` は `IMMEDIATE`（チェックイン直後）/ `MANUAL`（あとから）。省略時は `MANUAL`。
+  `NEXT_CHECKIN` は新規には受け付けず 422 になる（`booth_ratings.prompt_context` の ENUM には
+  既存データのために残すが、旧方式のデータ以外では出現しない）
 - コメントは空文字・空白のみなら `NULL` に正規化する
-- 既存の重複チェック（`UNIQUE (checkin_id)`、INSERT 前 SELECT）は維持する
+- 既存の重複チェック（`UNIQUE (checkin_id)`、INSERT 前 SELECT）は維持する。評価済みの
+  `checkin_id` への再評価は 409 `CONFLICT`。他人の `checkin_id` への評価は 404 `NOT_FOUND`
 
 ## 監視
 
@@ -90,9 +75,12 @@ LIMIT 1
 
 ## テストで固定すること
 
-- 未評価のチェックインがあるとき `pending_rating` が返る
-- 今まさに作ったチェックイン自身は `pending_rating` にならない
-- カード外訪問でも `pending_rating` に含まれる
+- 未評価のチェックインは `GET /checkins` で `rated: false`。評価後は `rated: true`
+- 同じ `checkin_id` への2回目の評価は 409 になる（行は増えない）
+- 他人の `checkin_id` への評価は 404 になる（行は作られない）
+- `context: 'IMMEDIATE'` は `prompt_context = 'IMMEDIATE'` で保存される
+- `context` 省略時は `'MANUAL'` で保存される
+- `context: 'NEXT_CHECKIN'` は 422 になる（新規には受け付けない）
+- `POST /checkins` のレスポンスに `pending_rating` キーは存在しない
 - `rating` が 0 または 5 のとき（`RATING_SCALE=4` の場合）422 になる
-- 同じ `checkin_id` への2回目の評価は 409 になる
 - `booth_ratings.scale` に 4 が入る

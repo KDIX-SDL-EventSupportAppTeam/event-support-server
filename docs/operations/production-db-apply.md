@@ -76,6 +76,20 @@ Get-Content db/migrations/16_pre_survey_questions.sql -Raw | docker run --rm -i 
 
 `npm run db:seed:prod` は**使わない。** 既定の設問が旧形式（`question_key` 無し）で、分析・推薦側との契約を満たさない。
 
+## 4b. 稼働中の本番DBへの個別マイグレーション適用（例: 18）
+
+`db:migrate` は空の DB にしか流せない（§3）。データの入った本番DBへの追加スキーマ変更は、
+対象のマイグレーションファイル1本だけを個別に流す。**リリース順を厳守する**
+（[server#133](https://github.com/KDIX-SDL-EventSupportAppTeam/event-support-server/issues/133)）:
+migration 18 を適用 → server をデプロイ → frontend#115 をデプロイ。
+
+```powershell
+Get-Content db/migrations/18_rating_prompt_context_immediate.sql -Raw | docker run --rm -i mysql:8.0 mysql -h host.docker.internal -P 3307 -u app -p<password> event_support
+```
+
+18 は既存の型への `MODIFY`（ENUM に値を追加するだけ）なので、適用前に必ず §2 のバックアップを取ったうえで、
+何度流しても安全（`db/migrations/README.md`）。
+
 ## 5. ロールバック
 
 §2 で取ったバックアップから復元する。**インスタンス全体が巻き戻る**（バックアップ以降のデータは消える）。

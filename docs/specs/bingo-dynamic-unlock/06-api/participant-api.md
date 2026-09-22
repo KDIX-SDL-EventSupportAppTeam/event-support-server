@@ -86,8 +86,7 @@
     { "pair_key": "6-9", "released_positions": [3, 12] }
   ],
   "new_lines": 0,
-  "lines_completed": 0,
-  "pending_rating": { "checkin_id": "…", "booth_id": "…", "booth_name": "…" }
+  "lines_completed": 0
 }
 ```
 
@@ -98,7 +97,9 @@
 | `unlocked_pairs` | 同じ解放の**ペア単位の内訳**（`pair_key` と、そのペアで開放された position）。解放が起きなければ空配列 |
 | `new_lines` | 今回のチェックインで新たに成立したライン数 |
 | `lines_completed` | 成立ライン数の合計 |
-| `pending_rating` | 未回収の評価があれば非 `null`（[rating-collection.md](../04-rating/rating-collection.md)） |
+
+`pending_rating` は廃止した（server#133）。レスポンスにこのキーは**存在しない**。
+評価はチェックイン直後にその場で行う（[rating-collection.md](../04-rating/rating-collection.md)）。
 
 - `unlocked` という真偽値は**返さない。** 解放が複数回あるため、開放されたマスの配列を返す
 - `coins_earned` は返さない（[D-5](../01-concept/decisions.md)）
@@ -116,17 +117,39 @@
 | 入力不正 | 422 | `VALIDATION_ERROR` |
 | クールタイム中（既定では発生しない） | 429 | `COOLDOWN` |
 
+## GET /api/v1/events/:event_id/checkins
+
+自分のチェックイン履歴。各要素の `rated`（真偽値）で、あとから評価できるブースを判別する
+（server#133 D1）。点数そのものは返さない。
+
+```json
+{
+  "checkins": [
+    {
+      "id": "…",
+      "booth_id": "…",
+      "booth_name": "…",
+      "method": "qr",
+      "checked_in_at": "…Z",
+      "synced_at": "…Z",
+      "rated": false
+    }
+  ]
+}
+```
+
 ## POST /api/v1/events/:event_id/checkins/:checkin_id/rating
 
 ```json
-{ "rating": 3, "comment": "任意", "context": "NEXT_CHECKIN" }
+{ "rating": 3, "comment": "任意", "context": "IMMEDIATE" }
 → { "rating_id": "…" }
 ```
 
 - `rating` は `1 <= rating <= RATING_SCALE`（既定 4）。範囲外は 422
-- `context` は `NEXT_CHECKIN` / `MANUAL`。省略時は `MANUAL`
+- `context` は `IMMEDIATE`（チェックイン直後）/ `MANUAL`（あとから）。省略時は `MANUAL`。
+  `NEXT_CHECKIN` は新規には受け付けず 422（旧方式。既存データのため ENUM には残す）
 - コメントは空文字・空白のみなら `NULL` に正規化する
-- 同じ `checkin_id` への2回目は 409
+- 同じ `checkin_id` への2回目は 409。他人の `checkin_id` は 404
 
 ## GET /api/v1/events/:event_id/gacha/coins
 
