@@ -74,6 +74,9 @@ gcloud sql databases create event_support --instance=event-support-db --project=
 Get-Content db/migrations/16_pre_survey_questions.sql -Raw | docker run --rm -i mysql:8.0 mysql -h host.docker.internal -P 3307 -u app -p<password> event_support
 ```
 
+流したあとは、**`SELECT COUNT(*) FROM survey_questions WHERE event_id = ?` が `6` であることを確認する。**
+0問のままだと事前アンケートが 409 `SURVEY_NOT_CONFIGURED` で拒否され続ける（[#141](https://github.com/KDIX-SDL-EventSupportAppTeam/event-support-server/issues/141)）。
+
 `npm run db:seed:prod` は**使わない。** 既定の設問が旧形式（`question_key` 無し）で、分析・推薦側との契約を満たさない。
 
 ## 5. ロールバック

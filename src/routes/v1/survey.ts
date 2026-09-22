@@ -124,22 +124,39 @@ export async function surveyRoutes(app: FastifyInstance) {
       const eventId = req.params.event_id
       const uid = req.jwtUser!.sub
 
+      const questions = await loadQuestionsForDelivery(app, eventId)
+      if (questions.length === 0) {
+        return sendFail(
+          reply,
+          409,
+          'SURVEY_NOT_CONFIGURED',
+          '事前アンケートの準備ができていません。時間をおいて再度お試しください',
+        )
+      }
+
       const parsed = surveyAnswersBody.safeParse(req.body)
       if (!parsed.success) {
         return sendFail(reply, 400, 'VALIDATION_ERROR', '入力が不正です')
       }
       const body = parsed.data
-      const customAnswers = (body.custom_answers ?? {}) as Record<string, unknown>
-
-      const questions = await loadQuestionsForDelivery(app, eventId)
+      const rawCustomAnswers = (body.custom_answers ?? {}) as Record<string, unknown>
 
       // 設問キーごとの値解決: age_range / occupation / industry は専用列と custom_answers 双方に併記する
       const valueByKey = new Map<string, unknown>()
       if (body.age_range !== undefined) valueByKey.set('age_range', body.age_range)
       if (body.occupation !== undefined) valueByKey.set('occupation', body.occupation)
       if (body.industry !== undefined) valueByKey.set('industry', body.industry)
-      for (const [k, v] of Object.entries(customAnswers)) {
+      for (const [k, v] of Object.entries(rawCustomAnswers)) {
         valueByKey.set(k, v)
+      }
+
+      // D2: 設問の question_key に無いキーは保存しない
+      const questionKeys = new Set(questions.map((q) => q.question_key).filter((k): k is string => !!k))
+      const customAnswers: Record<string, unknown> = {}
+      for (const [k, v] of valueByKey.entries()) {
+        if (questionKeys.has(k)) {
+          customAnswers[k] = v
+        }
       }
 
       for (const q of questions) {

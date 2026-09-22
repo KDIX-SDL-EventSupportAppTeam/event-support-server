@@ -101,14 +101,23 @@
 Bearer + `requireEventMatchesJwt`。
 
 1. （2026-09 廃止）締切による 409 `PRE_SURVEY_CLOSED` は返さない。事前アンケートは締切を設けず、`is_pre_survey_open` は常に `true`
-2. `is_required` の設問が欠けていたら 400
-3. `options` に無い `value` が来たら 400（**離散コードの整合性を守る。分析の前提**）
-4. `answer_type` と値の型が一致すること（`single`→文字列 / `multi`→文字列配列 / `text`→文字列）
-5. `top_interest_category` の値が、**同じ回答の `interest_categories` に含まれていること**。
+2. 設問が0問のイベントは 409 `SURVEY_NOT_CONFIGURED`（メッセージ「事前アンケートの準備ができていません。時間をおいて再度お試しください」）で拒否し、行を作らない。**バリデーションより前に判定する**
+3. `is_required` の設問が欠けていたら 400
+4. `options` に無い `value` が来たら 400（**離散コードの整合性を守る。分析の前提**）
+5. `answer_type` と値の型が一致すること（`single`→文字列 / `multi`→文字列配列 / `text`→文字列）
+6. `top_interest_category` の値が、**同じ回答の `interest_categories` に含まれていること**。
    含まれなければ 400（`code: 'VALIDATION_ERROR'`）。
-   検証するのは**両方が回答されているときだけ**で、片方が未回答なら 2 の必須チェックに任せる
-6. `(user_id, event_id)` で既存行を SELECT → あれば UPDATE、無ければ INSERT
-7. レスポンスに `{ answered_at }` を返す
+   検証するのは**両方が回答されているときだけ**で、片方が未回答なら 3 の必須チェックに任せる
+7. `custom_answers` は、その時点の設問の `question_key` に存在するキーだけを保存する。設問に無いキーはエラーにせず捨てる
+8. `(user_id, event_id)` で既存行を SELECT → あれば UPDATE、無ければ INSERT
+9. レスポンスに `{ answered_at }` を返す
+
+### エラー一覧
+
+| HTTP | code | 発生条件 |
+|---|---|---|
+| 409 | `SURVEY_NOT_CONFIGURED` | イベントに設問が1問も登録されていない |
+| 400 | `VALIDATION_ERROR` | 必須設問の欠落・選択肢不正・型不一致・`top_interest_category` の包含関係違反 |
 
 ## GET /api/v1/events/:event_id/me/state（Bearer 必須）
 
