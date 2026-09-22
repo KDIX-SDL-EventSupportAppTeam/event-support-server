@@ -31,6 +31,7 @@
 | 15 | `15_password_reset.sql` | 01（`users`） |
 | 16 | `16_pre_survey_questions.sql` | 01（`events` / `survey_questions`）、pre-survey の `answer_type` / `question_key` 列 |
 | 17 | `17_event_mail_from.sql` | 01（`events`） |
+| 18 | `18_rating_prompt_context_immediate.sql` | 09（`booth_ratings.prompt_context`） |
 
 ## どの経路が何を読むか
 
@@ -46,6 +47,7 @@
 
 - `02` / `07` / `12` はストアドプロシージャで列の有無を確認するため、2 回流しても無害。
 - `11` は同じ型への `MODIFY` なので 2 回流しても無害。
+- `18` も同じ型への `MODIFY`（ENUM に値を追加）なので 2 回流しても無害。
 - `16` は `question_key` で存在確認してから `INSERT ... SELECT ... WHERE NOT EXISTS` するため、2 回流しても無害。
   既存の設問文・選択肢は**書き換えない**（文言を直したいときは運営画面か個別の UPDATE で行う）。
 - **`10_gacha_coins.sql` は `gacha_coin_uses` を `DROP` してから作り直す。データの入った DB に再実行するとコイン使用台帳が消える。** 空 DB か「消してよい」と判断した DB にしか流さない。
