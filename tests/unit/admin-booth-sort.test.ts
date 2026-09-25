@@ -267,7 +267,48 @@ describe('GET /api/v1/admin/events/:event_id/booths の認可（requireStaff）'
 })
 
 describe('DELETE /api/v1/admin/events/:event_id/booths/:booth_id（手動E2E NG-13）', () => {
-  it('bingo_cells に割り当て済み（ON DELETE RESTRICT 違反）→ 409 CONFLICT と理由を返す', async () => {
+  it('事前 SELECT で bingo_cells に割り当て済みと判明 → 409 CONFLICT・DELETE FROM booths は呼ばれない', async () => {
+    const executedSql: string[] = []
+    const db: DbClient = {
+      query: async () => [[{ 1: 1 }], undefined] as [unknown, unknown],
+      execute: async (sql: string) => {
+        executedSql.push(sql)
+        return [{ affectedRows: 1 }, undefined] as [unknown, unknown]
+      },
+      end: async () => {},
+    }
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/events/${EVENT_ID}/booths/b-1`,
+      headers: managerAuth(),
+    })
+    expect(res.statusCode).toBe(409)
+    const body = res.json()
+    expect(body.error.code).toBe('CONFLICT')
+    expect(body.error.message).toMatch(/ビンゴのマス/)
+    expect(executedSql.some((sql) => /^\s*DELETE FROM booths/i.test(sql))).toBe(false)
+    await app.close()
+  })
+
+  it('事前 SELECT が0件の参照されていないブースは通常どおり削除できる（200）', async () => {
+    const db: DbClient = {
+      query: async () => [[], undefined] as [unknown, unknown],
+      execute: async () => [{ affectedRows: 1 }, undefined] as [unknown, unknown],
+      end: async () => {},
+    }
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/events/${EVENT_ID}/booths/b-1`,
+      headers: managerAuth(),
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.deleted).toBe(true)
+    await app.close()
+  })
+
+  it('事前 SELECT は0件だが DELETE が ER_ROW_IS_REFERENCED_2 を投げる（競合）→ フォールバックで409', async () => {
     const db: DbClient = {
       query: async () => [[], undefined] as [unknown, unknown],
       execute: async (sql: string) => {
@@ -292,23 +333,6 @@ describe('DELETE /api/v1/admin/events/:event_id/booths/:booth_id（手動E2E NG-
     const body = res.json()
     expect(body.error.code).toBe('CONFLICT')
     expect(body.error.message).toMatch(/ビンゴのマス/)
-    await app.close()
-  })
-
-  it('参照されていないブースは通常どおり削除できる（200）', async () => {
-    const db: DbClient = {
-      query: async () => [[], undefined] as [unknown, unknown],
-      execute: async () => [{ affectedRows: 1 }, undefined] as [unknown, unknown],
-      end: async () => {},
-    }
-    const app = await buildTestApp(db)
-    const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/v1/admin/events/${EVENT_ID}/booths/b-1`,
-      headers: managerAuth(),
-    })
-    expect(res.statusCode).toBe(200)
-    expect(res.json().data.deleted).toBe(true)
     await app.close()
   })
 })
