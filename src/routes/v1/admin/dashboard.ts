@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { sendOk } from '../../../lib/response.js'
+import { toDisplayTzSql } from '../../../lib/datetime.js'
 import { requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
 
 export async function adminRoutes(app: FastifyInstance) {
@@ -41,7 +42,7 @@ export async function adminRoutes(app: FastifyInstance) {
         app.db.query(
           `SELECT
              DATE_FORMAT(
-               DATE_SUB(checked_in_at, INTERVAL MOD(MINUTE(checked_in_at), 10) MINUTE),
+               DATE_SUB(${toDisplayTzSql('checked_in_at')}, INTERVAL MOD(MINUTE(checked_in_at), 10) MINUTE),
                '%H:%i'
              ) AS time_slot,
              COUNT(*) AS count
