@@ -265,3 +265,50 @@ describe('GET /api/v1/admin/events/:event_id/booths の認可（requireStaff）'
     await app.close()
   })
 })
+
+describe('DELETE /api/v1/admin/events/:event_id/booths/:booth_id（手動E2E NG-13）', () => {
+  it('bingo_cells に割り当て済み（ON DELETE RESTRICT 違反）→ 409 CONFLICT と理由を返す', async () => {
+    const db: DbClient = {
+      query: async () => [[], undefined] as [unknown, unknown],
+      execute: async (sql: string) => {
+        if (/^\s*DELETE FROM booths/i.test(sql)) {
+          const err = new Error(
+            'Cannot delete or update a parent row: a foreign key constraint fails',
+          ) as Error & { code?: string }
+          err.code = 'ER_ROW_IS_REFERENCED_2'
+          throw err
+        }
+        return [{ affectedRows: 1 }, undefined] as [unknown, unknown]
+      },
+      end: async () => {},
+    }
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/events/${EVENT_ID}/booths/b-1`,
+      headers: managerAuth(),
+    })
+    expect(res.statusCode).toBe(409)
+    const body = res.json()
+    expect(body.error.code).toBe('CONFLICT')
+    expect(body.error.message).toMatch(/ビンゴのマス/)
+    await app.close()
+  })
+
+  it('参照されていないブースは通常どおり削除できる（200）', async () => {
+    const db: DbClient = {
+      query: async () => [[], undefined] as [unknown, unknown],
+      execute: async () => [{ affectedRows: 1 }, undefined] as [unknown, unknown],
+      end: async () => {},
+    }
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/events/${EVENT_ID}/booths/b-1`,
+      headers: managerAuth(),
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.deleted).toBe(true)
+    await app.close()
+  })
+})
