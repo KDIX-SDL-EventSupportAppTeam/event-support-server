@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { sendFail, sendOk } from '../../lib/response.js'
+import { toDisplayTzSql } from '../../lib/datetime.js'
 import { requireBearerAuth, requireEventMatchesJwt } from '../../plugins/auth.js'
 import { assertExhibitorOwnsBooth, getExhibitorBoothIds } from '../../lib/exhibitor.js'
 import { commentsQuery, selectBoothComments } from '../../lib/booth-comments.js'
@@ -53,7 +54,7 @@ export async function exhibitorRoutes(app: FastifyInstance) {
           [boothId, eventId],
         ),
         app.db.query(
-          `SELECT DATE_FORMAT(checked_in_at, '%H:00') AS time_slot, COUNT(*) AS count
+          `SELECT DATE_FORMAT(${toDisplayTzSql('checked_in_at')}, '%H:00') AS time_slot, COUNT(*) AS count
            FROM check_ins WHERE booth_id = ? AND event_id = ?
            GROUP BY time_slot ORDER BY time_slot ASC`,
           [boothId, eventId],
