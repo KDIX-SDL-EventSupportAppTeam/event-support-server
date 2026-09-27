@@ -7,16 +7,21 @@ import { commentsQuery, selectBoothComments } from '../../lib/booth-comments.js'
 
 const toIsoDatetime = (v: string): string => `${String(v).replace(' ', 'T')}Z`
 
-/** 評価分布 {1..5: 件数} から平均評価を算出する（評価なしは null）。admin/analytics.ts の avgFromDistribution と同じ計算。 */
-function avgFromDistribution(dist: Record<number, number>): number | null {
+/** 評価分布 {1..scale: 件数} から平均評価を算出する（評価なしは null）。admin/analytics.ts の avgFromDistribution と同じ計算。 */
+function avgFromDistribution(dist: Record<number, number>, scale: number): number | null {
   let sum = 0
   let count = 0
-  for (const star of [1, 2, 3, 4, 5]) {
+  for (let star = 1; star <= scale; star++) {
     const n = dist[star] ?? 0
     sum += star * n
     count += n
   }
   return count > 0 ? Math.round((sum / count) * 100) / 100 : null
+}
+
+/** 評価分布の初期値 {1..scale: 0} を作る */
+function emptyDistribution(scale: number): Record<number, number> {
+  return Object.fromEntries(Array.from({ length: scale }, (_, i) => [i + 1, 0]))
 }
 
 export async function exhibitorRoutes(app: FastifyInstance) {
@@ -80,11 +85,12 @@ export async function exhibitorRoutes(app: FastifyInstance) {
         (r) => ({ time_slot: r.time_slot, count: Number(r.count) || 0 }),
       )
 
-      const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+      const ratingScale = app.config.ratingScale
+      const distribution: Record<number, number> = emptyDistribution(ratingScale)
       let ratingCount = 0
       for (const r of ratingRows as { rating: number; cnt: number | string }[]) {
         const cnt = Number(r.cnt) || 0
-        distribution[r.rating as 1 | 2 | 3 | 4 | 5] = cnt
+        distribution[r.rating] = cnt
         ratingCount += cnt
       }
 
@@ -106,7 +112,7 @@ export async function exhibitorRoutes(app: FastifyInstance) {
         hourly_checkins: hourlyCheckins,
         ratings: {
           count: ratingCount,
-          avg_rating: avgFromDistribution(distribution),
+          avg_rating: avgFromDistribution(distribution, ratingScale),
           distribution,
         },
         comments,
