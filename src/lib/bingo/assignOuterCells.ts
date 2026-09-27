@@ -15,7 +15,25 @@ export type PairAssignmentContext = {
   targets: readonly OuterCellTarget[] // 通常2件
 }
 
-type Assignment = { boothId: string | null; strategy: string; score: number | null; reason: unknown }
+/**
+ * 割当可能なブースが0件でマスを埋められなかった理由（issue #150）。
+ * ALL_VISITED         = そのユーザーに未訪問の有効ブースが0件（全制覇。正常な終点）
+ * INSUFFICIENT_BOOTHS = 未訪問の有効ブースは残っているが、全部すでにカードに載っている（有効ブース数 < 16）
+ * この2つは「未訪問の有効ブース数」だけで判別でき、排他である。
+ */
+export type NoCandidateReason = 'ALL_VISITED' | 'INSUFFICIENT_BOOTHS'
+
+/** 終端状態になったマス。unlock.md「割当可能なブースが0件のマス」 */
+export type NoCandidateCell = { position: number; reason: NoCandidateReason }
+
+type Assignment = {
+  boothId: string | null
+  strategy: string
+  score: number | null
+  reason: unknown
+  /** 割り当てられなかったマスにだけ入る。埋まったマスでは undefined */
+  noCandidateReason?: NoCandidateReason
+}
 
 /**
  * 推薦結果（またはフォールバック）を、実際に指定された外周マスへ割り当てる。
@@ -33,9 +51,9 @@ export async function assignOuterCellsForPairs(
   cardId: string,
   pairs: readonly PairAssignmentContext[],
   opts: { isSelfHeal?: boolean; globalCheckinCount?: number } = {},
-): Promise<{ releasedPositions: number[] }> {
+): Promise<{ releasedPositions: number[]; noCandidateCells: NoCandidateCell[] }> {
   const allTargets = pairs.flatMap((p) => p.targets)
-  if (!allTargets.length) return { releasedPositions: [] }
+  if (!allTargets.length) return { releasedPositions: [], noCandidateCells: [] }
 
   const excludeSet = await buildExcludeSet(db, eventId, userId, cardId)
   const cellCount = allTargets.length
@@ -126,6 +144,14 @@ export async function assignOuterCellsForPairs(
     }
   }
 
+  // E7 / issue #150: 埋められないマスが出るときだけ、その理由を1クエリで確定させる。
+  // 「そのユーザーに未訪問の有効ブースが残っているか」だけで ALL_VISITED / INSUFFICIENT_BOOTHS を
+  // 判別できる（unlock.md）。割当時点の値を凍結するので、あとから数え直さない。
+  const noCandidateReason: NoCandidateReason =
+    assignedBoothIds.length < cellCount && (await countUnvisitedActiveBooths(db, eventId, userId)) === 0
+      ? 'ALL_VISITED'
+      : 'INSUFFICIENT_BOOTHS'
+
   // 割当を position 順のターゲットへ配る（推薦側の順序に意味を持たせない）
   const assignmentByCell = new Map<string, Assignment>()
   let cursor = 0
@@ -141,13 +167,28 @@ export async function assignOuterCellsForPairs(
         reason: response?.scores.find((s) => s.booth_id === boothId)?.reason ?? null,
       })
     } else {
-      // E7: 候補が足りない。is_revealed=1, booth_id=NULL のまま解放済み扱いにする
-      assignmentByCell.set(target.cellId, { boothId: null, strategy: 'INSUFFICIENT_CANDIDATES', score: null, reason: null })
+      // E7 / issue #150: 割当可能なブースが0件。その場で終端状態にする
+      // （is_revealed=1, booth_id=NULL, is_achieved=1, source='NO_CANDIDATE'）。
+      // 参加者から見て「行けないマス」を残さない。
+      assignmentByCell.set(target.cellId, {
+        boothId: null,
+        strategy: 'NO_CANDIDATE',
+        score: null,
+        reason: null,
+        noCandidateReason,
+      })
     }
   }
 
   const now = utcMysqlNow()
   await updateOuterCellsBatch(db, allTargets, assignmentByCell, now)
+
+  const noCandidateCells: NoCandidateCell[] = allTargets
+    .map((t) => {
+      const r = assignmentByCell.get(t.cellId)?.noCandidateReason
+      return r ? { position: t.position, reason: r } : null
+    })
+    .filter((c): c is NoCandidateCell => c !== null)
 
   // C-1: 呼び出し側が既に数えているならその値を使い、同一リクエスト内の二重集計を避ける
   const globalCheckinCount = opts.globalCheckinCount ?? (await countGlobalCheckins(db, eventId))
@@ -170,11 +211,17 @@ export async function assignOuterCellsForPairs(
       scoreInserts.push({ unlockEventId: pair.unlockEventId, assignedBoothIds: assignedBoothIdsForPair })
     }
     const pairStrategies = pair.targets.map((t) => assignmentByCell.get(t.cellId)?.strategy)
-    const strategy = opts.isSelfHeal
-      ? 'SELF_HEAL'
-      : pairStrategies.some((s) => s === 'RECOMMEND')
-        ? 'RECOMMEND'
-        : 'FALLBACK_COVERAGE'
+    // issue #150: 1マスも埋められなかったペアは 'NO_CANDIDATE' で記録する。
+    // 'FALLBACK_COVERAGE' にすると運営ダッシュボードの「直近30分のフォールバック率」
+    // （dashboard.ts: strategy IN ('FALLBACK_COVERAGE','SELF_HEAL')）が全制覇で跳ね、
+    // 障害の指標として読めなくなる。
+    const strategy = pairStrategies.every((s) => s === 'NO_CANDIDATE')
+      ? 'NO_CANDIDATE'
+      : opts.isSelfHeal
+        ? 'SELF_HEAL'
+        : pairStrategies.some((s) => s === 'RECOMMEND')
+          ? 'RECOMMEND'
+          : 'FALLBACK_COVERAGE'
     metaUpdates.push({ unlockEventId: pair.unlockEventId, strategy })
   }
 
@@ -183,7 +230,23 @@ export async function assignOuterCellsForPairs(
   // C-3: ペアごとの UPDATE を CASE 式で1回にまとめる
   await markUnlockEventMetaBatch(db, metaUpdates, phase, decisionTableSize, globalCheckinCount)
 
-  return { releasedPositions: allTargets.map((t) => t.position) }
+  return { releasedPositions: allTargets.map((t) => t.position), noCandidateCells }
+}
+
+/**
+ * そのユーザーにとって未訪問の有効ブース数（issue #150）。
+ * 「カードに載っているか」は問わない。ここが 0 なら全制覇（ALL_VISITED）、
+ * 1以上なのに埋められないならブース数不足（INSUFFICIENT_BOOTHS）である。
+ * プロキシは 1 リクエスト = 1 SQL なので、副問い合わせで1往復に収める。
+ */
+async function countUnvisitedActiveBooths(db: DbClient, eventId: string, userId: string): Promise<number> {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS c FROM booths b
+      WHERE b.event_id = ? AND b.is_active = 1
+        AND b.id NOT IN (SELECT ci.booth_id FROM check_ins ci WHERE ci.user_id = ? AND ci.event_id = ?)`,
+    [eventId, userId, eventId],
+  )
+  return Number((rows as { c: number }[])[0]?.c ?? 0)
 }
 
 async function buildExcludeSet(db: DbClient, eventId: string, userId: string, cardId: string): Promise<Set<string>> {
@@ -295,6 +358,9 @@ async function updateOuterCellsBatch(
   if (!targets.length) return
   const boothCase: string[] = []
   const sourceCase: string[] = []
+  const reasonCase: string[] = []
+  const achievedCase: string[] = []
+  const achievedAtCase: string[] = []
   const assignedCase: string[] = []
   const params: unknown[] = []
 
@@ -306,7 +372,24 @@ async function updateOuterCellsBatch(
   for (const t of targets) {
     const a = assignmentByCell.get(t.cellId)!
     sourceCase.push('WHEN ? THEN ?')
-    params.push(t.cellId, a.boothId ? 'RECOMMEND' : null)
+    params.push(t.cellId, a.boothId ? 'RECOMMEND' : 'NO_CANDIDATE')
+  }
+  for (const t of targets) {
+    const a = assignmentByCell.get(t.cellId)!
+    reasonCase.push('WHEN ? THEN ?')
+    params.push(t.cellId, a.noCandidateReason ?? null)
+  }
+  // issue #150: 埋められなかったマスはその場で達成扱いにして終端状態にする。
+  // 埋まったマスは従来どおり is_achieved=0（訪問して初めて達成になる）。
+  for (const t of targets) {
+    const a = assignmentByCell.get(t.cellId)!
+    achievedCase.push('WHEN ? THEN ?')
+    params.push(t.cellId, a.noCandidateReason ? 1 : 0)
+  }
+  for (const t of targets) {
+    const a = assignmentByCell.get(t.cellId)!
+    achievedAtCase.push('WHEN ? THEN ?')
+    params.push(t.cellId, a.noCandidateReason ? now : null)
   }
   for (const t of targets) {
     assignedCase.push('WHEN ? THEN ?')
@@ -320,6 +403,9 @@ async function updateOuterCellsBatch(
      SET booth_id = CASE id ${boothCase.join(' ')} END,
          is_revealed = 1,
          source = CASE id ${sourceCase.join(' ')} END,
+         no_candidate_reason = CASE id ${reasonCase.join(' ')} END,
+         is_achieved = CASE id ${achievedCase.join(' ')} END,
+         achieved_at = CASE id ${achievedAtCase.join(' ')} END,
          assigned_at = CASE id ${assignedCase.join(' ')} END
      WHERE id IN (${idPlaceholders}) AND is_revealed = 0`,
     [...params, ...ids],
