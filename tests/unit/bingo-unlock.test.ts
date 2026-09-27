@@ -3,6 +3,7 @@ import type { AppConfig } from '../../src/config.js'
 import type { DbClient } from '../../src/db/client.js'
 import { processCenterAchievement, healUnlockedCardIfNeeded } from '../../src/lib/bingo/unlock.js'
 import { CENTER_POSITIONS, OUTER_POSITIONS, pairDefinitionByKey } from '../../src/lib/bingo/unlockPairs.js'
+import { countCompletedLines } from '../../src/lib/bingo/lines.js'
 
 const config: AppConfig = {
   port: 3000,
@@ -36,6 +37,8 @@ type Cell = {
   is_revealed: number
   is_achieved: number
   source: string | null
+  no_candidate_reason?: string | null
+  achieved_at?: string | null
   visit_order?: number
 }
 type UnlockEvent = {
@@ -55,7 +58,14 @@ type Booth = { id: string; event_id: string; is_active: number }
 /**
  * unlock.ts / assignOuterCells.ts が実際に発行する SQL パターンにのみ対応するインメモリ DB。
  */
-function makeTestDb(opts: { cardId: string; cells: Cell[]; boothCount: number; surveyRow?: Record<string, unknown> }) {
+function makeTestDb(opts: {
+  cardId: string
+  cells: Cell[]
+  boothCount: number
+  surveyRow?: Record<string, unknown>
+  /** そのユーザーが既にチェックイン済みのブース id（issue #150 の全制覇判定に効く） */
+  visitedBoothIds?: string[]
+}) {
   const { cardId, cells } = opts
   const booths: Booth[] = Array.from({ length: opts.boothCount }, (_, i) => ({
     id: `booth-${i}`,
@@ -93,8 +103,17 @@ function makeTestDb(opts: { cardId: string; cells: Cell[]; boothCount: number; s
     }
     // buildExcludeSet は UNION 1本にまとまっている（C-4）
     if (/SELECT booth_id FROM bingo_cells WHERE card_id = \? AND booth_id IS NOT NULL\s+UNION/.test(sql)) {
-      const rows = cells.filter((c) => c.booth_id !== null).map((c) => ({ booth_id: c.booth_id }))
+      const rows = [
+        ...cells.filter((c) => c.booth_id !== null).map((c) => ({ booth_id: c.booth_id })),
+        ...(opts.visitedBoothIds ?? []).map((id) => ({ booth_id: id })),
+      ]
       return [rows, undefined]
+    }
+    // issue #150: そのユーザーにとって未訪問の有効ブース数（全制覇かブース数不足かの判別材料）
+    if (/SELECT COUNT\(\*\) AS c FROM booths b[\s\S]*NOT IN \(SELECT ci\.booth_id FROM check_ins ci/.test(sql)) {
+      const visited = new Set(opts.visitedBoothIds ?? [])
+      const c = booths.filter((b) => b.is_active === 1 && !visited.has(b.id)).length
+      return [[{ c }], undefined]
     }
     if (/SELECT DISTINCT unlock_event_id FROM recommendation_scores WHERE unlock_event_id IN/.test(sql)) {
       const ids = params as string[]
@@ -115,21 +134,40 @@ function makeTestDb(opts: { cardId: string; cells: Cell[]; boothCount: number; s
     // C-6: 未修復のイベントだけを1クエリで引く
     if (/FROM card_unlock_events cue[\s\S]*FIND_IN_SET/.test(sql)) {
       const [id] = params as [string]
+      // issue #150: source='NO_CANDIDATE' かつ is_achieved=1 のマスは検知対象から外す
+      const needsHeal = (pos: number) =>
+        cells.some(
+          (c) =>
+            c.zone === 'OUTER' &&
+            c.position === pos &&
+            c.is_revealed === 0 &&
+            !(c.source === 'NO_CANDIDATE' && c.is_achieved === 1),
+        )
       const rows = unlockEvents
         .filter((e) => e.card_id === id && e.pair_key !== 'PRESURVEY')
         .filter((e) =>
           e.released_positions
             .split(',')
             .map((n) => Number(n.trim()))
-            .some((pos) => cells.some((c) => c.zone === 'OUTER' && c.position === pos && c.is_revealed === 0)),
+            .some(needsHeal),
         )
         .map((e) => ({ id: e.id, pair_key: e.pair_key, released_positions: e.released_positions }))
       return [rows, undefined]
     }
-    if (/SELECT id, position, is_revealed FROM bingo_cells WHERE card_id = \? AND zone = 'OUTER'/.test(sql)) {
+    if (
+      /SELECT id, position, is_revealed, is_achieved, source FROM bingo_cells WHERE card_id = \? AND zone = 'OUTER'/.test(
+        sql,
+      )
+    ) {
       const rows = cells
         .filter((c) => c.zone === 'OUTER')
-        .map((c) => ({ id: c.id, position: c.position, is_revealed: c.is_revealed }))
+        .map((c) => ({
+          id: c.id,
+          position: c.position,
+          is_revealed: c.is_revealed,
+          is_achieved: c.is_achieved,
+          source: c.source,
+        }))
       return [rows, undefined]
     }
     if (/SELECT b\.id, b\.category_id,[\s\S]*FROM booths b\s+WHERE b\.event_id = \? AND b\.is_active = 1 AND b\.id NOT IN/.test(sql)) {
@@ -168,19 +206,26 @@ function makeTestDb(opts: { cardId: string; cells: Cell[]; boothCount: number; s
       return [{ affectedRows: 1 }, undefined]
     }
     if (/UPDATE bingo_cells\s+SET booth_id = CASE id/.test(sql)) {
-      const n = params.length / 7
-      const boothPairs = params.slice(0, n * 2)
-      const sourcePairs = params.slice(n * 2, n * 4)
+      // booth / source / no_candidate_reason / is_achieved / achieved_at / assigned_at の6グループ
+      // （各 (id, 値) の2件）＋ 末尾の id 一覧 = 13n
+      const n = params.length / 13
+      const group = (g: number) => params.slice(n * 2 * g, n * 2 * (g + 1))
+      const boothPairs = group(0)
+      const sourcePairs = group(1)
+      const reasonPairs = group(2)
+      const achievedPairs = group(3)
+      const achievedAtPairs = group(4)
       let affected = 0
       for (let i = 0; i < n; i++) {
         const id = boothPairs[i * 2] as string
-        const boothId = boothPairs[i * 2 + 1] as string | null
-        const source = sourcePairs[i * 2 + 1] as string | null
         const cell = cells.find((c) => c.id === id)
         if (cell && cell.is_revealed === 0) {
-          cell.booth_id = boothId
+          cell.booth_id = boothPairs[i * 2 + 1] as string | null
           cell.is_revealed = 1
-          cell.source = source
+          cell.source = sourcePairs[i * 2 + 1] as string | null
+          cell.no_candidate_reason = reasonPairs[i * 2 + 1] as string | null
+          cell.is_achieved = Number(achievedPairs[i * 2 + 1])
+          cell.achieved_at = achievedAtPairs[i * 2 + 1] as string | null
           affected += 1
         }
       }
@@ -295,7 +340,7 @@ describe('processCenterAchievement', () => {
     expect(unlockEvents).toHaveLength(0)
   })
 
-  it('候補ブースが12件に満たない場合、埋められるだけ埋めて残りは is_revealed=1/booth_id=NULL にする（E7）', async () => {
+  it('候補ブースが12件に満たない場合、埋められるだけ埋めて残りは終端状態にする（E7 / issue #150）', async () => {
     const cells = buildAllCenterAchievedCard()
     const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 5 }) // 候補5件のみ
 
@@ -308,6 +353,222 @@ describe('processCenterAchievement', () => {
     expect(filled).toHaveLength(5)
     expect(empty).toHaveLength(7)
     expect(outerCells.every((c) => c.is_revealed === 1)).toBe(true) // is_revealed=0 のまま放置しない
+    // 埋まらなかったマスはその場で達成扱いにして終端状態にする（is_achieved=0 で放置しない）
+    expect(empty.every((c) => c.is_achieved === 1)).toBe(true)
+    expect(empty.every((c) => c.source === 'NO_CANDIDATE')).toBe(true)
+    expect(empty.every((c) => c.achieved_at !== null)).toBe(true)
+    // 埋まったマスは訪問して初めて達成になる（こちらを達成扱いにしてはいけない）
+    expect(filled.every((c) => c.is_achieved === 0)).toBe(true)
+    expect(filled.every((c) => c.source === 'RECOMMEND')).toBe(true)
+    expect(filled.every((c) => c.no_candidate_reason === null)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 割当可能なブースが0件のマスを終端状態にする（issue #150）
+//
+// 空白になる条件は「割当可能なブースが0件」の1つだけで、その内訳が
+// ALL_VISITED（全制覇）と INSUFFICIENT_BOOTHS（ブース数不足）の2通り。排他である。
+// ---------------------------------------------------------------------------
+describe('割当可能なブースが0件のマス（issue #150）', () => {
+  /** 全ブース訪問済み: exclude で候補が消え、かつ未訪問の有効ブースも0件 */
+  const makeAllVisitedDb = (cells: Cell[], boothCount = 20) =>
+    makeTestDb({
+      cardId: 'card-1',
+      cells,
+      boothCount,
+      visitedBoothIds: Array.from({ length: boothCount }, (_, i) => `booth-${i}`),
+    })
+
+  it('未訪問の有効ブースが0件なら、マスが is_achieved=1 の終端状態になる（ALL_VISITED）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db } = makeAllVisitedDb(cells)
+
+    const result = await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    expect(result.unlockedPositions).toHaveLength(12)
+    expect(result.noCandidateCells).toHaveLength(12)
+    expect(result.noCandidateCells.every((c) => c.reason === 'ALL_VISITED')).toBe(true)
+
+    const outerCells = cells.filter((c) => c.zone === 'OUTER')
+    expect(outerCells.every((c) => c.is_revealed === 1)).toBe(true)
+    expect(outerCells.every((c) => c.booth_id === null)).toBe(true)
+    expect(outerCells.every((c) => c.is_achieved === 1)).toBe(true)
+    expect(outerCells.every((c) => c.source === 'NO_CANDIDATE')).toBe(true)
+    expect(outerCells.every((c) => c.no_candidate_reason === 'ALL_VISITED')).toBe(true)
+    // check_ins の行は作らない（訪問していないため）→ cell_id の付け替え SQL も発行されない
+  })
+
+  it('有効ブースが16未満のイベントでは、埋まらないマスが INSUFFICIENT_BOOTHS になる', async () => {
+    const cells = buildAllCenterAchievedCard()
+    // 有効ブース10件・未訪問。10マスは埋まり、残り2マスは構造的に埋められない
+    const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 10 })
+
+    const result = await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    expect(result.noCandidateCells).toHaveLength(2)
+    expect(result.noCandidateCells.every((c) => c.reason === 'INSUFFICIENT_BOOTHS')).toBe(true)
+
+    const empty = cells.filter((c) => c.zone === 'OUTER' && c.booth_id === null)
+    expect(empty).toHaveLength(2)
+    expect(empty.every((c) => c.is_achieved === 1 && c.no_candidate_reason === 'INSUFFICIENT_BOOTHS')).toBe(true)
+  })
+
+  it('全制覇とブース数不足は区別され、混ざらない（排他）', async () => {
+    const allVisitedCells = buildAllCenterAchievedCard()
+    const { db: allVisitedDb } = makeAllVisitedDb(allVisitedCells)
+    const allVisited = await processCenterAchievement(allVisitedDb, config, 'event-1', 'user-1', 'card-1')
+
+    const shortCells = buildAllCenterAchievedCard()
+    const { db: shortDb } = makeTestDb({ cardId: 'card-1', cells: shortCells, boothCount: 10 })
+    const short = await processCenterAchievement(shortDb, config, 'event-1', 'user-1', 'card-1')
+
+    const reasons = (r: { reason: string }[]) => [...new Set(r.map((x) => x.reason))]
+    expect(reasons(allVisited.noCandidateCells)).toEqual(['ALL_VISITED'])
+    expect(reasons(short.noCandidateCells)).toEqual(['INSUFFICIENT_BOOTHS'])
+  })
+
+  it('この経路では推薦サービスを呼ばない（2秒要件にも効く）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db } = makeAllVisitedDb(cells)
+    const { requests } = stubRecommender()
+
+    const result = await processCenterAchievement(db, configWithRecommender, 'event-1', 'user-1', 'card-1')
+
+    expect(result.noCandidateCells).toHaveLength(12)
+    expect(requests).toHaveLength(0) // 呼ばれないこと
+  })
+
+  it('この経路では recommendation_scores に行を作らない（was_assigned の意味を壊さない）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, scores, unlockEvents } = makeAllVisitedDb(cells)
+
+    await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    expect(scores).toHaveLength(0)
+    // 解放そのものは成功している（解放イベントは6ペア分できる）
+    expect(unlockEvents).toHaveLength(6)
+  })
+
+  it('1マスも埋められなかったペアの strategy は NO_CANDIDATE（フォールバック率を汚さない）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, unlockEvents } = makeAllVisitedDb(cells)
+
+    await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    // 運営ダッシュボードのフォールバック率は strategy IN ('FALLBACK_COVERAGE','SELF_HEAL') で数える。
+    // 全制覇は障害ではないので、そこに混ぜない
+    expect(unlockEvents.map((e) => e.strategy)).toEqual(Array(6).fill('NO_CANDIDATE'))
+  })
+
+  it('一部だけ埋まったペアの strategy は従来どおり（NO_CANDIDATE にしない）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    // 有効ブース11件 → 11マスが埋まり、最後の1マスだけ埋まらない
+    const { db, unlockEvents } = makeTestDb({ cardId: 'card-1', cells, boothCount: 11 })
+
+    await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    const strategies = unlockEvents.map((e) => e.strategy)
+    expect(strategies.filter((s) => s === 'NO_CANDIDATE')).toHaveLength(0)
+    expect(strategies.every((s) => s === 'FALLBACK_COVERAGE')).toBe(true) // 推薦は未設定
+  })
+
+  it('6マス同時のとき、全マスを確定させたあとのライン数が正しい（ライン計算は1回で足りる）', async () => {
+    // issue #150 の再現シナリオ: 事前推薦マス（position 5）を最後まで残し、他は全て訪問済み。
+    // position 5 の達成で 5-6 / 5-9 / 5-10 の3ペア＝6マスが同時に解放される。
+    const cells = buildAllCenterAchievedCard()
+    for (const c of cells) {
+      if (c.zone === 'OUTER' && ![0, 1, 4, 7, 13, 15].includes(c.position)) {
+        // 先の解放で埋まり、訪問も済んでいる6マス
+        c.booth_id = `visited-outer-${c.position}`
+        c.is_revealed = 1
+        c.is_achieved = 1
+        c.source = 'RECOMMEND'
+      }
+    }
+    const { db, unlockEvents } = makeAllVisitedDb(cells)
+    // 3ペアは既に解放済みとして仕込む（残るのは中央5を含む3ペア）
+    for (const key of ['9-10', '6-10', '6-9']) {
+      const def = pairDefinitionByKey(key)!
+      unlockEvents.push({
+        id: `done-${key}`,
+        card_id: 'card-1',
+        pair_key: def.pairKey,
+        line_index: def.lineIndex,
+        released_positions: def.releasedPositions.join(','),
+        phase: 'COVERAGE',
+        strategy: 'FALLBACK_COVERAGE',
+        decision_table_size: null,
+        global_checkin_count: 1,
+      })
+    }
+
+    const result = await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    expect([...result.unlockedPositions].sort((a, b) => a - b)).toEqual([0, 1, 4, 7, 13, 15])
+    expect(result.noCandidateCells).toHaveLength(6)
+    expect(result.noCandidateCells.every((c) => c.reason === 'ALL_VISITED')).toBe(true)
+
+    // ライン計算は「全マスを確定させた後に1回」。集合を1度作れば正しい本数が出る
+    const achieved = new Set(cells.filter((c) => c.is_achieved === 1).map((c) => c.position))
+    expect(achieved.size).toBe(16)
+    expect(countCompletedLines(achieved)).toBe(10) // 4行 + 4列 + 2対角
+  })
+
+  it('自己修復は終端状態のマスを埋め直さない（E9 との整合）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, cells: dbCells, unlockEvents, scores } = makeAllVisitedDb(cells)
+
+    // まず解放を走らせて12マスを終端状態にする
+    await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+    expect(dbCells.filter((c) => c.zone === 'OUTER' && c.source === 'NO_CANDIDATE')).toHaveLength(12)
+    const scoresAfterUnlock = scores.length
+    expect(scoresAfterUnlock).toBe(0)
+    const strategiesAfterUnlock = unlockEvents.map((e) => e.strategy)
+
+    // カード取得を何度繰り返しても、終端状態のマスには触らない
+    const queriesPerHeal: number[] = []
+    const origQuery = db.query
+    for (let i = 0; i < 3; i++) {
+      const queried: string[] = []
+      db.query = async (sql: string, params?: unknown[]) => {
+        queried.push(sql)
+        return origQuery(sql, params as unknown[])
+      }
+      await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+      queriesPerHeal.push(queried.length)
+    }
+    db.query = origQuery
+
+    // 検知クエリ1本で終わる（候補探索も scores の記録も走らない）
+    expect(queriesPerHeal).toEqual([1, 1, 1])
+    expect(scores).toHaveLength(scoresAfterUnlock)
+    expect(unlockEvents.map((e) => e.strategy)).toEqual(strategiesAfterUnlock) // SELF_HEAL に上書きされない
+    const outerCells = dbCells.filter((c) => c.zone === 'OUTER')
+    expect(outerCells.every((c) => c.booth_id === null && c.source === 'NO_CANDIDATE')).toBe(true)
+  })
+
+  it('終端状態のマスが is_revealed=0 に巻き戻っていても修復対象にしない', async () => {
+    const cells = buildAllCenterAchievedCard()
+    const { db, cells: dbCells, unlockEvents } = makeAllVisitedDb(cells)
+    await processCenterAchievement(db, config, 'event-1', 'user-1', 'card-1')
+
+    // source='NO_CANDIDATE' かつ is_achieved=1 という条件で除外していることを確かめる
+    // （is_revealed だけを見ていると、この状態で埋め直しに行ってしまう）
+    for (const pos of [4, 7]) {
+      const c = dbCells.find((x) => x.position === pos)!
+      c.is_revealed = 0
+    }
+    const strategiesBefore = unlockEvents.map((e) => e.strategy)
+
+    await healUnlockedCardIfNeeded(db, config, 'event-1', 'user-1', 'card-1')
+
+    for (const pos of [4, 7]) {
+      const c = dbCells.find((x) => x.position === pos)!
+      expect(c.booth_id).toBeNull()
+      expect(c.source).toBe('NO_CANDIDATE')
+    }
+    expect(unlockEvents.map((e) => e.strategy)).toEqual(strategiesBefore)
   })
 })
 
