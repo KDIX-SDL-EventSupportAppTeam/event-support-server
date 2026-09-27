@@ -1,6 +1,6 @@
 ---
 状態: 実装済み
-最終更新: 2026-08-25
+最終更新: 2026-09-28
 ---
 
 # 参加者向け API
@@ -42,15 +42,43 @@
       "is_revealed": true,
       "is_achieved": false,
       "source": "PRESURVEY",
+      "no_candidate_reason": null,
       "booth": { "id": "…", "name": "…", "display_code": "A-12", "description": "…" }
+    },
+    {
+      "position": 7,
+      "zone": "OUTER",
+      "is_revealed": true,
+      "is_achieved": true,
+      "source": "NO_CANDIDATE",
+      "no_candidate_reason": "ALL_VISITED",
+      "booth": null
     }
   ]
 }
 ```
 
+### 終端状態のマス（`source = "NO_CANDIDATE"`）
+
+解放時に**割当可能なブースが0件**で、ブースを載せられなかったマス（issue #150 /
+[E7](../08-edge-cases/edge-cases.md) / [unlock.md](../03-card-lifecycle/unlock.md)）。
+`is_revealed: true`・`is_achieved: true`・`booth: null` で確定し、以後変化しない。
+理由は `no_candidate_reason` で区別する。
+
+| `no_candidate_reason` | 意味 | フロントの表示（[frontend#152](https://github.com/KDIX-SDL-EventSupportAppTeam/event-support-frontend/issues/152)） |
+|---|---|---|
+| `"ALL_VISITED"` | そのユーザーに未訪問の有効ブースが0件。全制覇した正常な終点 | 「すべてのブースを訪問しました」。**達成済み（訪問済み扱い）として描く** |
+| `"INSUFFICIENT_BOOTHS"` | 未訪問の有効ブースは残っているが、全部すでにこのカードに載っている（有効ブース数 < 16）。運営側の設定都合 | 運営向けの異常。「ブースが足りません」相当 |
+| `null` | 終端状態ではない通常のマス | — |
+
+- **`source = "NO_CANDIDATE"` のときだけ `no_candidate_reason` が非 `null` になる。** 逆も成立する
+- 値は**割当時点で凍結**する。あとから運営がブースを追加しても書き換わらない
+- `is_achieved: true` なので `progress.achieved_cells` と `lines_completed` に**算入される**
+
 ### 必ず守ること
 
 - `cells` は **position 昇順で必ず16件**
+- `no_candidate_reason` は**全てのマスに必ず存在する**（該当しなければ `null`）
 - **`is_revealed: false` のマスでは `booth` を必ず `null` にする。**
   解放前に中身を漏らさない。これは絶対の制約
 - `coins` は返さない。ライン数だけを返す（[D-5](../01-concept/decisions.md)）
@@ -85,6 +113,7 @@
     { "pair_key": "5-9", "released_positions": [1, 13] },
     { "pair_key": "6-9", "released_positions": [3, 12] }
   ],
+  "no_candidate_cells": [],
   "new_lines": 0,
   "lines_completed": 0
 }
@@ -95,6 +124,7 @@
 | `filled_cell` | 今回のチェックインで埋まったマス。カード外訪問なら `null` |
 | `unlocked_positions` | **今回の解放で開放された外周 position の配列。** 解放が起きなければ空配列 |
 | `unlocked_pairs` | 同じ解放の**ペア単位の内訳**（`pair_key` と、そのペアで開放された position）。解放が起きなければ空配列 |
+| `no_candidate_cells` | 今回の解放で**終端状態になったマス**の一覧（issue #150）。`[{ "position": 4, "reason": "ALL_VISITED" }, …]`。該当が無ければ空配列。`unlocked_positions` の部分集合であり、`reason` の値は `GET /bingo/card` の `no_candidate_reason` と同じ |
 | `new_lines` | 今回のチェックインで新たに成立したライン数 |
 | `lines_completed` | 成立ライン数の合計 |
 
@@ -103,6 +133,10 @@
 
 - `unlocked` という真偽値は**返さない。** 解放が複数回あるため、開放されたマスの配列を返す
 - `coins_earned` は返さない（[D-5](../01-concept/decisions.md)）
+- `no_candidate_cells` のマスは `is_achieved = 1` で確定するため、同じレスポンスの
+  `new_lines` / `lines_completed` に**算入済み**である。全制覇時は6マスが同時に終端状態になり、
+  ライン数が一気に跳ねうる（コインが上限まで出ることは許容する。issue #150）。
+  **フロントはライン計算を自前でやり直さない**
 - 中央3マス目・4マス目の達成では2ペア・3ペアが同時に成立し、`unlocked_positions` には
   全ペア分が平坦に混ざる。**ペア単位の解放演出には `unlocked_pairs` を使うこと。**
   対応表（[unlock-pairs.md](../03-card-lifecycle/unlock-pairs.md)）をフロントで複製して
@@ -178,7 +212,7 @@
 
 | room | イベント | payload |
 |---|---|---|
-| `event:{event_id}:user:{user_id}` | `bingo:unlocked` | `{ unlock_event_ids: [...], released_positions: [1,13,3,12], unlocked_pairs: [{ pair_key: "5-9", released_positions: [1,13] }], unlocked_at: "…Z" }` |
+| `event:{event_id}:user:{user_id}` | `bingo:unlocked` | `{ unlock_event_ids: [...], released_positions: [1,13,3,12], unlocked_pairs: [{ pair_key: "5-9", released_positions: [1,13] }], no_candidate_cells: [{ position: 1, reason: "ALL_VISITED" }], unlocked_at: "…Z" }` |
 | `event:{event_id}:admin` | `checkin:new` | `{ booth_id, booth_name, user_display_name, checked_in_at }` |
 | `event:{event_id}:admin` | `rating:new` | `{ booth_id, booth_name, rating, comment, user_display_name }` |
 

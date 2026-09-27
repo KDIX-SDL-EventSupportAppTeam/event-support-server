@@ -21,7 +21,7 @@
 | POST | `/api/v1/events/:event_id/survey/answers` | Bearer | アンケート回答送信 |
 | GET | `/api/v1/events/:event_id/booths` | Bearer | ブース一覧（カテゴリフィルタ可） |
 | GET | `/api/v1/events/:event_id/booths/:booth_id` | Bearer | ブース詳細 |
-| POST | `/api/v1/events/:event_id/checkins` | Bearer | チェックイン（QR / 手動コード）。ビンゴの後出し割当・解放（`unlocked_positions` / `unlocked_pairs`）・ライン判定を含む。`pending_rating` は廃止（server#133） |
+| POST | `/api/v1/events/:event_id/checkins` | Bearer | チェックイン（QR / 手動コード）。ビンゴの後出し割当・解放（`unlocked_positions` / `unlocked_pairs` / `no_candidate_cells`）・ライン判定を含む。`pending_rating` は廃止（server#133） |
 | GET | `/api/v1/events/:event_id/checkins` | Bearer | 自分のチェックイン履歴。各要素に評価済みかどうかの `rated`（真偽値。点数は含まない）を含む |
 | POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating` | Bearer | 評価送信（+comment、`context`: `IMMEDIATE`/`MANUAL`。`NEXT_CHECKIN` は新規には422。空白のみは NULL 正規化、再送信は409、他人のcheckin_idは404。`rating` は `1..RATING_SCALE`） |
 | GET | `/api/v1/events/:event_id/bingo/card` | Bearer | ビンゴカード取得（無ければ生成。解放漏れの self-healing を含む。`is_revealed=0` のマスは `booth` を `null` で返す） |
