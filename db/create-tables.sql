@@ -193,7 +193,9 @@ CREATE TABLE bingo_cells (
   booth_id     CHAR(36)   NULL,
   is_revealed  TINYINT(1) NOT NULL DEFAULT 0,
   is_achieved  TINYINT(1) NOT NULL DEFAULT 0,
-  source       ENUM('PRESURVEY','FREE_VISIT','RECOMMEND') NULL,
+  source       ENUM('PRESURVEY','FREE_VISIT','RECOMMEND','NO_CANDIDATE') NULL,
+  -- 割当可能なブースが0件で終端状態にしたマスの理由（issue #150）。source='NO_CANDIDATE' のときだけ入る
+  no_candidate_reason ENUM('ALL_VISITED','INSUFFICIENT_BOOTHS') NULL,
   assigned_at  DATETIME   NULL,
   achieved_at  DATETIME   NULL,
   UNIQUE KEY uq_cell_card_position (card_id, position),
