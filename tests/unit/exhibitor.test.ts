@@ -318,7 +318,7 @@ describe('GET /events/:event_id/exhibitor/booths/:booth_id/stats', () => {
         { match: /FROM exhibitor_booths eb/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
         { match: /SELECT COUNT\(\*\) AS c FROM check_ins/, rows: [{ c: 42 }] },
         {
-          match: /SELECT DATE_FORMAT\(checked_in_at, '%H:00'\)/,
+          match: /SELECT DATE_FORMAT\(CONVERT_TZ\(checked_in_at, '\+00:00', '\+09:00'\), '%H:00'\)/,
           rows: [
             { time_slot: '10:00', count: 5 },
             { time_slot: '11:00', count: 12 },
