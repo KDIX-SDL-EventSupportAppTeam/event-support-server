@@ -36,7 +36,9 @@ npm run db:check   # テーブルの過不足と件数をまとめて確認す�
 | `recommendation_scores` | 解放ごとの候補全件のスコア。追記専用 |
 | `gacha_coin_uses` | ガチャの器。ビンゴ側からは書かない |
 
-`bingo_cells.source` は `PRESURVEY` / `FREE_VISIT` / `RECOMMEND` の3値。
+`bingo_cells.source` は `PRESURVEY` / `FREE_VISIT` / `RECOMMEND` / `NO_CANDIDATE` の4値。
+`NO_CANDIDATE` は解放時に割当可能なブースが0件だったマス（`booth_id IS NULL` / `is_achieved = 1` の終端状態）で、
+理由を `bingo_cells.no_candidate_reason`（`ALL_VISITED` / `INSUFFICIENT_BOOTHS`）に凍結する（issue #150）。
 `is_revealed = 0` のマスの `booth_id` は **API から返さない**（解放前に中身を漏らさない）。
 
 既存テーブルへの追加: `booths.is_active`、`check_ins.visit_order` / `cell_id`、

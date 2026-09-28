@@ -55,6 +55,7 @@ function makeDb(opts: {
   let existingAnswerId = opts.existingAnswerId ?? null
   let updateCalls = 0
   let insertCalls = 0
+  let lastSavedParams: unknown[] | null = null
 
   const run = async (sql: string, params: unknown[] = []): Promise<[unknown, unknown]> => {
     if (/SELECT id FROM events WHERE id = \?/.test(sql)) {
@@ -87,10 +88,12 @@ function makeDb(opts: {
     }
     if (/UPDATE user_survey_answers/.test(sql)) {
       updateCalls++
+      lastSavedParams = params
       return [{ affectedRows: 1 }, undefined]
     }
     if (/INSERT INTO user_survey_answers/.test(sql)) {
       insertCalls++
+      lastSavedParams = params
       existingAnswerId = 'new-answer-id'
       return [{ affectedRows: 1 }, undefined]
     }
@@ -98,6 +101,7 @@ function makeDb(opts: {
   }
   const db = { query: run, execute: run, end: async () => {} } as DbClient
   Object.defineProperty(db, '_counts', { get: () => ({ updateCalls, insertCalls }) })
+  Object.defineProperty(db, '_lastSavedParams', { get: () => lastSavedParams })
   return db
 }
 
@@ -324,6 +328,122 @@ describe('POST /events/:event_id/survey/answers の top_interest_category 検証
     const res = await app.inject(post({ custom_answers: { interest_categories: [CAT_ID] } }))
     expect(res.statusCode).toBe(400)
     expect(res.json().error.message).toContain('必須')
+    await app.close()
+  })
+})
+
+describe('POST /events/:event_id/survey/answers（#141: 設問0問・未知キー）', () => {
+  function getSavedCustomAnswers(db: DbClient, isUpdate: boolean): Record<string, unknown> {
+    const params = (db as unknown as { _lastSavedParams: unknown[] })._lastSavedParams
+    const idx = isUpdate ? 3 : 6
+    return JSON.parse(params![idx] as string)
+  }
+
+  it('T-1: 設問0問のイベントに送ると409 SURVEY_NOT_CONFIGURED になり、行が作られない', async () => {
+    const db = makeDb({ questions: [] })
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { custom_answers: {} },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error.code).toBe('SURVEY_NOT_CONFIGURED')
+    expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.insertCalls).toBe(0)
+    expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.updateCalls).toBe(0)
+    await app.close()
+  })
+
+  it('T-2: 必須設問が欠けたリクエストは400 VALIDATION_ERROR になり、行が作られない', async () => {
+    const db = makeDb({})
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { custom_answers: {} },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+    expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.insertCalls).toBe(0)
+    expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.updateCalls).toBe(0)
+    await app.close()
+  })
+
+  it('T-3: 正しい回答は custom_answers に設問キーぶんの値が入り、専用列にも値が入る', async () => {
+    const db = makeDb({})
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { age_range: 'twenties', custom_answers: { interest_categories: [CAT_ID] } },
+    })
+    expect(res.statusCode).toBe(200)
+    const saved = getSavedCustomAnswers(db, false)
+    expect(saved).toEqual({ age_range: 'twenties', interest_categories: [CAT_ID] })
+    const params = (db as unknown as { _lastSavedParams: unknown[] })._lastSavedParams
+    expect(params![3]).toBe('twenties') // age_range 列
+    await app.close()
+  })
+
+  it('T-4: 設問に無いキー foo を混ぜても200で、保存された custom_answers に foo が無い', async () => {
+    const db = makeDb({})
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: {
+        age_range: 'twenties',
+        custom_answers: { interest_categories: [CAT_ID], foo: 'bar' },
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    const saved = getSavedCustomAnswers(db, false)
+    expect(saved.foo).toBeUndefined()
+    expect(saved).toEqual({ age_range: 'twenties', interest_categories: [CAT_ID] })
+    await app.close()
+  })
+
+  it('T-5: 2回目の送信（UPDATE 経路）でも T-1〜T-4 が同様に成り立つ', async () => {
+    const db0 = makeDb({ questions: [] })
+    const notConfiguredApp = await buildTestApp(db0)
+    const notConfiguredRes = await notConfiguredApp.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { custom_answers: {} },
+    })
+    expect(notConfiguredRes.statusCode).toBe(409)
+    await notConfiguredApp.close()
+
+    const db = makeDb({ existingAnswerId: 'existing-id' })
+    const app = await buildTestApp(db)
+
+    const missingRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: { custom_answers: {} },
+    })
+    expect(missingRes.statusCode).toBe(400)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/survey/answers`,
+      headers: authHeader(),
+      payload: {
+        age_range: 'twenties',
+        custom_answers: { interest_categories: [CAT_ID], foo: 'bar' },
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    const saved = getSavedCustomAnswers(db, true)
+    expect(saved).toEqual({ age_range: 'twenties', interest_categories: [CAT_ID] })
+    expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.updateCalls).toBe(1)
+    expect((db as unknown as { _counts: { updateCalls: number; insertCalls: number } })._counts.insertCalls).toBe(0)
     await app.close()
   })
 })

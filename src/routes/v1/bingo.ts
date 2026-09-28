@@ -11,7 +11,8 @@ type CellRow = {
   zone: 'CENTER' | 'OUTER'
   is_revealed: number
   is_achieved: number
-  source: 'PRESURVEY' | 'FREE_VISIT' | 'RECOMMEND' | null
+  source: 'PRESURVEY' | 'FREE_VISIT' | 'RECOMMEND' | 'NO_CANDIDATE' | null
+  no_candidate_reason: 'ALL_VISITED' | 'INSUFFICIENT_BOOTHS' | null
   booth_id: string | null
   booth_name: string | null
   display_code: string | null
@@ -44,7 +45,7 @@ export async function bingoRoutes(app: FastifyInstance) {
       await healUnlockedCardIfNeeded(app.db, app.config, eventId, uid, card.id)
 
       const [rows] = await app.db.query(
-        `SELECT c.position, c.zone, c.is_revealed, c.is_achieved, c.source, c.booth_id,
+        `SELECT c.position, c.zone, c.is_revealed, c.is_achieved, c.source, c.no_candidate_reason, c.booth_id,
                 b.name AS booth_name, b.display_code, b.description AS booth_description
            FROM bingo_cells c
            LEFT JOIN booths b ON b.id = c.booth_id
@@ -63,7 +64,15 @@ export async function bingoRoutes(app: FastifyInstance) {
         const c = cellRows.find((r) => r.position === position)
         if (!c) {
           // 通常はここに来ない（ensureCard が必ず16行作る）が、防御的に埋める
-          return { position, zone: CENTER_POSITIONS.includes(position) ? 'CENTER' : 'OUTER', is_revealed: false, is_achieved: false, source: null, booth: null }
+          return {
+            position,
+            zone: CENTER_POSITIONS.includes(position) ? 'CENTER' : 'OUTER',
+            is_revealed: false,
+            is_achieved: false,
+            source: null,
+            no_candidate_reason: null,
+            booth: null,
+          }
         }
         // is_revealed=0 のマスでは booth を必ず null にする（解放前に中身を漏らさない。絶対の制約）
         if (c.is_revealed === 0) {
@@ -73,6 +82,7 @@ export async function bingoRoutes(app: FastifyInstance) {
             is_revealed: false,
             is_achieved: Boolean(c.is_achieved),
             source: c.source,
+            no_candidate_reason: c.no_candidate_reason,
             booth: null,
           }
         }
@@ -82,6 +92,9 @@ export async function bingoRoutes(app: FastifyInstance) {
           is_revealed: true,
           is_achieved: Boolean(c.is_achieved),
           source: c.source,
+          // issue #150: 割当可能なブースが0件で終端状態になったマスの理由。
+          // source='NO_CANDIDATE' のときだけ非 null（participant-api.md）
+          no_candidate_reason: c.no_candidate_reason,
           booth: c.booth_id
             ? { id: c.booth_id, name: c.booth_name, display_code: c.display_code, description: c.booth_description }
             : null,

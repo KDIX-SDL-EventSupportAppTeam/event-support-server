@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { AppConfig } from '../../config.js'
 import type { DbClient } from '../../db/client.js'
-import { assignOuterCellsForPairs, countGlobalCheckins, type PairAssignmentContext } from './assignOuterCells.js'
+import {
+  assignOuterCellsForPairs,
+  countGlobalCheckins,
+  type NoCandidateCell,
+  type PairAssignmentContext,
+} from './assignOuterCells.js'
 import { computeNewlyCompletedPairs, pairDefinitionByKey, type PairDefinition } from './unlockPairs.js'
 
 /** 1ペアぶんの解放結果。フロントは解放演出の再生済みフラグを pair_key 単位で管理する。 */
@@ -18,6 +23,12 @@ export type UnlockResult = {
    * ペア単位の復元には使えない（正本はサーバー側。フロントで対応表を複製しない）。
    */
   unlockedPairs: UnlockedPair[]
+  /**
+   * 今回の解放で終端状態になったマス（issue #150）。割当可能なブースが0件で
+   * booth_id を載せられず、その場で is_achieved=1 に確定したもの。
+   * unlockedPositions の部分集合である。
+   */
+  noCandidateCells: NoCandidateCell[]
 }
 
 /**
@@ -40,7 +51,7 @@ export async function processCenterAchievement(
   const alreadyUnlockedKeys = await getUnlockedPairKeys(db, cardId)
 
   const newPairs = computeNewlyCompletedPairs(achievedCenter, alreadyUnlockedKeys)
-  if (!newPairs.length) return { unlockedPositions: [], unlockEventIds: [], unlockedPairs: [] }
+  if (!newPairs.length) return { unlockedPositions: [], unlockEventIds: [], unlockedPairs: [], noCandidateCells: [] }
 
   const globalCheckinCount = await countGlobalCheckins(db, eventId)
 
@@ -50,7 +61,7 @@ export async function processCenterAchievement(
     const unlockEventId = await tryClaimPair(db, cardId, pair, globalCheckinCount)
     if (unlockEventId) wonPairs.push({ pair, unlockEventId })
   }
-  if (!wonPairs.length) return { unlockedPositions: [], unlockEventIds: [], unlockedPairs: [] }
+  if (!wonPairs.length) return { unlockedPositions: [], unlockEventIds: [], unlockedPairs: [], noCandidateCells: [] }
 
   const cellsByPosition = await getOuterCellsByPosition(db, cardId)
 
@@ -65,9 +76,17 @@ export async function processCenterAchievement(
       .filter((t): t is { cellId: string; position: number } => t !== null),
   }))
 
-  const { releasedPositions } = await assignOuterCellsForPairs(db, config, eventId, userId, cardId, pairContexts, {
-    globalCheckinCount, // C-1: 同一リクエスト内で数え直さない
-  })
+  const { releasedPositions, noCandidateCells } = await assignOuterCellsForPairs(
+    db,
+    config,
+    eventId,
+    userId,
+    cardId,
+    pairContexts,
+    {
+      globalCheckinCount, // C-1: 同一リクエスト内で数え直さない
+    },
+  )
 
   const releasedSet = new Set(releasedPositions)
   return {
@@ -77,6 +96,7 @@ export async function processCenterAchievement(
       pair_key: ctx.pairKey,
       released_positions: ctx.targets.map((t) => t.position).filter((p) => releasedSet.has(p)),
     })),
+    noCandidateCells,
   }
 }
 
@@ -165,6 +185,10 @@ export async function healUnlockedCardIfNeeded(
   // C-6: 修復不要（＝ほぼ全ての呼び出し）を1クエリで安く判定する。
   // 「解放イベントの released_positions に含まれる外周マスが is_revealed=0 で残っている」
   // イベントだけを直接引く。該当が無ければここで終わり（従来は毎回3クエリ走っていた）。
+  //
+  // issue #150: source='NO_CANDIDATE' かつ is_achieved=1 のマスは修復対象から外す。
+  // 割当可能なブースが0件で確定した終端状態であり、埋め直す相手が存在しない
+  // （is_revealed=1 なので下の条件でも既に外れるが、意図を SQL に明示しておく）。
   const [eventRows] = await db.query(
     `SELECT cue.id, cue.pair_key, cue.released_positions
        FROM card_unlock_events cue
@@ -172,6 +196,7 @@ export async function healUnlockedCardIfNeeded(
         AND EXISTS (
           SELECT 1 FROM bingo_cells bc
            WHERE bc.card_id = cue.card_id AND bc.zone = 'OUTER' AND bc.is_revealed = 0
+             AND NOT (bc.source = 'NO_CANDIDATE' AND bc.is_achieved = 1)
              AND FIND_IN_SET(bc.position, cue.released_positions)
         )`,
     [cardId],
@@ -181,12 +206,23 @@ export async function healUnlockedCardIfNeeded(
 
   // ここから先は実際に壊れているカードだけが通る。外周マスの id/position/is_revealed を1クエリで取る。
   const [cellRows] = await db.query(
-    `SELECT id, position, is_revealed FROM bingo_cells WHERE card_id = ? AND zone = 'OUTER'`,
+    `SELECT id, position, is_revealed, is_achieved, source FROM bingo_cells WHERE card_id = ? AND zone = 'OUTER'`,
     [cardId],
   )
-  const outerCells = cellRows as { id: string; position: number; is_revealed: number }[]
+  const outerCells = cellRows as {
+    id: string
+    position: number
+    is_revealed: number
+    is_achieved: number
+    source: string | null
+  }[]
   const cellsByPosition = new Map(outerCells.map((c) => [c.position, c.id]))
-  const revealedPositions = new Set(outerCells.filter((c) => Number(c.is_revealed) === 1).map((c) => c.position))
+  // 「触ってはいけないマス」= 既に見えているマス ＋ 終端状態のマス（issue #150）
+  const settledPositions = new Set(
+    outerCells
+      .filter((c) => Number(c.is_revealed) === 1 || (c.source === 'NO_CANDIDATE' && Number(c.is_achieved) === 1))
+      .map((c) => c.position),
+  )
 
   const needsHeal: PairAssignmentContext[] = []
   for (const ev of events) {
@@ -199,7 +235,7 @@ export async function healUnlockedCardIfNeeded(
     const targets = (def ? def.releasedPositions : positions)
       .map((pos) => {
         const cellId = cellsByPosition.get(pos)
-        return cellId && !revealedPositions.has(pos) ? { cellId, position: pos } : null
+        return cellId && !settledPositions.has(pos) ? { cellId, position: pos } : null
       })
       .filter((t): t is { cellId: string; position: number } => t !== null)
     if (targets.length) needsHeal.push({ unlockEventId: ev.id, pairKey: ev.pair_key, targets })

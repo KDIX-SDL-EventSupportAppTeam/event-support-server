@@ -6,6 +6,7 @@ import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt, requireVerifiedEmail } from '../../plugins/auth.js'
 import { ensureCard } from '../../lib/bingo/ensureCard.js'
 import { processCenterAchievement, type UnlockedPair } from '../../lib/bingo/unlock.js'
+import type { NoCandidateCell } from '../../lib/bingo/assignOuterCells.js'
 import { checkCooldown } from '../../lib/bingo/cooldown.js'
 import { countCompletedLines } from '../../lib/bingo/lines.js'
 
@@ -26,30 +27,8 @@ const checkinBody = z.discriminatedUnion('method', [
 const ratingBody = z.object({
   rating: z.number().int().min(1),
   comment: z.string().max(500).optional(),
-  context: z.enum(['NEXT_CHECKIN', 'MANUAL']).optional().default('MANUAL'),
+  context: z.enum(['IMMEDIATE', 'MANUAL']).optional().default('MANUAL'),
 })
-
-/** そのユーザー・イベントで未評価の最新チェックインを返す（rating-collection.md）。自分自身は除く。 */
-async function getPendingRating(
-  app: FastifyInstance,
-  eventId: string,
-  uid: string,
-  excludeCheckinId: string,
-): Promise<{ checkin_id: string; booth_id: string; booth_name: string } | null> {
-  const [rows] = await app.db.query(
-    `SELECT ci.id, ci.booth_id, b.name AS booth_name
-       FROM check_ins ci
-       JOIN booths b ON b.id = ci.booth_id
-       LEFT JOIN booth_ratings r ON r.checkin_id = ci.id
-      WHERE ci.user_id = ? AND ci.event_id = ? AND ci.id <> ? AND r.id IS NULL
-      ORDER BY ci.checked_in_at DESC
-      LIMIT 1`,
-    [uid, eventId, excludeCheckinId],
-  )
-  const row = (rows as { id: string; booth_id: string; booth_name: string }[])[0]
-  if (!row) return null
-  return { checkin_id: row.id, booth_id: row.booth_id, booth_name: row.booth_name }
-}
 
 async function getAchievedPositions(app: FastifyInstance, cardId: string): Promise<Set<number>> {
   const [rows] = await app.db.query(
@@ -211,25 +190,30 @@ export async function checkinRoutes(app: FastifyInstance) {
       // ペア単位の内訳。unlocked_positions は複数ペアが平坦に混ざるため、
       // フロントの解放演出（pair_key 単位の再生済みフラグ）にはこちらを使う
       let unlockedPairs: UnlockedPair[] = []
+      // issue #150: 割当可能なブースが0件で終端状態（is_achieved=1）になったマス。
+      // フロントは reason で「すべてのブースを訪問しました」／運営向けの異常を出し分ける
+      let noCandidateCells: NoCandidateCell[] = []
       if (filledZone === 'CENTER') {
         const result = await processCenterAchievement(app.db, app.config, eventId, uid, card.id)
         unlockedPositions = result.unlockedPositions
         unlockedPairs = result.unlockedPairs
+        noCandidateCells = result.noCandidateCells
         if (unlockedPositions.length) {
           app.io.to(`event:${eventId}:user:${uid}`).emit('bingo:unlocked', {
             unlock_event_ids: result.unlockEventIds,
             released_positions: unlockedPositions,
             unlocked_pairs: unlockedPairs,
+            no_candidate_cells: noCandidateCells,
             unlocked_at: `${synced.replace(' ', 'T')}Z`,
           })
         }
       }
 
+      // 終端状態のマスまで確定したあとで、ライン計算を1回だけ走らせる（issue #150）。
+      // 6マスが同時に終端状態になる場合もここ1回で拾う
       const afterAchieved = await getAchievedPositions(app, card.id)
       const linesCompleted = countCompletedLines(afterAchieved)
       const newLines = linesCompleted - countCompletedLines(beforeAchieved)
-
-      const pendingRating = await getPendingRating(app, eventId, uid, id)
 
       app.io.to(`event:${eventId}:admin`).emit('checkin:new', {
         booth_id: boothId,
@@ -247,9 +231,9 @@ export async function checkinRoutes(app: FastifyInstance) {
         filled_cell: filledCell,
         unlocked_positions: unlockedPositions,
         unlocked_pairs: unlockedPairs,
+        no_candidate_cells: noCandidateCells,
         new_lines: Math.max(newLines, 0),
         lines_completed: linesCompleted,
-        pending_rating: pendingRating,
       })
     },
   )
@@ -261,9 +245,11 @@ export async function checkinRoutes(app: FastifyInstance) {
       const eventId = req.params.event_id
       const uid = req.jwtUser!.sub
       const [rows] = await app.db.query(
-        `SELECT ci.id, ci.booth_id, b.name AS booth_name, ci.checkin_method, ci.checked_in_at, ci.synced_at
+        `SELECT ci.id, ci.booth_id, b.name AS booth_name, ci.checkin_method, ci.checked_in_at, ci.synced_at,
+                r.id AS rating_id
          FROM check_ins ci
          JOIN booths b ON b.id = ci.booth_id
+         LEFT JOIN booth_ratings r ON r.checkin_id = ci.id
          WHERE ci.user_id = ? AND ci.event_id = ?
          ORDER BY ci.checked_in_at DESC`,
         [uid, eventId],
@@ -275,6 +261,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         checkin_method: string
         checked_in_at: string
         synced_at: string | null
+        rating_id: string | null
       }[]).map((r) => ({
         id: r.id,
         booth_id: r.booth_id,
@@ -282,6 +269,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         method: r.checkin_method,
         checked_in_at: `${String(r.checked_in_at).replace(' ', 'T')}Z`,
         synced_at: r.synced_at ? `${String(r.synced_at).replace(' ', 'T')}Z` : null,
+        rated: r.rating_id !== null,
       }))
       return sendOk(reply, { checkins: list })
     },

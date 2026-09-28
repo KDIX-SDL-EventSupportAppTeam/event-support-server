@@ -63,7 +63,7 @@
 - **カード取得 API が `is_revealed = false` のマスの `booth` を `null` で返す**
 - 解放イベントだけ作ってマスを未開放にした状態でカードを取得すると、自己修復される
 - 事前推薦マスのブースへ訪問すると、そのマスが達成になり中央の空きが減らない
-- カード外訪問が `cell_id = NULL` で記録され、`pending_rating` に含まれる
+- カード外訪問が `cell_id = NULL` で記録される（`pending_rating` は server#133 で廃止）
 
 ## 推薦エンジン側（`event-support-recommend`）
 

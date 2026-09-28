@@ -269,10 +269,42 @@ export async function adminBoothRoutes(app: FastifyInstance) {
     '/admin/events/:event_id/booths/:booth_id',
     { preHandler: pre },
     async (req, reply) => {
-      const [result] = await app.db.execute(
-        'DELETE FROM booths WHERE id = ? AND event_id = ?',
-        [req.params.booth_id, req.params.event_id],
+      // bingo_cells.booth_id は ON DELETE RESTRICT（動的ビンゴでチェックイン済みブースを
+      // 参加者のマスに割り当てるため）。check_ins 等は CASCADE。
+      // ADR 0001: 本番はさくらプロキシ経由で e.code が届かず下の catch が機能しないため、
+      // DELETE 前に事前 SELECT で防ぐ（本命）。
+      const [referencedRows] = await app.db.query(
+        'SELECT 1 FROM bingo_cells WHERE booth_id = ? LIMIT 1',
+        [req.params.booth_id],
       )
+      if ((referencedRows as unknown[])[0]) {
+        return sendFail(
+          reply,
+          409,
+          'CONFLICT',
+          '参加者のビンゴのマスに割り当てられているブースは削除できません',
+        )
+      }
+
+      let result: unknown
+      try {
+        // ローカル mysql2 直結でのフォールバック（プロキシ経由では発火しないが多重防御として残す）
+        ;[result] = await app.db.execute(
+          'DELETE FROM booths WHERE id = ? AND event_id = ?',
+          [req.params.booth_id, req.params.event_id],
+        )
+      } catch (e: unknown) {
+        const err = e as { code?: string }
+        if (err.code === 'ER_ROW_IS_REFERENCED_2') {
+          return sendFail(
+            reply,
+            409,
+            'CONFLICT',
+            '参加者のビンゴのマスに割り当てられているブースは削除できません',
+          )
+        }
+        throw e
+      }
       const affected = (result as { affectedRows?: number }).affectedRows ?? 0
       if (!affected) {
         return sendFail(reply, 404, 'NOT_FOUND', 'ブースが見つかりません')

@@ -28,10 +28,12 @@ export function createMailer(config: AppConfig, log: FastifyBaseLogger): Mailer 
   })
   return {
     async send(to, subject, text, from) {
-      // SMTP サーバーによっては認証アカウント以外の From を書き換えるため、
-      // 返信先が確実にイベントの窓口へ向くよう Reply-To にも入れる
+      // From は必ず認証済みの送信元（MAIL_FROM）を使う。SMTP リレー（SendGrid/SES 等）は
+      // 未認証ドメインの From を拒否するため、イベント固有の mail_from をそのまま From に
+      // 使うと送信自体が失敗する（呼び出し側の catch でエラーが握りつぶされ、本番で
+      // 「メールが届かない」だけが観測される事故があった）。返信先だけ Reply-To に入れる。
       await transporter.sendMail({
-        from: from ?? config.mailFrom,
+        from: config.mailFrom,
         replyTo: from ?? undefined,
         to,
         subject,

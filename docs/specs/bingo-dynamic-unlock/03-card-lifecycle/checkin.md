@@ -89,7 +89,8 @@ WHERE id = ? AND booth_id IS NULL
 ## レスポンス
 
 [06-api/participant-api.md](../06-api/participant-api.md) を参照。
-`filled_cell` / `unlocked_positions` / `unlocked_pairs` / `new_lines` / `pending_rating` を含む。
+`filled_cell` / `unlocked_positions` / `unlocked_pairs` / `new_lines` を含む。
+`pending_rating` は廃止した（server#133）。
 
 ## テストで固定すること
 

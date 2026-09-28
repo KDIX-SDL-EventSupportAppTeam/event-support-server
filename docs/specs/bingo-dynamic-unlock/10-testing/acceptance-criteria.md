@@ -58,15 +58,18 @@
 - [ ] 事前推薦マスのブースへ訪問すると、そのマスが達成になる（中央の空きを消費しない）
 - [ ] 解放済みの外周マスのブースへ訪問すると達成になり、解放は起きない
 - [ ] カード外訪問が `cell_id = NULL` で記録される
-- [ ] カード外訪問でも `pending_rating` の対象になる
 - [ ] 同じブースへの2回目のチェックインが 409 になる
+- [ ] `POST /checkins` のレスポンスに `pending_rating` キーが存在しない（server#133 で廃止）
 
-## 評価
+## 評価（server#133: チェックイン直後評価へ変更）
 
-- [ ] 未評価のチェックインがあるとき `pending_rating` が返る
-- [ ] 今まさに作ったチェックイン自身は `pending_rating` にならない
+- [ ] 未評価のチェックインは `GET /checkins` で `rated: false`。評価後は `rated: true`
 - [ ] `rating` が 0 または 5 のとき 422 になる（`RATING_SCALE=4`）
-- [ ] 同じ `checkin_id` への2回目の評価が 409 になる
+- [ ] 同じ `checkin_id` への2回目の評価が 409 になる（行は増えない）
+- [ ] 他人の `checkin_id` への評価が 404 になる（行は作られない）
+- [ ] `context: 'IMMEDIATE'` は `prompt_context = 'IMMEDIATE'` で保存される
+- [ ] `context` 省略時は `'MANUAL'` で保存される
+- [ ] `context: 'NEXT_CHECKIN'` は 422 になる（新規には受け付けない）
 - [ ] `booth_ratings.scale` に 4 が入る
 - [ ] 空白のみのコメントが `NULL` に正規化される
 

@@ -53,7 +53,8 @@ CREATE TABLE bingo_cells (
   booth_id     CHAR(36)   NULL,
   is_revealed  TINYINT(1) NOT NULL DEFAULT 0,
   is_achieved  TINYINT(1) NOT NULL DEFAULT 0,
-  source       ENUM('PRESURVEY','FREE_VISIT','RECOMMEND') NULL,
+  source       ENUM('PRESURVEY','FREE_VISIT','RECOMMEND','NO_CANDIDATE') NULL,
+  no_candidate_reason ENUM('ALL_VISITED','INSUFFICIENT_BOOTHS') NULL,
   assigned_at  DATETIME   NULL,
   achieved_at  DATETIME   NULL,
   UNIQUE KEY uq_cell_card_position (card_id, position),
@@ -88,6 +89,13 @@ CREATE TABLE bingo_cells (
 | `PRESURVEY` | 事前アンケートから決めた推薦。position 5 のみ |
 | `FREE_VISIT` | 参加者が自由に訪問した結果で埋まった。中央マスのみ |
 | `RECOMMEND` | 解放時に推薦で割り当てられた。外周マスのみ |
+| `NO_CANDIDATE` | 解放時に割当可能なブースが0件で、ブースを載せられなかった。外周マスのみ。`booth_id IS NULL` のまま `is_achieved = 1` で確定する終端状態（issue #150） |
+
+`no_candidate_reason` は `source = 'NO_CANDIDATE'` のときだけ入る。
+`ALL_VISITED`（そのユーザーに未訪問の有効ブースが0件＝全制覇）と
+`INSUFFICIENT_BOOTHS`（未訪問の有効ブースは残っているが全部カードに載っている＝有効ブース数 < 16）を区別する。
+**割当時点の値を凍結する。** あとから運営がブースを追加しても書き換えない
+（[unlock.md](../03-card-lifecycle/unlock.md)）。
 
 旧 `SIGNUP_BONUS` は廃止（[D-1](../01-concept/decisions.md)）。
 

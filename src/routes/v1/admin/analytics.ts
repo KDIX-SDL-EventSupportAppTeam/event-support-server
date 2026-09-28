@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { sendOk } from '../../../lib/response.js'
+import { toDisplayTimeSlot, toDisplayTzSql } from '../../../lib/datetime.js'
 import { requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
 import {
   aggregateRecommendations,
@@ -246,8 +247,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       const slotCounts = new Map<string, number>()
       for (const p of participantOnly) {
         if (!p.first_checkin_at) continue
-        const d = new Date(p.first_checkin_at)
-        const slot = `${String(d.getUTCHours()).padStart(2, '0')}:${String(Math.floor(d.getUTCMinutes() / 10) * 10).padStart(2, '0')}`
+        const slot = toDisplayTimeSlot(p.first_checkin_at, 10)
         slotCounts.set(slot, (slotCounts.get(slot) ?? 0) + 1)
       }
       const sortedSlots = [...slotCounts.entries()].sort(([a], [b]) => a.localeCompare(b))
@@ -318,7 +318,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         app.db.query(
           `SELECT
              DATE_FORMAT(
-               DATE_SUB(checked_in_at, INTERVAL MOD(MINUTE(checked_in_at), 10) MINUTE),
+               DATE_SUB(${toDisplayTzSql('checked_in_at')}, INTERVAL MOD(MINUTE(checked_in_at), 10) MINUTE),
                '%H:%i'
              ) AS time_slot,
              COUNT(*) AS count
