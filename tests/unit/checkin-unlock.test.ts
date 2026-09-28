@@ -42,6 +42,10 @@ type Emitted = { room: string; event: string; payload: unknown }
 function makeDb(): DbClient {
   let centerFilled = false
   const unlockEvents: { id: string; card_id: string; pair_key: string }[] = []
+  // issue #150: 有効ブースが0件なので、解放された外周マスは終端状態（is_achieved=1）で確定する。
+  // ライン計算が「全マス確定後に1回」であることを見るため、達成 position の集合を実際に育てる。
+  const terminalPositions = new Set<number>()
+  const achievedQueryCalls = { count: 0 }
 
   const run = async (sql: string, params: unknown[] = []): Promise<[unknown, unknown]> => {
     if (/SELECT role, email_verified_at FROM users/.test(sql)) {
@@ -63,10 +67,9 @@ function makeDb(): DbClient {
       return [[{ m: 2 }], undefined]
     }
     if (/SELECT position FROM bingo_cells WHERE card_id = \? AND is_achieved = 1/.test(sql)) {
-      const rows = centerFilled
-        ? [{ position: 5 }, { position: 6 }, { position: 9 }, { position: 10 }]
-        : [{ position: 5 }, { position: 6 }, { position: 9 }]
-      return [rows, undefined]
+      achievedQueryCalls.count += 1
+      const centers = centerFilled ? [5, 6, 9, 10] : [5, 6, 9]
+      return [[...centers, ...terminalPositions].map((position) => ({ position })), undefined]
     }
     if (/INSERT INTO check_ins/.test(sql)) {
       return [{ affectedRows: 1 }, undefined]
@@ -132,7 +135,18 @@ function makeDb(): DbClient {
       return [Array.from({ length: 12 }, (_, i) => ({ id: `fallback-${i}`, visitors: 0 })), undefined]
     }
     if (/UPDATE bingo_cells\s+SET booth_id = CASE id/.test(sql)) {
-      return [{ affectedRows: 6 }, undefined]
+      // booth / source / no_candidate_reason / is_achieved / achieved_at / assigned_at ＋ id 一覧 = 13n
+      const n = params.length / 13
+      for (let i = 0; i < n; i++) {
+        const cellId = params[i * 2] as string
+        const isAchieved = Number(params[n * 6 + i * 2 + 1])
+        if (isAchieved === 1) terminalPositions.add(Number(cellId.replace('outer-', '')))
+      }
+      return [{ affectedRows: n }, undefined]
+    }
+    // issue #150: 未訪問の有効ブース数。このモックは有効ブースを持たないので 0（= 全制覇）
+    if (/SELECT COUNT\(\*\) AS c FROM booths b[\s\S]*NOT IN \(SELECT ci\.booth_id FROM check_ins ci/.test(sql)) {
+      return [[{ c: 0 }], undefined]
     }
     if (/INSERT INTO recommendation_scores/.test(sql)) {
       return [{ affectedRows: 1 }, undefined]
@@ -145,7 +159,7 @@ function makeDb(): DbClient {
     }
     throw new Error(`unmatched SQL: ${sql} / ${JSON.stringify(params)}`)
   }
-  return { query: run, execute: run, end: async () => {} }
+  return { db: { query: run, execute: run, end: async () => {} }, achievedQueryCalls }
 }
 
 function makeIo(emitted: Emitted[]) {
@@ -182,7 +196,7 @@ async function buildTestApp(db: DbClient, io: Server): Promise<FastifyInstance> 
 describe('POST /events/:event_id/checkins（解放到達）', () => {
   it('中央4マス目のチェックインで unlocked_positions を返し、bingo:unlocked を1回だけ送出する', async () => {
     const emitted: Emitted[] = []
-    const app = await buildTestApp(makeDb(), makeIo(emitted))
+    const app = await buildTestApp(makeDb().db, makeIo(emitted))
     const res = await app.inject({
       method: 'POST',
       url: `/api/v1/events/${EVENT_ID}/checkins`,
@@ -216,7 +230,7 @@ describe('POST /events/:event_id/checkins（解放到達）', () => {
 
   it('bingo:unlocked の unlocked_at が有効な ISO8601（Z 一つ）である', async () => {
     const emitted: Emitted[] = []
-    const app = await buildTestApp(makeDb(), makeIo(emitted))
+    const app = await buildTestApp(makeDb().db, makeIo(emitted))
     await app.inject({
       method: 'POST',
       url: `/api/v1/events/${EVENT_ID}/checkins`,
@@ -237,6 +251,55 @@ describe('POST /events/:event_id/checkins（解放到達）', () => {
     expect(payload.unlocked_pairs.every((p) => typeof p.pair_key === 'string')).toBe(true)
     expect(payload.unlocked_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
     expect(Number.isNaN(new Date(payload.unlocked_at).getTime())).toBe(false)
+    await app.close()
+  })
+
+  // -------------------------------------------------------------------------
+  // 割当可能なブースが0件のマスを終端状態にする（issue #150）
+  // このモックは有効ブースを1件も持たないので、解放された外周マスは全て終端状態になる。
+  // -------------------------------------------------------------------------
+  it('終端状態になったマスを no_candidate_cells で返し、reason で全制覇を区別する', async () => {
+    const emitted: Emitted[] = []
+    const app = await buildTestApp(makeDb().db, makeIo(emitted))
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/checkins`,
+      headers: authHeader(),
+      payload: { method: 'qr', booth_id: BOOTH_ID, checked_in_at: new Date().toISOString() },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const { data } = res.json()
+    const noCandidate = data.no_candidate_cells as { position: number; reason: string }[]
+    expect(noCandidate).toHaveLength(12)
+    expect([...new Set(noCandidate.map((c) => c.reason))]).toEqual(['ALL_VISITED'])
+    // unlocked_positions の部分集合である（participant-api.md）
+    for (const c of noCandidate) expect(data.unlocked_positions).toContain(c.position)
+    // socket にも同じ内訳を載せる（取りこぼし対策の副経路）
+    const payload = emitted.find((e) => e.event === 'bingo:unlocked')!.payload as {
+      no_candidate_cells: { position: number; reason: string }[]
+    }
+    expect(payload.no_candidate_cells).toHaveLength(12)
+    await app.close()
+  })
+
+  it('終端状態のマスを確定させたあと、ライン計算を1回だけ走らせる', async () => {
+    const emitted: Emitted[] = []
+    const { db, achievedQueryCalls } = makeDb()
+    const app = await buildTestApp(db, makeIo(emitted))
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/checkins`,
+      headers: authHeader(),
+      payload: { method: 'qr', booth_id: BOOTH_ID, checked_in_at: new Date().toISOString() },
+    })
+
+    const { data } = res.json()
+    // 中央4マス + 終端状態の外周12マス = 16マス達成 → 4行 + 4列 + 2対角 = 10本
+    expect(data.lines_completed).toBe(10)
+    expect(data.new_lines).toBe(10) // 直前は0本（中央2x2 はラインを構成しない）
+    // 達成 position の読み出しは解放の前後で1回ずつ。解放後に数え直していない
+    expect(achievedQueryCalls.count).toBe(2)
     await app.close()
   })
 })

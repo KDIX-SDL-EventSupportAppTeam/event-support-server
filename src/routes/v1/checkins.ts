@@ -6,6 +6,7 @@ import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt, requireVerifiedEmail } from '../../plugins/auth.js'
 import { ensureCard } from '../../lib/bingo/ensureCard.js'
 import { processCenterAchievement, type UnlockedPair } from '../../lib/bingo/unlock.js'
+import type { NoCandidateCell } from '../../lib/bingo/assignOuterCells.js'
 import { checkCooldown } from '../../lib/bingo/cooldown.js'
 import { countCompletedLines } from '../../lib/bingo/lines.js'
 
@@ -189,20 +190,27 @@ export async function checkinRoutes(app: FastifyInstance) {
       // ペア単位の内訳。unlocked_positions は複数ペアが平坦に混ざるため、
       // フロントの解放演出（pair_key 単位の再生済みフラグ）にはこちらを使う
       let unlockedPairs: UnlockedPair[] = []
+      // issue #150: 割当可能なブースが0件で終端状態（is_achieved=1）になったマス。
+      // フロントは reason で「すべてのブースを訪問しました」／運営向けの異常を出し分ける
+      let noCandidateCells: NoCandidateCell[] = []
       if (filledZone === 'CENTER') {
         const result = await processCenterAchievement(app.db, app.config, eventId, uid, card.id)
         unlockedPositions = result.unlockedPositions
         unlockedPairs = result.unlockedPairs
+        noCandidateCells = result.noCandidateCells
         if (unlockedPositions.length) {
           app.io.to(`event:${eventId}:user:${uid}`).emit('bingo:unlocked', {
             unlock_event_ids: result.unlockEventIds,
             released_positions: unlockedPositions,
             unlocked_pairs: unlockedPairs,
+            no_candidate_cells: noCandidateCells,
             unlocked_at: `${synced.replace(' ', 'T')}Z`,
           })
         }
       }
 
+      // 終端状態のマスまで確定したあとで、ライン計算を1回だけ走らせる（issue #150）。
+      // 6マスが同時に終端状態になる場合もここ1回で拾う
       const afterAchieved = await getAchievedPositions(app, card.id)
       const linesCompleted = countCompletedLines(afterAchieved)
       const newLines = linesCompleted - countCompletedLines(beforeAchieved)
@@ -223,6 +231,7 @@ export async function checkinRoutes(app: FastifyInstance) {
         filled_cell: filledCell,
         unlocked_positions: unlockedPositions,
         unlocked_pairs: unlockedPairs,
+        no_candidate_cells: noCandidateCells,
         new_lines: Math.max(newLines, 0),
         lines_completed: linesCompleted,
       })

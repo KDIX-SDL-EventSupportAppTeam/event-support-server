@@ -116,8 +116,11 @@
 
 - 人数は**累積**で数える。3 回目まで到達したカードは 1 回目・2 回目にも数えられるため、常に
   `first >= second >= third`。「2 回目で止まっている人数」は `second - third` で読む。
-- 数える対象は `card_unlock_events` の行（`strategy` が `RECOMMEND` / `FALLBACK_COVERAGE` / `SELF_HEAL` のいずれでも数える。
-  自己修復で成立した解放も解放である）。`bingo_cells` の状態からは逆算しない。
+- 数える対象は `card_unlock_events` の行（`strategy` が `RECOMMEND` / `FALLBACK_COVERAGE` / `SELF_HEAL` / `NO_CANDIDATE`
+  のいずれでも数える。自己修復で成立した解放も、割当可能なブースが0件で終端状態にした解放も解放である）。
+  `bingo_cells` の状態からは逆算しない。
+- **フォールバック率には `NO_CANDIDATE` を含めない。** 障害の指標であり、
+  参加者が全ブースを訪問しきった正常な終点（issue #150）で跳ねてはならない。
 
 ## GET /api/v1/admin/events/:event_id/analytics/recommendations（改修）
 
