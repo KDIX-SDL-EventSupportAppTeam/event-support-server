@@ -18,13 +18,16 @@ function rate(selected: number, offered: number): number | null {
   return Math.round((selected / offered) * 1000) / 10
 }
 
-/** 評価分布 {1..scale: 件数} から平均評価を算出する（評価なしは null） */
-function avgFromDistribution(dist: Record<number, number>, scale: number): number | null {
+/**
+ * 評価分布 {rating: 件数} から平均評価を算出する（評価なしは null）。
+ * 段階数（scale）でキーを絞らず、分布に入っている全キーで計算する。段階数を超える評価（旧サンプル等）が
+ * DB に残っていても、件数・内訳には入るのに平均だけ外れる食い違いを避け、他画面の SQL AVG(rating) と揃えるため。
+ */
+function avgFromDistribution(dist: Record<number, number>): number | null {
   let sum = 0
   let count = 0
-  for (let star = 1; star <= scale; star++) {
-    const n = dist[star] ?? 0
-    sum += star * n
+  for (const [star, n] of Object.entries(dist)) {
+    sum += Number(star) * n
     count += n
   }
   return count > 0 ? Math.round((sum / count) * 100) / 100 : null
@@ -124,7 +127,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
             qr: Number(b.qr_count) || 0,
             manual: Number(b.manual_count) || 0,
           },
-          avg_rating: avgFromDistribution(dist, ratingScale),
+          avg_rating: avgFromDistribution(dist),
           rating_distribution: dist,
           recommendation_offered_count: offered,
           recommendation_selected_count: selected,

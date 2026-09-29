@@ -390,6 +390,36 @@ describe('GET /events/:event_id/exhibitor/booths/:booth_id/stats', () => {
     expect(data.ratings.count).toBe(0)
     await app.close()
   })
+
+  it('NG-15追加修正: 段階数を超える評価（旧データ）があっても avg_rating は SQL の AVG(rating) と同じ全件基準になる', async () => {
+    const db = makeDb([
+      { match: /FROM exhibitor_booths eb/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
+      { match: /SELECT COUNT\(\*\) AS c FROM check_ins/, rows: [{ c: 10 }] },
+      { match: /SELECT DATE_FORMAT\(CONVERT_TZ\(checked_in_at, '\+00:00', '\+09:00'\), '%H:00'\)/, rows: [] },
+      {
+        // config.ratingScale=3 だが、rating=5 の旧サンプルデータが残っている想定
+        match: /SELECT rating, COUNT\(\*\) AS cnt FROM booth_ratings/,
+        rows: [
+          { rating: 3, cnt: 2 },
+          { rating: 5, cnt: 1 },
+        ],
+      },
+      { match: /SELECT id, rating, comment, rated_at FROM booth_ratings/, rows: [] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/exhibitor/booths/${BOOTH_ID}/stats`,
+      headers: exhibitorAuth(),
+    })
+    expect(res.statusCode).toBe(200)
+    const { data } = res.json()
+    // SQL の AVG(rating) なら (3*2 + 5*1) / 3 = 3.666... -> 3.67。段階数(3)止まりだと5が抜けて2になり食い違う
+    expect(data.ratings.avg_rating).toBe(3.67)
+    expect(data.ratings.count).toBe(3)
+    expect(data.ratings.distribution).toEqual({ 1: 0, 2: 0, 3: 2, 5: 1 })
+    await app.close()
+  })
 })
 
 describe('GET /events/:event_id/exhibitor/booths', () => {

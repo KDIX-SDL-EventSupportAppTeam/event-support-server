@@ -7,13 +7,16 @@ import { commentsQuery, selectBoothComments } from '../../lib/booth-comments.js'
 
 const toIsoDatetime = (v: string): string => `${String(v).replace(' ', 'T')}Z`
 
-/** 評価分布 {1..scale: 件数} から平均評価を算出する（評価なしは null）。admin/analytics.ts の avgFromDistribution と同じ計算。 */
-function avgFromDistribution(dist: Record<number, number>, scale: number): number | null {
+/**
+ * 評価分布 {rating: 件数} から平均評価を算出する（評価なしは null）。admin/analytics.ts の avgFromDistribution と同じ計算。
+ * 段階数（scale）でキーを絞らず、分布に入っている全キーで計算する。段階数を超える評価（旧サンプル等）が
+ * DB に残っていても、件数・内訳には入るのに平均だけ外れる食い違いを避け、他画面の SQL AVG(rating) と揃えるため。
+ */
+function avgFromDistribution(dist: Record<number, number>): number | null {
   let sum = 0
   let count = 0
-  for (let star = 1; star <= scale; star++) {
-    const n = dist[star] ?? 0
-    sum += star * n
+  for (const [star, n] of Object.entries(dist)) {
+    sum += Number(star) * n
     count += n
   }
   return count > 0 ? Math.round((sum / count) * 100) / 100 : null
@@ -112,7 +115,7 @@ export async function exhibitorRoutes(app: FastifyInstance) {
         hourly_checkins: hourlyCheckins,
         ratings: {
           count: ratingCount,
-          avg_rating: avgFromDistribution(distribution, ratingScale),
+          avg_rating: avgFromDistribution(distribution),
           distribution,
         },
         comments,
