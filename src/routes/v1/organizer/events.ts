@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { ensureDefaultSurveyQuestions } from '../../../lib/pre-survey/default-questions.js'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -418,6 +419,19 @@ export async function organizerEventRoutes(app: FastifyInstance) {
           await app.db.execute('DELETE FROM events WHERE id = ?', [eventId])
           throw e
         }
+      }
+
+      // 事前アンケートの既定設問（6問）を投入する（issue #146）。
+      // 失敗してもイベント作成は成功させる。さくらプロキシ経路ではトランザクションが効かず（ADR 0001）、
+      // ここで失敗して events / users / event_app_access まで巻き戻すと、管理者へ認証情報を返せなくなる。
+      // 取りこぼしは POST /admin/events/:event_id/survey-questions/defaults で復旧できる。
+      try {
+        await ensureDefaultSurveyQuestions(app.db, eventId, { id: organizerId, role: 'organizer' })
+      } catch (e) {
+        req.log.warn(
+          { err: e, event_id: eventId },
+          '既定の事前アンケート設問の投入に失敗しました（運営画面の「既定の設問を投入」で復旧できます）',
+        )
       }
 
       const [eventRows] = await app.db.query(
