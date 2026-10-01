@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { isoToMysqlUtc } from '../../../lib/datetime.js'
 import { sendFail, sendOk } from '../../../lib/response.js'
 import { requireStaff, requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
+import { insertAuditLog } from '../../../lib/audit.js'
 
 const patchEventBody = z.object({
   name: z.string().min(1).max(500).optional(),
@@ -97,10 +98,18 @@ export async function adminEventRoutes(app: FastifyInstance) {
       }
 
       const [existingRows] = await app.db.query(
-        'SELECT id FROM events WHERE id = ? LIMIT 1',
+        'SELECT id, name, date_start, date_end, venue, survey_url FROM events WHERE id = ? LIMIT 1',
         [req.params.event_id],
       )
-      if (!(existingRows as { id: string }[])[0]) {
+      const before = (existingRows as {
+        id: string
+        name: string
+        date_start: string
+        date_end: string
+        venue: string | null
+        survey_url: string | null
+      }[])[0]
+      if (!before) {
         return sendFail(reply, 404, 'NOT_FOUND', 'イベントが見つかりません')
       }
 
@@ -121,6 +130,30 @@ export async function adminEventRoutes(app: FastifyInstance) {
         survey_url: string | null
         created_at: string
       }[])[0]
+      // 誰がいつ何に書き換えたかを残す（issue #156）。アンケート URL の「別の URL に飛んだ」を追跡できるようにする
+      const snapshot = (r: {
+        name: string
+        date_start: string
+        date_end: string
+        venue: string | null
+        survey_url: string | null
+      }) => ({
+        name: r.name,
+        date_start: `${String(r.date_start).replace(' ', 'T')}Z`,
+        date_end: `${String(r.date_end).replace(' ', 'T')}Z`,
+        venue: r.venue,
+        survey_url: r.survey_url,
+      })
+      await insertAuditLog(app.db, {
+        eventId: req.params.event_id,
+        actorId: req.jwtUser!.sub,
+        actorRole: req.jwtUser!.role ?? 'manager',
+        action: 'update',
+        targetType: 'event',
+        targetId: req.params.event_id,
+        detail: { before: snapshot(before), after: snapshot(e) },
+      })
+
       return sendOk(reply, {
         event: {
           id: e.id,

@@ -143,7 +143,9 @@
 | 固定設問 | `fixed_questions` | 全イベント共通。コードで定義（年齢層・職業・業種）。`survey_questions` テーブルには入らない |
 | カスタム設問 | `custom_questions` | 運営がイベントごとに設定。`survey_questions` テーブルで管理 |
 | アンケート回答 | `survey_answer` | `user_survey_answers` テーブルで管理。固定設問はカラム、カスタムは JSON カラムに保存 |
-| アンケートURL | `survey_url` | イベント終了時アンケート等の外部フォーム（Google フォーム）URL。`events.survey_url`。未設定は NULL |
+| 事前アンケート | `survey`（`survey_questions`） | 参加者がアプリ内で回答する設問群。推薦の入力になる。運営画面の「アンケート管理」で設問を編集する |
+| 事後アンケート | `survey_url` | イベント終了時に開く外部フォーム（Google フォーム）への URL。`events.survey_url`。ホームの「お帰りの前に」バナーから開く。未設定は NULL。**編集口は運営（admin）画面のみ**（オーガナイザーは作成時に初期値を入れられるが、以後は変更できない。issue #156）。API のフィールド名は `survey_url` のまま |
+| アンケートURL | `survey_url` | 上記「事後アンケート」の URL。「事前アンケート」と混同しないこと |
 | 年齢層 | `age_range` | `user_survey_answers.age_range` |
 | 職業 | `occupation` | `user_survey_answers.occupation` |
 | 業種 | `industry` | `user_survey_answers.industry` |
