@@ -200,6 +200,18 @@
 
 **器だけ用意する。** `gacha_coin_uses` に1行 INSERT し、残枚数を返す。
 
+## GET /api/v1/booths/by-qr-token/:qr_token
+
+掲示 QR（`https://<frontend>/c/<qr_token>`）の解決（issue #155）。フロントの `/c/:token` が
+チェックイン確認画面にブース名を出すために使う。
+
+- 認証: `Bearer`（参加者 JWT）。URL に `event_id` が無いので `requireEventMatchesJwt` は使えず、
+  **解決したブースの `event_id` が JWT の `event_id` と一致しなければ 404**（403 にしない。他イベントのトークンの存在を漏らさない）
+- 200: `{ data: { booth: { id, name, event_id } } }`
+- 404 `NOT_FOUND`: 「QRコードに一致するブースがありません」。**存在しない・形式不正・他イベント・`is_active = 0` はすべて同じ 404**
+- **`qr_token` をレスポンスに含めない**
+- チェックイン自体は解決後の `booth_id` で既存の `method: 'qr'` を通す（`method: 'qr_token'` は作らない）
+
 ## 削除するエンドポイント
 
 - `GET /api/v1/events/:event_id/recommendations`

@@ -6,6 +6,7 @@ import { requireManager, requireStaff, requireEventMatchesJwt } from '../../../p
 import { insertAuditLog } from '../../../lib/audit.js'
 import { generateUniqueManualCode } from '../../../lib/manual-code.js'
 import { buildBoothCheckinUrl } from '../../../lib/url.js'
+import { generateUniqueQrToken } from '../../../lib/qr-token.js'
 
 const boothBody = z.object({
   name: z.string().min(1).max(200),
@@ -66,7 +67,7 @@ export async function adminBoothRoutes(app: FastifyInstance) {
       const orderBy = `${SORT_SQL[q.sort](DIR_SQL[q.order])}, b.name ASC`
 
       const [rows] = await app.db.query(
-        `SELECT b.id, b.name, b.display_code, b.manual_code,
+        `SELECT b.id, b.name, b.display_code, b.manual_code, b.qr_token,
            (SELECT COUNT(*)           FROM check_ins ci     WHERE ci.booth_id = b.id) AS checkin_count,
            (SELECT AVG(br.rating)     FROM booth_ratings br  WHERE br.booth_id = b.id) AS avg_rating,
            (SELECT COUNT(br2.comment) FROM booth_ratings br2 WHERE br2.booth_id = b.id) AS comment_count
@@ -81,6 +82,7 @@ export async function adminBoothRoutes(app: FastifyInstance) {
         name: string
         display_code: string | null
         manual_code: string
+        qr_token: string
         checkin_count: number
         avg_rating: number | null
         comment_count: number
@@ -90,7 +92,7 @@ export async function adminBoothRoutes(app: FastifyInstance) {
         display_code: b.display_code ?? null,
         // 秘匿コード。運営には掲示物作成のために返す（参加者向け API では返さない）
         manual_code: b.manual_code,
-        checkin_url: buildBoothCheckinUrl(app.config, b.id),
+        checkin_url: buildBoothCheckinUrl(app.config, b.qr_token),
         checkin_count: Number(b.checkin_count) || 0,
         avg_rating: b.avg_rating == null ? null : Math.round(Number(b.avg_rating) * 100) / 100,
         comment_count: Number(b.comment_count) || 0,
@@ -113,10 +115,11 @@ export async function adminBoothRoutes(app: FastifyInstance) {
       // 手入力が無ければサーバーが6桁数字を採番する（issue #121）
       const manualCode =
         body.manual_code ?? (await generateUniqueManualCode(app.db, req.params.event_id))
+      const qrToken = await generateUniqueQrToken(app.db)
       try {
         await app.db.execute(
-          `INSERT INTO booths (id, event_id, name, display_code, description, category_id, manual_code)
-           VALUES (?,?,?,?,?,?,?)`,
+          `INSERT INTO booths (id, event_id, name, display_code, description, category_id, manual_code, qr_token)
+           VALUES (?,?,?,?,?,?,?,?)`,
           [
             id,
             req.params.event_id,
@@ -125,6 +128,7 @@ export async function adminBoothRoutes(app: FastifyInstance) {
             body.description ?? null,
             body.category_id ?? null,
             manualCode,
+            qrToken,
           ],
         )
       } catch (e: unknown) {
@@ -155,7 +159,7 @@ export async function adminBoothRoutes(app: FastifyInstance) {
             description: body.description ?? '',
             category_id: body.category_id ?? null,
             manual_code: manualCode,
-            checkin_url: buildBoothCheckinUrl(app.config, id),
+            checkin_url: buildBoothCheckinUrl(app.config, qrToken),
             tags: body.tags ?? [],
           },
         },
@@ -234,7 +238,7 @@ export async function adminBoothRoutes(app: FastifyInstance) {
       })
 
       const [rows] = await app.db.query(
-        `SELECT id, name, display_code, description, category_id, manual_code
+        `SELECT id, name, display_code, description, category_id, manual_code, qr_token
          FROM booths WHERE id = ? AND event_id = ? LIMIT 1`,
         [req.params.booth_id, req.params.event_id],
       )
@@ -245,6 +249,7 @@ export async function adminBoothRoutes(app: FastifyInstance) {
         description: string | null
         category_id: string | null
         manual_code: string
+        qr_token: string
       }[])[0]
       const [tags] = await app.db.query(
         'SELECT tag FROM booth_tags WHERE booth_id = ? ORDER BY tag ASC',
@@ -258,7 +263,7 @@ export async function adminBoothRoutes(app: FastifyInstance) {
           description: b.description ?? '',
           category_id: b.category_id,
           manual_code: b.manual_code,
-          checkin_url: buildBoothCheckinUrl(app.config, b.id),
+          checkin_url: buildBoothCheckinUrl(app.config, b.qr_token),
           tags: (tags as { tag: string }[]).map((t) => t.tag),
         },
       })
@@ -328,10 +333,11 @@ export async function adminBoothRoutes(app: FastifyInstance) {
     { preHandler: pre },
     async (req, reply) => {
       const [existingRows] = await app.db.query(
-        'SELECT id FROM booths WHERE id = ? AND event_id = ? LIMIT 1',
+        'SELECT id, qr_token FROM booths WHERE id = ? AND event_id = ? LIMIT 1',
         [req.params.booth_id, req.params.event_id],
       )
-      if (!(existingRows as { id: string }[])[0]) {
+      const existing = (existingRows as { id: string; qr_token: string }[])[0]
+      if (!existing) {
         return sendFail(reply, 404, 'NOT_FOUND', 'ブースが見つかりません')
       }
 
@@ -362,7 +368,7 @@ export async function adminBoothRoutes(app: FastifyInstance) {
         booth: {
           id: req.params.booth_id,
           manual_code: manualCode,
-          checkin_url: buildBoothCheckinUrl(app.config, req.params.booth_id),
+          checkin_url: buildBoothCheckinUrl(app.config, existing.qr_token),
         },
       })
     },
