@@ -50,6 +50,9 @@ function makeDb(initial: StoredRow[] = []) {
       const [, key, excludeId] = params as [string, string, string]
       return [rows.filter((r) => r.question_key === key && r.id !== excludeId), undefined]
     }
+    if (/^SELECT question_key FROM survey_questions WHERE event_id = \?/.test(sql)) {
+      return [rows.filter((r) => r.question_key !== null).map((r) => ({ question_key: r.question_key })), undefined]
+    }
     if (/SELECT id FROM survey_questions WHERE id = \? AND event_id = \?/.test(sql)) {
       return [rows.filter((r) => r.id === params[0]), undefined]
     }
@@ -366,6 +369,68 @@ describe('PATCH /admin/events/:event_id/survey-questions/:question_id', () => {
       payload: { question_key: 'age_range', question_text: '年代を教えてください' },
     })
     expect(res.statusCode).toBe(200)
+    await app.close()
+  })
+})
+
+describe('POST /admin/events/:event_id/survey-questions/defaults（issue #146）', () => {
+  it('設問0問のイベントへ6問を投入する', async () => {
+    const { db, rows } = makeDb()
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'POST', url: `${BASE}/defaults`, headers: managerAuth(), payload: {} })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.inserted).toHaveLength(6)
+    expect(rows.map((r) => r.question_key)).toEqual([
+      'interest_categories',
+      'top_interest_category',
+      'age_range',
+      'occupation',
+      'gender',
+      'exploration_disposition',
+    ])
+    await app.close()
+  })
+
+  it('2回実行しても重複を作らない', async () => {
+    const { db, rows } = makeDb()
+    const app = await buildTestApp(db)
+    await app.inject({ method: 'POST', url: `${BASE}/defaults`, headers: managerAuth(), payload: {} })
+    const second = await app.inject({ method: 'POST', url: `${BASE}/defaults`, headers: managerAuth(), payload: {} })
+    expect(second.json().data.inserted).toEqual([])
+    expect(rows).toHaveLength(6)
+    await app.close()
+  })
+
+  it('既にある設問の文言・選択肢は書き換えず、足りない分だけ入れる', async () => {
+    const { db, rows } = makeDb([
+      {
+        id: 'q-age',
+        question_text: '運営が直した年代の設問',
+        options: JSON.stringify([{ value: 'teens', label: '10代' }]),
+        display_order: 3,
+        is_required: 1,
+        question_key: 'age_range',
+        answer_type: 'single',
+      },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'POST', url: `${BASE}/defaults`, headers: managerAuth(), payload: {} })
+    expect(res.json().data.inserted).not.toContain('age_range')
+    expect(res.json().data.inserted).toHaveLength(5)
+    const age = rows.find((r) => r.question_key === 'age_range')!
+    expect(age.question_text).toBe('運営が直した年代の設問')
+    expect(age.options).toBe(JSON.stringify([{ value: 'teens', label: '10代' }]))
+    await app.close()
+  })
+
+  it('viewer は 403', async () => {
+    const { db } = makeDb()
+    const app = await buildTestApp(db)
+    const viewer = {
+      authorization: `Bearer ${jwt.sign({ sub: 'v', event_id: EVENT_ID, display_name: '', role: 'viewer' }, JWT_SECRET, { algorithm: 'HS256' })}`,
+    }
+    const res = await app.inject({ method: 'POST', url: `${BASE}/defaults`, headers: viewer })
+    expect(res.statusCode).toBe(403)
     await app.close()
   })
 })

@@ -461,6 +461,24 @@ describe('PATCH /organizer/events/:id（イベント情報の修正）', () => {
     await app.close()
   })
 
+  it('survey_url を送ると 422 で、UPDATE しない（運営側を正とする。issue #156）', async () => {
+    const log: string[] = []
+    const app = await buildTestApp(db(log))
+    for (const survey_url of ['https://forms.gle/new', null]) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/v1/organizer/events/e1',
+        headers: authHeader(),
+        payload: { name: '新名', survey_url },
+      })
+      expect(res.statusCode).toBe(422)
+      expect(res.json().error.code).toBe('VALIDATION_ERROR')
+      expect(res.json().error.message).toContain('運営画面')
+    }
+    expect(log.some((sql) => /UPDATE events/.test(sql))).toBe(false)
+    await app.close()
+  })
+
   it('空の名前は 422', async () => {
     const app = await buildTestApp(db([]))
     const res = await app.inject({
@@ -510,5 +528,69 @@ describe('POST /organizer/events の日時（タイムゾーン）', () => {
     const { res, params } = await create({ date_start: '2026-08-01T10:00', date_end: '2026-08-01T18:00' })
     expect(res.statusCode).toBe(201)
     expect(params[0]?.slice(3, 5)).toEqual(['2026-08-01 01:00:00', '2026-08-01 09:00:00'])
+  })
+})
+
+describe('POST /organizer/events の既定設問の自動投入（issue #146）', () => {
+  const validBody = {
+    name: '58検証',
+    date_start: '2026-08-01T10:00',
+    date_end: '2026-08-01T18:00',
+    mail_from: 'fes@example.com',
+    initial_manager: { email: 'mgr@example.com', password: 'password123' },
+  }
+  const eventRow = {
+    id: 'e1', name: '58検証', date_start: '2026-08-01 10:00:00', date_end: '2026-08-01 18:00:00',
+    venue: null, survey_url: null,
+  }
+
+  it('イベント作成で6問が入る（question_key / answer_type / is_required / display_order）', async () => {
+    const inserted: unknown[][] = []
+    const db = makeDb([
+      { match: /^SELECT question_key FROM survey_questions/, rows: [] },
+      {
+        match: /^\s*INSERT INTO survey_questions/i,
+        rows: (params) => {
+          inserted.push(params)
+          return []
+        },
+      },
+      ...writeHandlers,
+      { match: /^SELECT id, name/, rows: [eventRow] },
+      { match: /^SELECT date_end/, rows: [{ date_end: '2026-08-01 18:00:00' }] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'POST', url: '/api/v1/organizer/events', headers: authHeader(), payload: validBody })
+    expect(res.statusCode).toBe(201)
+    // [id, event_id, text, options, display_order, is_required, question_key, answer_type]
+    expect(inserted.map((p) => [p[4], p[5], p[6], p[7]])).toEqual([
+      [1, 1, 'interest_categories', 'multi'],
+      [2, 1, 'top_interest_category', 'single'],
+      [3, 1, 'age_range', 'single'],
+      [4, 1, 'occupation', 'single'],
+      [5, 0, 'gender', 'single'],
+      [6, 1, 'exploration_disposition', 'single'],
+    ])
+    expect(inserted[0][3]).toBe('[]')
+    await app.close()
+  })
+
+  it('設問の投入に失敗してもイベント作成は 201 を返す', async () => {
+    const db = makeDb([
+      {
+        match: /^SELECT question_key FROM survey_questions/,
+        rows: () => {
+          throw new Error('boom')
+        },
+      },
+      ...writeHandlers,
+      { match: /^SELECT id, name/, rows: [eventRow] },
+      { match: /^SELECT date_end/, rows: [{ date_end: '2026-08-01 18:00:00' }] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'POST', url: '/api/v1/organizer/events', headers: authHeader(), payload: validBody })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().data.initial_manager.token).toBeTruthy()
+    await app.close()
   })
 })
