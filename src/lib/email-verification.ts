@@ -25,16 +25,57 @@ export function buildVerifyEmailUrl(config: AppConfig, token: string): string {
   return `${base}/verify-email?token=${token}`
 }
 
+/**
+ * 確認メールの本文（テキスト版）。何のメールか・誰が送っているか・有効期限を書く（issue #157）。
+ * 「迷惑メールフォルダを確認してください」は書かない（届いた人には不要。待機画面に案内がある）。
+ * HTML 版（{@link buildVerificationMailHtml}）と同じ内容にすること。食い違いは減点対象になる。
+ */
 export function buildVerificationMailText(displayName: string, url: string): string {
   return [
     `${displayName} 様`,
     '',
     'PRoToFES イベントアプリへのご登録ありがとうございます。',
+    'このメールは PRoToFES 運営から、ご登録のメールアドレスの確認のためにお送りしています。',
     '以下の URL を開いて、メールアドレスの確認を完了してください。',
     '',
     url,
     '',
     `このリンクの有効期限は ${VERIFICATION_TOKEN_TTL_HOURS} 時間です。`,
     '心当たりがない場合は、このメールは破棄してください。',
+    '',
+    '--',
+    'PRoToFES 運営',
+  ].join('\n')
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
+ * 確認メールの本文（HTML 版）。最小限のインライン CSS のみ。外部画像は埋め込まない
+ * （外部画像の読み込みは迷惑メール判定で減点要因になり得る）。
+ * リンクはアンカーテキストにする。内容はテキスト版と揃える。
+ */
+export function buildVerificationMailHtml(displayName: string, url: string): string {
+  const safeUrl = escapeHtml(url)
+  return [
+    '<!doctype html>',
+    '<html lang="ja"><body style="font-family:sans-serif;line-height:1.7;color:#222;">',
+    `<p>${escapeHtml(displayName)} 様</p>`,
+    '<p>PRoToFES イベントアプリへのご登録ありがとうございます。<br>',
+    'このメールは PRoToFES 運営から、ご登録のメールアドレスの確認のためにお送りしています。</p>',
+    `<p>以下のリンクを開いて、メールアドレスの確認を完了してください。</p>`,
+    `<p><a href="${safeUrl}">メールアドレスを確認する</a></p>`,
+    `<p>リンクが開けない場合は、次の URL をブラウザに貼り付けてください。<br>${safeUrl}</p>`,
+    `<p>このリンクの有効期限は ${VERIFICATION_TOKEN_TTL_HOURS} 時間です。<br>`,
+    '心当たりがない場合は、このメールは破棄してください。</p>',
+    '<p>--<br>PRoToFES 運営</p>',
+    '</body></html>',
   ].join('\n')
 }
