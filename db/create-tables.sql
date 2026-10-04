@@ -111,6 +111,7 @@ CREATE TABLE booths (
   description             TEXT,
   category_id             CHAR(36),
   manual_code             VARCHAR(6)   NOT NULL,
+  qr_token                CHAR(10)     NOT NULL,
   qr_code_url             TEXT,
   google_form_response_id TEXT,
   is_active               TINYINT(1)   NOT NULL DEFAULT 1,
@@ -118,7 +119,8 @@ CREATE TABLE booths (
   updated_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (event_id)    REFERENCES events(id)     ON DELETE CASCADE,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
-  UNIQUE KEY uq_manual_code_event (event_id, manual_code)
+  UNIQUE KEY uq_manual_code_event (event_id, manual_code),
+  UNIQUE KEY uq_booths_qr_token (qr_token)
 );
 
 CREATE TABLE booth_tags (

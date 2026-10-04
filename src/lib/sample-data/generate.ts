@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { generateQrToken } from '../qr-token.js'
 import bcrypt from 'bcryptjs'
 import type { DbClient } from '../../db/client.js'
 import {
@@ -211,6 +212,7 @@ export async function generateSampleData(
       `${SAMPLE_PREFIX} デモ用ブースです（分析・チェックイン確認用）`,
       boothCategories[0],
       sampleManualCode(i),
+      generateQrToken(),
     ])
     if (hasBoothCategories) {
       for (const catId of boothCategories) {
@@ -222,8 +224,8 @@ export async function generateSampleData(
   }
   await bulkInsert(
     db,
-    `INSERT INTO booths (id, event_id, name, description, category_id, manual_code) VALUES `,
-    6,
+    `INSERT INTO booths (id, event_id, name, description, category_id, manual_code, qr_token) VALUES `,
+    7,
     boothRows,
   )
   if (hasBoothCategories) {

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { generateUniqueQrToken } from '../../lib/qr-token.js'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../lib/response.js'
@@ -97,8 +98,8 @@ export async function webhookRoutes(app: FastifyInstance) {
     const boothId = randomUUID()
     const qrUrl = `https://example.invalid/qr/${boothId}`
     await app.db.execute(
-      `INSERT INTO booths (id, event_id, name, description, category_id, manual_code, qr_code_url, google_form_response_id)
-       VALUES (?,?,?,?,?,?,?,?)`,
+      `INSERT INTO booths (id, event_id, name, description, category_id, manual_code, qr_token, qr_code_url, google_form_response_id)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       [
         boothId,
         event_id,
@@ -106,6 +107,7 @@ export async function webhookRoutes(app: FastifyInstance) {
         booth.description ?? null,
         categoryId,
         manual,
+        await generateUniqueQrToken(app.db),
         qrUrl,
         google_form_response_id,
       ],

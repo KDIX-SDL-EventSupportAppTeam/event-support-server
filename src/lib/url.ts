@@ -20,13 +20,14 @@ export function buildEventUrls(
 }
 
 /**
- * ブースの掲示用チェックイン URL（issue #121）。
+ * ブースの掲示用チェックイン URL（issue #121 / #155）。
  *
- * `booth_id`（不変の UUID）だけで決まるため、ブース作成時点で確定する。
+ * `booths.qr_token`（グローバル一意の 10 文字）だけで決まるため、ブース作成時点で確定する。
  * QR 画像はあとから生成しても同じ URL になる。
- * 生の UUID ではなく `?booth_id=` 付きにして、端末標準カメラで読んだ人が
- * アプリの読み取り画面に着地できるようにする（ブラウザで開いてもチェックインは成立しない）。
+ * 旧形式 `/checkin?booth_id=<UUID>`（約 70-80 文字）は QR のモジュールが細かく、
+ * 端末標準カメラで読むとタブが増え続ける。短縮して 30 文字前後にする。
+ * 旧形式で既に印刷された QR は、フロントの `/checkin?booth_id=` がそのまま受ける。
  */
-export function buildBoothCheckinUrl(config: AppConfig, boothId: string): string {
-  return `${frontendBase(config)}/checkin?booth_id=${boothId}`
+export function buildBoothCheckinUrl(config: AppConfig, qrToken: string): string {
+  return `${frontendBase(config)}/c/${qrToken}`
 }
