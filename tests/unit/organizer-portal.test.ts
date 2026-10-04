@@ -461,6 +461,24 @@ describe('PATCH /organizer/events/:id（イベント情報の修正）', () => {
     await app.close()
   })
 
+  it('survey_url を送ると 422 で、UPDATE しない（運営側を正とする。issue #156）', async () => {
+    const log: string[] = []
+    const app = await buildTestApp(db(log))
+    for (const survey_url of ['https://forms.gle/new', null]) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/v1/organizer/events/e1',
+        headers: authHeader(),
+        payload: { name: '新名', survey_url },
+      })
+      expect(res.statusCode).toBe(422)
+      expect(res.json().error.code).toBe('VALIDATION_ERROR')
+      expect(res.json().error.message).toContain('運営画面')
+    }
+    expect(log.some((sql) => /UPDATE events/.test(sql))).toBe(false)
+    await app.close()
+  })
+
   it('空の名前は 422', async () => {
     const app = await buildTestApp(db([]))
     const res = await app.inject({
