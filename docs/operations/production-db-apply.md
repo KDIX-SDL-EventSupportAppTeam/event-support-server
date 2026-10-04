@@ -62,19 +62,22 @@ gcloud sql databases delete event_support --instance=event-support-db --project=
 gcloud sql databases create event_support --instance=event-support-db --project=event-support-app --charset=utf8mb4 --collation=utf8mb4_general_ci
 ```
 
-## 4. 事前アンケートの設問投入（イベント作成の後）
+## 4. 事前アンケートの設問投入（既存イベントのみ）
 
-イベント本体は organizer 画面（`POST /organizer/events`）で作る。**設問はイベント作成では入らない。**
-本番の設問セット（必須5問＋任意1問）は `db/migrations/16_pre_survey_questions.sql` にしか無い。
+**新規イベントでは不要。** `POST /organizer/events` がイベント作成時に既定の設問6問（必須5問＋任意1問）を自動投入する
+（[#146](https://github.com/KDIX-SDL-EventSupportAppTeam/event-support-server/issues/146)。定義は `src/lib/pre-survey/default-questions.ts`）。
 
-このファイルは**実行時点で存在するイベント全件**に設問を入れる。再実行は無害（`question_key` で存在確認する）。
-イベントを作ったら、そのたびに1回流す。mysql クライアントが無ければ docker で代用できる。
+**既存イベント・取りこぼしの復旧:** 次のどちらかで投入し直す（どちらも冪等で、既にある設問の文言・選択肢は書き換えない）。
+
+- API: `POST /admin/events/:event_id/survey-questions/defaults`（manager 限定。`{ inserted, questions }` が返る）
+- SQL: `db/migrations/16_pre_survey_questions.sql` を流す（**実行時点で存在するイベント全件**が対象。mysql クライアントが無ければ docker で代用できる）
 
 ```powershell
 Get-Content db/migrations/16_pre_survey_questions.sql -Raw | docker run --rm -i mysql:8.0 mysql -h host.docker.internal -P 3307 -u app -p<password> event_support
 ```
 
-流したあとは、**`SELECT COUNT(*) FROM survey_questions WHERE event_id = ?` が `6` であることを確認する。**
+イベント作成時の自動投入が失敗しても、イベント作成自体は成功する（サーバーログに warn が出る）。
+**作成後は `SELECT COUNT(*) FROM survey_questions WHERE event_id = ?` が `6` であることを確認する。**
 0問のままだと事前アンケートが 409 `SURVEY_NOT_CONFIGURED` で拒否され続ける（[#141](https://github.com/KDIX-SDL-EventSupportAppTeam/event-support-server/issues/141)）。
 
 `npm run db:seed:prod` は**使わない。** 既定の設問が旧形式（`question_key` 無し）で、分析・推薦側との契約を満たさない。

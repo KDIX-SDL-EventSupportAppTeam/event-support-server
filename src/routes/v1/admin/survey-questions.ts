@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { sendFail, sendOk } from '../../../lib/response.js'
 import { requireStaff, requireManager, requireEventMatchesJwt } from '../../../plugins/auth.js'
 import { insertAuditLog } from '../../../lib/audit.js'
+import { ensureDefaultSurveyQuestions } from '../../../lib/pre-survey/default-questions.js'
 import {
   ANSWER_TYPES,
   normalizeOptions,
@@ -156,6 +157,30 @@ export async function adminSurveyQuestionRoutes(app: FastifyInstance) {
         },
         201,
       )
+    },
+  )
+
+  // 既定設問（6問）の投入し直し（issue #146）。冪等で、既にある設問は書き換えない。
+  // 既存イベントの復旧と、イベント作成時の自動投入が失敗したときの再実行に使う。
+  app.post<{ Params: { event_id: string } }>(
+    '/admin/events/:event_id/survey-questions/defaults',
+    { preHandler: writePre },
+    async (req, reply) => {
+      const inserted = await ensureDefaultSurveyQuestions(app.db, req.params.event_id, {
+        id: req.jwtUser!.sub,
+        role: req.jwtUser!.role ?? 'manager',
+      })
+      const [rows] = await app.db.query(
+        `SELECT ${QUESTION_COLUMNS}
+         FROM survey_questions
+         WHERE event_id = ?
+         ORDER BY display_order ASC, question_text ASC`,
+        [req.params.event_id],
+      )
+      return sendOk(reply, {
+        inserted,
+        questions: (rows as QuestionRow[]).map(mapQuestion),
+      })
     },
   )
 
