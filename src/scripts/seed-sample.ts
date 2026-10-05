@@ -30,9 +30,10 @@ function parseArgs() {
 
 async function main() {
   const { eventId, force } = parseArgs()
-  const pool = createPool(loadConfig())
+  const config = loadConfig()
+  const pool = createPool(config)
   try {
-    const result = await generateSampleData(pool, eventId, { force })
+    const result = await generateSampleData(pool, eventId, { force, ratingScale: config.ratingScale })
     console.log(`[seed-sample] OK event_id=${eventId}`)
     console.log(`  プレフィックス: ${SAMPLE_PREFIX}`)
     console.log(`  カテゴリ: ${result.categories}（各ブース 2〜4 カテゴリ）`)

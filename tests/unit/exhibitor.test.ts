@@ -327,14 +327,14 @@ describe('GET /events/:event_id/exhibitor/booths/:booth_id/stats', () => {
         {
           match: /SELECT rating, COUNT\(\*\) AS cnt FROM booth_ratings/,
           rows: [
-            { rating: 5, cnt: 2 },
-            { rating: 4, cnt: 1 },
+            { rating: 3, cnt: 2 },
+            { rating: 2, cnt: 1 },
           ],
         },
         {
           match: /SELECT id, rating, comment, rated_at FROM booth_ratings/,
           rows: [
-            { id: 'c1', rating: 5, comment: '説明が分かりやすかった', rated_at: '2026-10-25 01:23:45' },
+            { id: 'c1', rating: 3, comment: '説明が分かりやすかった', rated_at: '2026-10-25 01:23:45' },
           ],
         },
       ],
@@ -355,15 +355,69 @@ describe('GET /events/:event_id/exhibitor/booths/:booth_id/stats', () => {
       { time_slot: '10:00', count: 5 },
       { time_slot: '11:00', count: 12 },
     ])
-    // (5*2 + 4*1) / 3 = 4.666... -> 4.67 に丸める
-    expect(data.ratings.avg_rating).toBe(4.67)
+    // (3*2 + 2*1) / 3 = 2.666... -> 2.67 に丸める
+    expect(data.ratings.avg_rating).toBe(2.67)
     expect(data.ratings.count).toBe(3)
-    expect(data.ratings.distribution).toEqual({ 1: 0, 2: 0, 3: 0, 4: 1, 5: 2 })
+    // config.ratingScale=3 なので分布は 1〜3 の3段階（NG-15: 常に1〜5固定にしない）
+    expect(data.ratings.distribution).toEqual({ 1: 0, 2: 1, 3: 2 })
     expect(data.comments).toEqual([
-      { id: 'c1', rating: 5, comment: '説明が分かりやすかった', rated_at: '2026-10-25T01:23:45Z' },
+      { id: 'c1', rating: 3, comment: '説明が分かりやすかった', rated_at: '2026-10-25T01:23:45Z' },
     ])
     expect(log.some((sql) => /is_hidden = 0/.test(sql))).toBe(true)
     expect(log.some((sql) => /comment <> ''/.test(sql))).toBe(true)
+    await app.close()
+  })
+
+  it('NG-15: 評価が0件のときの distribution は config.ratingScale の段数分（常に1〜5固定にしない）', async () => {
+    const db = makeDb([
+      { match: /FROM exhibitor_booths eb/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
+      { match: /SELECT COUNT\(\*\) AS c FROM check_ins/, rows: [{ c: 0 }] },
+      { match: /SELECT DATE_FORMAT\(CONVERT_TZ\(checked_in_at, '\+00:00', '\+09:00'\), '%H:00'\)/, rows: [] },
+      { match: /SELECT rating, COUNT\(\*\) AS cnt FROM booth_ratings/, rows: [] },
+      { match: /SELECT id, rating, comment, rated_at FROM booth_ratings/, rows: [] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/exhibitor/booths/${BOOTH_ID}/stats`,
+      headers: exhibitorAuth(),
+    })
+    expect(res.statusCode).toBe(200)
+    const { data } = res.json()
+    // config.ratingScale=3 の3キーのみ。5キー固定だった旧実装のバグ（NG-15）の再発防止
+    expect(data.ratings.distribution).toEqual({ 1: 0, 2: 0, 3: 0 })
+    expect(data.ratings.avg_rating).toBeNull()
+    expect(data.ratings.count).toBe(0)
+    await app.close()
+  })
+
+  it('NG-15追加修正: 段階数を超える評価（旧データ）があっても avg_rating は SQL の AVG(rating) と同じ全件基準になる', async () => {
+    const db = makeDb([
+      { match: /FROM exhibitor_booths eb/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
+      { match: /SELECT COUNT\(\*\) AS c FROM check_ins/, rows: [{ c: 10 }] },
+      { match: /SELECT DATE_FORMAT\(CONVERT_TZ\(checked_in_at, '\+00:00', '\+09:00'\), '%H:00'\)/, rows: [] },
+      {
+        // config.ratingScale=3 だが、rating=5 の旧サンプルデータが残っている想定
+        match: /SELECT rating, COUNT\(\*\) AS cnt FROM booth_ratings/,
+        rows: [
+          { rating: 3, cnt: 2 },
+          { rating: 5, cnt: 1 },
+        ],
+      },
+      { match: /SELECT id, rating, comment, rated_at FROM booth_ratings/, rows: [] },
+    ])
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/events/${EVENT_ID}/exhibitor/booths/${BOOTH_ID}/stats`,
+      headers: exhibitorAuth(),
+    })
+    expect(res.statusCode).toBe(200)
+    const { data } = res.json()
+    // SQL の AVG(rating) なら (3*2 + 5*1) / 3 = 3.666... -> 3.67。段階数(3)止まりだと5が抜けて2になり食い違う
+    expect(data.ratings.avg_rating).toBe(3.67)
+    expect(data.ratings.count).toBe(3)
+    expect(data.ratings.distribution).toEqual({ 1: 0, 2: 0, 3: 2, 5: 1 })
     await app.close()
   })
 })
