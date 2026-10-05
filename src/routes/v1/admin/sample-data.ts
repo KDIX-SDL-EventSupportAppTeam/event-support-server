@@ -24,6 +24,7 @@ export async function adminSampleDataRoutes(app: FastifyInstance) {
       try {
         const result = await generateSampleData(app.db, req.params.event_id, {
           force: parsed.data.force,
+          ratingScale: app.config.ratingScale,
         })
         return sendOk(reply, { generated: result })
       } catch (e) {

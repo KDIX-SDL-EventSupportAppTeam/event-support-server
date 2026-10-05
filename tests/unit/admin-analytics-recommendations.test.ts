@@ -137,6 +137,26 @@ describe('GET /admin/events/:event_id/analytics/booths', () => {
     expect(log.some((sql) => /FROM recommendation_scores/.test(sql))).toBe(true)
     await app.close()
   })
+
+  it('NG-15追加修正: 段階数を超える評価（旧データ）があっても avg_rating は SQL の AVG(rating) と同じ全件基準になる', async () => {
+    // config.ratingScale=3 だが、rating=5 の旧サンプルデータが残っている想定
+    const ratingsWithOutOfRange: Handler = {
+      match: /FROM booth_ratings/,
+      rows: [
+        { booth_id: 'b-1', rating: 3, cnt: 2 },
+        { booth_id: 'b-1', rating: 5, cnt: 1 },
+      ],
+    }
+    const app = await buildTestApp(makeDb([booths, boothTags, ratingsWithOutOfRange, recScores()]))
+    const res = await getBooths(app)
+
+    expect(res.statusCode).toBe(200)
+    const b1 = (res.json().data.booths as Record<string, unknown>[]).find((b) => b.id === 'b-1')!
+    // SQL の AVG(rating) なら (3*2 + 5*1) / 3 = 3.666... -> 3.67。段階数(3)止まりだと5が抜けて食い違う
+    expect(b1.avg_rating).toBe(3.67)
+    expect(b1.rating_distribution).toEqual({ 1: 0, 2: 0, 3: 2, 5: 1 })
+    await app.close()
+  })
 })
 
 describe('GET /admin/events/:event_id/analytics/recommendations', () => {

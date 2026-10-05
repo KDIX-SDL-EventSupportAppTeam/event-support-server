@@ -105,7 +105,7 @@ async function assertNoExistingSample(db: DbClient, eventId: string, force: bool
 export async function generateSampleData(
   db: DbClient,
   eventId: string,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; ratingScale?: number } = {},
 ): Promise<SampleGenerateResult> {
   await assertEventExists(db, eventId)
   await assertNoExistingSample(db, eventId, options.force ?? false)
@@ -115,6 +115,10 @@ export async function generateSampleData(
   const categoryCount = SAMPLE_DEFAULTS.categoryCount
   const boothCount = SAMPLE_DEFAULTS.boothCount
   const participantCount = SAMPLE_DEFAULTS.participantCount
+  // config RATING_SCALE の既定値（呼び出し元が渡さない場合のフォールバック。NG-15）
+  const ratingScale = options.ratingScale ?? 4
+  // 元の randomInt(3, 5)（5段階の上位3値＝高評価寄り）と同じ比率を、段階数が変わっても保つ
+  const ratingMin = Math.max(1, ratingScale - 2)
 
   // --- カテゴリ ---
   const categoryIds: string[] = []
@@ -247,7 +251,15 @@ export async function generateSampleData(
       checkinRows.push([checkinId, userId, boothId, eventId, method, checkedInAt])
 
       if (Math.random() < 0.75) {
-        ratingRows.push([randomUUID(), userId, boothId, eventId, checkinId, randomInt(3, 5)])
+        ratingRows.push([
+          randomUUID(),
+          userId,
+          boothId,
+          eventId,
+          checkinId,
+          randomInt(ratingMin, ratingScale),
+          ratingScale,
+        ])
       }
     }
 
@@ -281,8 +293,8 @@ export async function generateSampleData(
   )
   await bulkInsert(
     db,
-    `INSERT INTO booth_ratings (id, user_id, booth_id, event_id, checkin_id, rating) VALUES `,
-    6,
+    `INSERT INTO booth_ratings (id, user_id, booth_id, event_id, checkin_id, rating, scale) VALUES `,
+    7,
     ratingRows,
   )
   await bulkInsert(
