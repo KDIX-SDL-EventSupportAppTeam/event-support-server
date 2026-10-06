@@ -182,12 +182,13 @@ describe('運営 API の認可（issue #124）', () => {
     await app.close()
   })
 
-  it('tally / 一覧の集計 SQL が role=participant で絞っている（T-9）', async () => {
+  it('tally / 一覧の集計 SQL が manager を数えない（T-9）', async () => {
     const calls: Call[] = []
     const app = await buildApp(makeDb(adminHandler, calls))
     await app.inject({ method: 'GET', url: `/api/v1/admin/events/${EVENT_ID}/awards/${AWARD_ID}/tally`, headers: auth('manager') })
     const tallySql = calls.find((c) => /FROM award_votes v/.test(c.sql))!
-    expect(tallySql.sql).toMatch(/u\.role = 'participant'/)
+    expect(tallySql.sql).toContain("u.role IN ('participant', 'exhibitor', 'viewer')")
+    expect(tallySql.sql).not.toContain('manager')
     await app.close()
   })
 

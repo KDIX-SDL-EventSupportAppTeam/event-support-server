@@ -29,6 +29,7 @@
 | GET | `/api/v1/events/:event_id/gacha/coins` | Bearer | ガチャコイン枚数（`is_enabled / lines_completed / earned / used / available / max_coins`）。無効時も 200 |
 | POST | `/api/v1/events/:event_id/gacha/coins/use` | Bearer | コイン1枚消費（`idempotency_key` はクライアント生成 UUID 必須）。再送は同じ行を返し枚数は増えない。`403 GACHA_DISABLED` / `409 NO_COINS_AVAILABLE` |
 | GET | `/api/v1/admin/events/:event_id/gacha/stats` | Bearer（manager/viewer） | ガチャ使用状況（`total_used / users_with_coins / users_who_used / used_by_hour`） |
+| GET | `/api/v1/admin/events/:event_id/awards/results` | Bearer（manager/viewer） | アワード結果（全賞の上位3位・投票者数・投票率） |
 | PATCH | `/api/v1/events/:event_id/admin/booths/:booth_id/active` | Bearer（manager） | ブースの当日中止・復帰切り替え |
 | POST | `/api/v1/events/:event_id/admin/bingo/reassign` | Bearer（manager） | 中止ブースが見えているマスに残っている場合の差し替え救済（`{booth_id}` → `{affected_cards, reassigned_cells, cleared_cells}`） |
 | GET | `/api/v1/events/:event_id/app-access` | — | アプリ公開ゲートの実効状態（`is_open` / `mode` / `is_pre_survey_open` / `server_time`） |
