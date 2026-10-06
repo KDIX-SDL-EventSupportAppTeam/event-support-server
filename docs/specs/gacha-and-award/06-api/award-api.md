@@ -73,8 +73,9 @@
 | DELETE | `/api/v1/admin/events/:event_id/awards/:award_id` | manager（`deleted_votes` を返す。投票は FK CASCADE で消える） |
 | PATCH | `/api/v1/admin/events/:event_id/awards/voting` | manager（`{ is_open }`。監査ログ `award.voting.update`） |
 | GET | `/api/v1/admin/events/:event_id/awards/:award_id/tally` | staff。ブース別票数（降順） |
+| GET | `/api/v1/admin/events/:event_id/awards/results` | staff。全賞の上位3位＋投票者数などの周辺指標（運営の結果画面用） |
 
-- **集計は `users.role = 'participant'`（または NULL）で絞る。** スタッフ・出展者の試し投票は数えない
+- **集計は `users.role` が `participant` / `exhibitor` / `viewer`（または NULL）の票に絞る。** manager（運営）の試し投票は数えない（2026-10-06 変更。以前は participant のみ）
 - 追加・編集・削除・開閉は監査ログに残す（`award.create` / `award.update` / `award.delete` / `award.voting.update`）
 - **同数の順位付けはサーバーでしない。** 票数をそのまま返す
 
@@ -88,9 +89,37 @@
 }
 ```
 
+### results 応答（運営の結果画面。2026-10-06 追加）
+
+運営の結果画面を開いている間だけ、30秒ごとに取得してリアルタイム表示するための集計。**順位・率・投票者数はすべてサーバーで計算する**（フロントは表示するだけ）。
+
+```jsonc
+{
+  "voting_open": true,
+  "generated_at": "2026-10-16T05:12:00.000Z",   // 集計した時刻（最終更新表示用）
+  "summary": {
+    "total_participants": 240,   // 集計対象の役割（participant / exhibitor / viewer / NULL）の人数
+    "voters": 132,               // 1賞以上に投票した集計対象の人数（重複なし）
+    "voter_rate": 0.55,          // voters / total_participants。参加者 0 人なら null
+    "total_votes": 310,          // 全賞の票数合計
+    "award_count": 3
+  },
+  "awards": [{
+    "id": "…", "name": "…", "color": "pink", "sort_order": 0,
+    "total_votes": 87,           // 1参加者×1賞=1票なので、その賞の投票者数と等しい
+    "booths_with_votes": 21,     // 1票以上入ったブース数
+    "top": [{ "rank": 1, "booth_id": "…", "booth_name": "…", "votes": 23, "share": 0.264 }]
+  }]
+}
+```
+
+- **上位3位は同数を同順位にする**（標準競技順位: 23, 23, 20 → 1位, 1位, 3位）。3位以内の行は同率をすべて返すので、`top` が3件を超えることがある
+- 0票のブースは `top` に入れない
+- 母集団は一覧・tally と同じ（participant / exhibitor / viewer / NULL）
+
 ## 起きてはいけないこと
 
 - チェックイン済み判定をフロントだけで行うこと（直接 POST で回避できる）
-- 集計にスタッフ・出展者の票が混ざること
+- 集計に manager の票が混ざること
 - 賞名をキーに投票を保存すること（名前の修正で票が消える。`award_id` で持つ）
 - 投票を既定で開けておくこと（`is_open` の既定は `false`）

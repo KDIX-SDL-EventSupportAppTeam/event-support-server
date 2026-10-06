@@ -5,13 +5,14 @@ import { sendFail, sendOk } from '../../../lib/response.js'
 import { requireManager, requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
 import { insertAuditLog } from '../../../lib/audit.js'
 import { fetchAwardSettings } from '../../../lib/award/settings.js'
+import { rankTopBooths } from '../../../lib/award/ranking.js'
 
 /**
  * 運営向けアワード API（issue #124）。
  *
  * - 閲覧（一覧・集計）は `viewer` 可
  * - 追加・編集・削除・開閉は `manager` 限定
- * - 集計は `users.role = 'participant'` のみ（スタッフ・出展者の試し投票は数えない）
+ * - 集計は participant・exhibitor・viewer（manager の試し投票は数えない）
  *
  * 仕様: docs/specs/gacha-and-award/06-api/award-api.md
  */
@@ -32,11 +33,20 @@ const patchBody = z.object({
 
 const votingBody = z.object({ is_open: z.boolean() })
 
+/**
+ * 集計に数える役割（2026-10-06 変更）。参加者に加えて出展者・閲覧者の票も数える。
+ * 数えないのは manager（運営の試し投票）。未知の役割を混ぜないよう許可リストで書く。
+ */
+const AWARD_VOTER_ROLE_SQL = (alias?: string) => {
+  const col = alias ? `${alias}.role` : 'role'
+  return `(${col} IS NULL OR ${col} IN ('participant', 'exhibitor', 'viewer'))`
+}
+
 export async function adminAwardRoutes(app: FastifyInstance) {
   const staff = [requireStaff, requireEventMatchesJwt]
   const manager = [requireManager, requireEventMatchesJwt]
 
-  // 賞の一覧（票数つき）。participant の票だけを数える。
+  // 賞の一覧（票数つき）。manager 以外の票を数える。
   app.get<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/awards',
     { preHandler: staff },
@@ -47,7 +57,7 @@ export async function adminAwardRoutes(app: FastifyInstance) {
         `SELECT a.id, a.name, a.description, a.color, a.sort_order,
                 (SELECT COUNT(*)
                    FROM award_votes v
-                   JOIN users u ON u.id = v.user_id AND (u.role = 'participant' OR u.role IS NULL)
+                   JOIN users u ON u.id = v.user_id AND ${AWARD_VOTER_ROLE_SQL('u')}
                   WHERE v.award_id = a.id) AS vote_count
            FROM awards a
           WHERE a.event_id = ?
@@ -227,7 +237,7 @@ export async function adminAwardRoutes(app: FastifyInstance) {
       const [rows] = await app.db.query(
         `SELECT v.booth_id AS booth_id, b.name AS booth_name, COUNT(*) AS votes
            FROM award_votes v
-           JOIN users u  ON u.id = v.user_id AND (u.role = 'participant' OR u.role IS NULL)
+           JOIN users u  ON u.id = v.user_id AND ${AWARD_VOTER_ROLE_SQL('u')}
            JOIN booths b ON b.id = v.booth_id
           WHERE v.award_id = ?
           GROUP BY v.booth_id, b.name
@@ -244,6 +254,89 @@ export async function adminAwardRoutes(app: FastifyInstance) {
         award: { id: award.id, name: award.name },
         total_votes: totalVotes,
         booths,
+      })
+    },
+  )
+
+  // 結果（運営の結果画面。staff）。全賞の上位3位（同率を含む）と、投票者数などの周辺指標を1回で返す。
+  // 母集団は一覧・tally と同じ（AWARD_VOTER_ROLE_SQL）。manager の試し投票は数えない。
+  app.get<{ Params: { event_id: string } }>(
+    '/admin/events/:event_id/awards/results',
+    { preHandler: staff },
+    async (req, reply) => {
+      const eventId = req.params.event_id
+      const [settings, [pRows], [vRows], [aRows], [bRows]] = await Promise.all([
+        fetchAwardSettings(app.db, eventId),
+        app.db.query(
+          `SELECT COUNT(*) AS c FROM users
+            WHERE event_id = ? AND ${AWARD_VOTER_ROLE_SQL()}`,
+          [eventId],
+        ),
+        app.db.query(
+          `SELECT COUNT(DISTINCT v.user_id) AS c
+             FROM award_votes v
+             JOIN awards a ON a.id = v.award_id AND a.event_id = ?
+             JOIN users u  ON u.id = v.user_id AND ${AWARD_VOTER_ROLE_SQL('u')}`,
+          [eventId],
+        ),
+        app.db.query(
+          `SELECT a.id, a.name, a.color, a.sort_order
+             FROM awards a
+            WHERE a.event_id = ?
+            ORDER BY a.sort_order ASC, a.name ASC`,
+          [eventId],
+        ),
+        app.db.query(
+          `SELECT v.award_id AS award_id, v.booth_id AS booth_id, b.name AS booth_name, COUNT(*) AS votes
+             FROM award_votes v
+             JOIN awards a ON a.id = v.award_id AND a.event_id = ?
+             JOIN users u  ON u.id = v.user_id AND ${AWARD_VOTER_ROLE_SQL('u')}
+             JOIN booths b ON b.id = v.booth_id
+            GROUP BY v.award_id, v.booth_id, b.name
+            ORDER BY v.award_id, votes DESC, b.name ASC`,
+          [eventId],
+        ),
+      ])
+
+      const totalParticipants = Number((pRows as { c: number }[])[0]?.c ?? 0)
+      const voters = Number((vRows as { c: number }[])[0]?.c ?? 0)
+
+      const byAward = new Map<string, { booth_id: string; booth_name: string; votes: number }[]>()
+      for (const r of bRows as { award_id: string; booth_id: string; booth_name: string; votes: number }[]) {
+        const list = byAward.get(r.award_id) ?? []
+        list.push({ booth_id: r.booth_id, booth_name: r.booth_name, votes: Number(r.votes) || 0 })
+        byAward.set(r.award_id, list)
+      }
+
+      const awards = (aRows as { id: string; name: string; color: string; sort_order: number }[]).map((a) => {
+        const booths = byAward.get(a.id) ?? []
+        // 1参加者×1賞=1票（UNIQUE (award_id, user_id)）なので、票数＝その賞の投票者数
+        const totalVotes = booths.reduce((s, b) => s + b.votes, 0)
+        return {
+          id: a.id,
+          name: a.name,
+          color: a.color,
+          sort_order: Number(a.sort_order) || 0,
+          total_votes: totalVotes,
+          booths_with_votes: booths.length,
+          top: rankTopBooths(booths, 3).map((b) => ({
+            ...b,
+            share: totalVotes > 0 ? b.votes / totalVotes : 0,
+          })),
+        }
+      })
+
+      return sendOk(reply, {
+        voting_open: settings.isOpen,
+        generated_at: new Date().toISOString(),
+        summary: {
+          total_participants: totalParticipants,
+          voters,
+          voter_rate: totalParticipants > 0 ? voters / totalParticipants : null,
+          total_votes: awards.reduce((s, a) => s + a.total_votes, 0),
+          award_count: awards.length,
+        },
+        awards,
       })
     },
   )
