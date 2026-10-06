@@ -285,7 +285,10 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         const counts: Record<string, number> = {}
         for (const s of surveyRows as Record<string, string | null>[]) {
           const val = s[field]
-          if (val) counts[val] = (counts[val] ?? 0) + 1
+          if (!val) continue
+          // 職業は複数回答をカンマ連結で保存している（migration 21）。選択肢ごとに数える
+          const values = field === 'occupation' ? val.split(',') : [val]
+          for (const v of values) counts[v] = (counts[v] ?? 0) + 1
         }
         return counts
       }
