@@ -9,6 +9,7 @@ import { utcMysqlNow } from '../../lib/datetime.js'
 import { requireBearerAuth } from '../../plugins/auth.js'
 import {
   buildVerificationMailText,
+  buildVerificationMailHtml,
   buildVerifyEmailUrl,
   issueVerificationToken,
 } from '../../lib/email-verification.js'
@@ -99,6 +100,7 @@ export async function authRoutes(app: FastifyInstance) {
         '【PRoToFES】メールアドレスの確認',
         buildVerificationMailText(display_name, url),
         eventRow.mail_from,
+        buildVerificationMailHtml(display_name, url),
       )
     } catch (e) {
       req.log.error(e, 'メール確認トークンの発行または送信に失敗')
@@ -266,6 +268,7 @@ export async function authRoutes(app: FastifyInstance) {
       '【PRoToFES】メールアドレスの確認',
       buildVerificationMailText(u.display_name ?? '', url),
       u.mail_from,
+      buildVerificationMailHtml(u.display_name ?? '', url),
     )
     return sendOk(reply, { sent: true })
   })

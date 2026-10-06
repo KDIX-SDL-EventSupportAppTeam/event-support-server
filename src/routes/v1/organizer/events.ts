@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { ensureDefaultSurveyQuestions } from '../../../lib/pre-survey/default-questions.js'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -116,7 +117,8 @@ const patchEventBody = z.object({
   date_start: z.string().min(1).optional(),
   date_end: z.string().min(1).optional(),
   venue: z.string().max(500).nullable().optional(),
-  survey_url: z.string().url().max(2048).regex(/^https?:\/\//).nullable().optional(),
+  // survey_url は受け付けない（issue #156）。編集口は運営（admin）側に一本化した。
+  // 受け付けて黙って捨てるとフロントが「保存できた」と誤表示するため、PATCH ハンドラで明示的に 422 にする。
   // 必須項目のため null（未設定に戻す）は受け付けない
   mail_from: z.string().trim().email().max(255).optional(),
 })
@@ -192,13 +194,26 @@ export async function organizerEventRoutes(app: FastifyInstance) {
     },
   )
 
-  // イベント情報の修正（名前・日時・会場・アンケートURL）。所有していない場合は 403
+  // イベント情報の修正（名前・日時・会場・送信元）。所有していない場合は 403。
+  // アンケート URL は含まない（運営側が正。issue #156）
   app.patch<{ Params: { event_id: string } }>(
     '/organizer/events/:event_id',
     { preHandler: pre },
     async (req, reply) => {
       const organizerId = req.organizerUser!.sub
       const { event_id } = req.params
+
+      // 事後アンケート URL（events.survey_url）の編集口は運営（admin）側に一本化した（issue #156）。
+      // 当日の差し替えは運営が行う。オーガナイザー側から更新できると後勝ちで運営の設定を上書きする。
+      // 作成（POST）時の初期値は従来どおり受け付ける。
+      if (req.body && typeof req.body === 'object' && 'survey_url' in req.body) {
+        return sendFail(
+          reply,
+          422,
+          'VALIDATION_ERROR',
+          'アンケート URL はオーガナイザーからは変更できません。運営画面から変更してください',
+        )
+      }
 
       const parsed = patchEventBody.safeParse(req.body)
       if (!parsed.success) {
@@ -248,10 +263,6 @@ export async function organizerEventRoutes(app: FastifyInstance) {
       if (body.venue !== undefined) {
         fields.push('venue = ?')
         params.push(body.venue)
-      }
-      if (body.survey_url !== undefined) {
-        fields.push('survey_url = ?')
-        params.push(body.survey_url)
       }
       if (body.mail_from !== undefined) {
         fields.push('mail_from = ?')
@@ -418,6 +429,19 @@ export async function organizerEventRoutes(app: FastifyInstance) {
           await app.db.execute('DELETE FROM events WHERE id = ?', [eventId])
           throw e
         }
+      }
+
+      // 事前アンケートの既定設問（6問）を投入する（issue #146）。
+      // 失敗してもイベント作成は成功させる。さくらプロキシ経路ではトランザクションが効かず（ADR 0001）、
+      // ここで失敗して events / users / event_app_access まで巻き戻すと、管理者へ認証情報を返せなくなる。
+      // 取りこぼしは POST /admin/events/:event_id/survey-questions/defaults で復旧できる。
+      try {
+        await ensureDefaultSurveyQuestions(app.db, eventId, { id: organizerId, role: 'organizer' })
+      } catch (e) {
+        req.log.warn(
+          { err: e, event_id: eventId },
+          '既定の事前アンケート設問の投入に失敗しました（運営画面の「既定の設問を投入」で復旧できます）',
+        )
       }
 
       const [eventRows] = await app.db.query(

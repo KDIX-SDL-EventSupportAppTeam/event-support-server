@@ -234,8 +234,8 @@ async function main() {
   )
 
   await pool.query(
-    `INSERT INTO booths (id, event_id, name, description, category_id, manual_code, qr_code_url, google_form_response_id)
-     VALUES ${BOOTH_SEEDS.map(() => '(?,?,?,?,?,?,?,?)').join(',')}`,
+    `INSERT INTO booths (id, event_id, name, description, category_id, manual_code, qr_token, qr_code_url, google_form_response_id)
+     VALUES ${BOOTH_SEEDS.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')}`,
     BOOTH_SEEDS.flatMap((b, i) => [
       b.id,
       EVENT_ID,
@@ -244,6 +244,8 @@ async function main() {
       b.categoryId,
       // 固定の擬似ランダム 6桁数字（seed の再現性のため。連番ではない）
       String((((i + 1) * 133457) % 900000) + 100000),
+      // 固定値（seed の再現性のため）。字母は qr-token.ts と同じ
+      `DEV${String(i + 1).padStart(7, '2')}`,
       `https://example.invalid/qr/${b.id}`,
       null,
     ]),

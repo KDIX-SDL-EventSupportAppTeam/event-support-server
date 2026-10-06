@@ -34,12 +34,15 @@
   "name": "…",
   "display_code": "A-12",     // 公開・任意（null あり）
   "manual_code": "481502",     // 秘匿・6桁数字（運営にだけ返す）
-  "checkin_url": "https://<frontend>/checkin?booth_id=<booth_id>"
+  "checkin_url": "https://<frontend>/c/<qr_token>"   // 掲示 QR の中身（30 文字前後）
 }
 ```
 
 - `checkin_url` は `src/lib/url.ts` の `buildBoothCheckinUrl`（`frontendBaseUrl ?? corsOrigin[0]`）。
-  `booth_id`（不変の UUID）だけで決まるため作成時点で確定する
+  `booths.qr_token`（グローバル一意の 10 文字、字母 `23456789ABCDEFGHJKMNPQRSTVWXYZ`）だけで決まるため作成時点で確定する（issue #155）。
+  旧形式 `/checkin?booth_id=<UUID>`（約 70-80 文字）は QR のモジュールが細かく、標準カメラで読むとタブが増えるため廃止。
+  **既に印刷済みの旧形式 QR はフロントの `/checkin?booth_id=` が引き続き受ける**（`POST /checkins` の `method: 'qr'` も不変）
+- `qr_token` は生成時に `SELECT` で空きを確認する（さくらプロキシ対策）。**ログ・監査ログの本文に出さない**
 
 ### `POST /api/v1/admin/events/:event_id/booths/:booth_id/manual-code/regenerate`
 

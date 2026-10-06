@@ -18,16 +18,24 @@ function rate(selected: number, offered: number): number | null {
   return Math.round((selected / offered) * 1000) / 10
 }
 
-/** 評価分布 {1..5: 件数} から平均評価を算出する（評価なしは null） */
+/**
+ * 評価分布 {rating: 件数} から平均評価を算出する（評価なしは null）。
+ * 段階数（scale）でキーを絞らず、分布に入っている全キーで計算する。段階数を超える評価（旧サンプル等）が
+ * DB に残っていても、件数・内訳には入るのに平均だけ外れる食い違いを避け、他画面の SQL AVG(rating) と揃えるため。
+ */
 function avgFromDistribution(dist: Record<number, number>): number | null {
   let sum = 0
   let count = 0
-  for (const star of [1, 2, 3, 4, 5]) {
-    const n = dist[star] ?? 0
-    sum += star * n
+  for (const [star, n] of Object.entries(dist)) {
+    sum += Number(star) * n
     count += n
   }
   return count > 0 ? Math.round((sum / count) * 100) / 100 : null
+}
+
+/** 評価分布の初期値 {1..scale: 0} を作る */
+function emptyDistribution(scale: number): Record<number, number> {
+  return Object.fromEntries(Array.from({ length: scale }, (_, i) => [i + 1, 0]))
 }
 
 export async function adminAnalyticsRoutes(app: FastifyInstance) {
@@ -38,6 +46,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
     { preHandler: pre },
     async (req, reply) => {
       const eventId = req.params.event_id
+      const ratingScale = app.config.ratingScale
 
       const [[boothRows], [tagRows], [ratingRows], [recRows]] = await Promise.all([
         // booth_ratings はここで JOIN しない。check_ins と同時に LEFT JOIN すると
@@ -82,8 +91,8 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
 
       const ratingDistByBooth = new Map<string, Record<number, number>>()
       for (const r of ratingRows as { booth_id: string; rating: number; cnt: number }[]) {
-        const dist = ratingDistByBooth.get(r.booth_id) ?? { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
-        dist[r.rating as 1 | 2 | 3 | 4 | 5] = Number(r.cnt) || 0
+        const dist = ratingDistByBooth.get(r.booth_id) ?? emptyDistribution(ratingScale)
+        dist[r.rating] = Number(r.cnt) || 0
         ratingDistByBooth.set(r.booth_id, dist)
       }
 
@@ -102,7 +111,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
       }[]).map((b) => {
         const offered = recAgg.boothOfferedCount[b.id] ?? 0
         const selected = recAgg.boothSelectedCount[b.id] ?? 0
-        const dist = ratingDistByBooth.get(b.id) ?? { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+        const dist = ratingDistByBooth.get(b.id) ?? emptyDistribution(ratingScale)
         return {
           id: b.id,
           name: b.name,
@@ -276,7 +285,10 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         const counts: Record<string, number> = {}
         for (const s of surveyRows as Record<string, string | null>[]) {
           const val = s[field]
-          if (val) counts[val] = (counts[val] ?? 0) + 1
+          if (!val) continue
+          // 職業は複数回答をカンマ連結で保存している（migration 21）。選択肢ごとに数える
+          const values = field === 'occupation' ? val.split(',') : [val]
+          for (const v of values) counts[v] = (counts[v] ?? 0) + 1
         }
         return counts
       }

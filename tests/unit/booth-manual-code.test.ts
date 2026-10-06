@@ -124,7 +124,7 @@ describe('issue #121 — 手動コードの自動採番と秘匿', () => {
   it('POST /admin/.../booths は manual_code 未指定でも6桁数字を採番する（T-8）', async () => {
     const log: string[] = []
     const db = makeDb([
-      { match: /SELECT 1 AS x FROM booths WHERE event_id = \? AND manual_code = \?/, rows: [] },
+      { match: /SELECT 1 AS x FROM booths WHERE (event_id = \? AND manual_code|qr_token) = \?/, rows: [] },
       writePass,
       catchAll,
     ], log)
@@ -138,7 +138,8 @@ describe('issue #121 — 手動コードの自動採番と秘匿', () => {
     expect(res.statusCode).toBe(201)
     const booth = res.json().data.booth
     expect(booth.manual_code).toMatch(/^[0-9]{6}$/)
-    expect(booth.checkin_url).toContain('/checkin?booth_id=')
+    // 掲示 URL は短縮トークン形式（issue #155）。UUID は URL に載らない
+    expect(booth.checkin_url).toMatch(/^https:\/\/front\.example\/c\/[2-9A-HJKMNP-TV-Z]{10}$/)
     // 監査ログの本文にコードの値が入っていない
     const auditSql = log.find((s) => /INSERT INTO audit_logs/.test(s))
     expect(auditSql).toBeTruthy()
@@ -160,7 +161,7 @@ describe('issue #121 — 手動コードの自動採番と秘匿', () => {
 
   it('再発番は manager のみ（viewer は 403）（T-12）', async () => {
     const db = makeDb([
-      { match: /SELECT id FROM booths WHERE id = \? AND event_id = \?/, rows: [{ id: 'b-1' }] },
+      { match: /SELECT id, qr_token FROM booths WHERE id = \? AND event_id = \?/, rows: [{ id: 'b-1', qr_token: 'A7K3PQ2MXF' }] },
       { match: /SELECT 1 AS x FROM booths/, rows: [] },
       writePass,
       catchAll,
@@ -182,7 +183,7 @@ describe('issue #121 — 手動コードの自動採番と秘匿', () => {
       query: async (sql: string, p: unknown[] = []) => {
         log.push(sql)
         params.push(p)
-        if (/SELECT id FROM booths WHERE id = \? AND event_id = \?/.test(sql)) return [[{ id: 'b-1' }], undefined] as [unknown, unknown]
+        if (/SELECT id, qr_token FROM booths WHERE id = \? AND event_id = \?/.test(sql)) return [[{ id: 'b-1', qr_token: 'A7K3PQ2MXF' }], undefined] as [unknown, unknown]
         if (/SELECT 1 AS x FROM booths/.test(sql)) return [[], undefined] as [unknown, unknown]
         return [[], undefined] as [unknown, unknown]
       },
@@ -202,6 +203,7 @@ describe('issue #121 — 手動コードの自動採番と秘匿', () => {
     expect(res.statusCode).toBe(200)
     const code = res.json().data.booth.manual_code
     expect(code).toMatch(/^[0-9]{6}$/)
+    expect(res.json().data.booth.checkin_url).toBe('https://front.example/c/A7K3PQ2MXF')
     // audit_logs の INSERT パラメータにコード文字列が現れない
     const auditIdx = log.findIndex((s) => /INSERT INTO audit_logs/.test(s))
     expect(auditIdx).toBeGreaterThanOrEqual(0)
@@ -235,6 +237,53 @@ describe('issue #121 — checkins の手動コード検証', () => {
     })
     // 6桁は検証を通り、存在しないコードなので 404（T-6）
     expect(ok.statusCode).toBe(404)
+    await app.close()
+  })
+})
+
+describe('issue #155 — GET /booths/by-qr-token/:qr_token', () => {
+  const TOKEN = 'A7K3PQ2MXF'
+  const url = (t: string) => `/api/v1/booths/by-qr-token/${t}`
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 'b-1',
+    name: 'ブースA',
+    event_id: EVENT_ID,
+    ...over,
+  })
+
+  it('自イベントのブースを返し、qr_token をエコーしない', async () => {
+    const app = await buildApp(makeDb([{ match: /FROM booths WHERE qr_token = \?/, rows: [row()] }, catchAll]))
+    const res = await app.inject({ method: 'GET', url: url(TOKEN), headers: auth('participant') })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.booth).toEqual({ id: 'b-1', name: 'ブースA', event_id: EVENT_ID })
+    expect(res.body).not.toContain(TOKEN)
+    await app.close()
+  })
+
+  it('他イベントのブースは 403 ではなく 404（存在を漏らさない）', async () => {
+    const app = await buildApp(
+      makeDb([{ match: /FROM booths WHERE qr_token = \?/, rows: [row({ event_id: 'other-event' })] }, catchAll]),
+    )
+    const res = await app.inject({ method: 'GET', url: url(TOKEN), headers: auth('participant') })
+    expect(res.statusCode).toBe(404)
+    await app.close()
+  })
+
+  it('存在しないトークン・形式不正は 404、無効ブースは SQL 側で除外される', async () => {
+    const log: string[] = []
+    const app = await buildApp(makeDb([{ match: /FROM booths WHERE qr_token = \?/, rows: [] }, catchAll], log))
+    const none = await app.inject({ method: 'GET', url: url(TOKEN), headers: auth('participant') })
+    expect(none.statusCode).toBe(404)
+    const bad = await app.inject({ method: 'GET', url: url('0OIl1U'), headers: auth('participant') })
+    expect(bad.statusCode).toBe(404)
+    expect(log.some((s) => /is_active = 1/.test(s))).toBe(true)
+    await app.close()
+  })
+
+  it('未認証は 401', async () => {
+    const app = await buildApp(makeDb([catchAll]))
+    const res = await app.inject({ method: 'GET', url: url(TOKEN) })
+    expect(res.statusCode).toBe(401)
     await app.close()
   })
 })

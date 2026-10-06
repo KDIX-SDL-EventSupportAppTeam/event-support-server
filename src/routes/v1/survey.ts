@@ -210,7 +210,11 @@ export async function surveyRoutes(app: FastifyInstance) {
       }
 
       const ageRange = (valueByKey.get('age_range') as string | undefined) ?? null
-      const occupation = (valueByKey.get('occupation') as string | undefined) ?? null
+      // 職業は複数回答（migration 21）。専用列には昇順・カンマ連結で入れる（集計は analytics.ts で分割する）
+      const occupationRaw = valueByKey.get('occupation')
+      const occupation = Array.isArray(occupationRaw)
+        ? (occupationRaw as string[]).slice().sort().join(',') || null
+        : ((occupationRaw as string | undefined) ?? null)
       const industry = (valueByKey.get('industry') as string | undefined) ?? null
 
       const [existingRows] = await app.db.query(

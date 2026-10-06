@@ -21,6 +21,7 @@
 | POST | `/api/v1/events/:event_id/survey/answers` | Bearer | アンケート回答送信 |
 | GET | `/api/v1/events/:event_id/booths` | Bearer | ブース一覧（カテゴリフィルタ可） |
 | GET | `/api/v1/events/:event_id/booths/:booth_id` | Bearer | ブース詳細 |
+| GET | `/api/v1/booths/by-qr-token/:qr_token` | Bearer | 掲示 QR（`/c/<qr_token>`）の解決。他イベント・無効ブース・不存在は 404（#155） |
 | POST | `/api/v1/events/:event_id/checkins` | Bearer | チェックイン（QR / 手動コード）。ビンゴの後出し割当・解放（`unlocked_positions` / `unlocked_pairs` / `no_candidate_cells`）・ライン判定を含む。`pending_rating` は廃止（server#133） |
 | GET | `/api/v1/events/:event_id/checkins` | Bearer | 自分のチェックイン履歴。各要素に評価済みかどうかの `rated`（真偽値。点数は含まない）を含む |
 | POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating` | Bearer | 評価送信（+comment、`context`: `IMMEDIATE`/`MANUAL`。`NEXT_CHECKIN` は新規には422。空白のみは NULL 正規化、再送信は409、他人のcheckin_idは404。`rating` は `1..RATING_SCALE`） |
@@ -28,6 +29,7 @@
 | GET | `/api/v1/events/:event_id/gacha/coins` | Bearer | ガチャコイン枚数（`is_enabled / lines_completed / earned / used / available / max_coins`）。無効時も 200 |
 | POST | `/api/v1/events/:event_id/gacha/coins/use` | Bearer | コイン1枚消費（`idempotency_key` はクライアント生成 UUID 必須）。再送は同じ行を返し枚数は増えない。`403 GACHA_DISABLED` / `409 NO_COINS_AVAILABLE` |
 | GET | `/api/v1/admin/events/:event_id/gacha/stats` | Bearer（manager/viewer） | ガチャ使用状況（`total_used / users_with_coins / users_who_used / used_by_hour`） |
+| GET | `/api/v1/admin/events/:event_id/awards/results` | Bearer（manager/viewer） | アワード結果（全賞の上位3位・投票者数・投票率） |
 | PATCH | `/api/v1/events/:event_id/admin/booths/:booth_id/active` | Bearer（manager） | ブースの当日中止・復帰切り替え |
 | POST | `/api/v1/events/:event_id/admin/bingo/reassign` | Bearer（manager） | 中止ブースが見えているマスに残っている場合の差し替え救済（`{booth_id}` → `{affected_cards, reassigned_cells, cleared_cells}`） |
 | GET | `/api/v1/events/:event_id/app-access` | — | アプリ公開ゲートの実効状態（`is_open` / `mode` / `is_pre_survey_open` / `server_time`） |
@@ -40,6 +42,7 @@
 | GET | `/api/v1/organizer/events` | Bearer（organizer） | 所有イベント一覧（統計・URL 付き、`date_start DESC`） |
 | GET | `/api/v1/organizer/events/:event_id` | Bearer（organizer、所有イベントのみ） | イベント詳細（非所有・不存在は 403） |
 | POST | `/api/v1/organizer/events` | Bearer（organizer） | イベント作成 + 初期管理者自動発行 + 参加者/運営 URL 発行。`mail_from`（送信元メール）必須 |
+| PATCH | `/api/v1/organizer/events/:event_id` | Bearer（organizer、所有イベントのみ） | イベント情報の修正（名前・日時・会場・`mail_from`）。**`survey_url` は 422**（運営側が正。#156） |
 | GET | `/api/v1/organizer/events/:event_id/staff` | Bearer（organizer、所有イベントのみ） | 運営スタッフ一覧（招待順） |
 | POST | `/api/v1/organizer/events/:event_id/staff` | Bearer（organizer、所有イベントのみ） | 運営スタッフ招待（manager/viewer） |
 | PATCH | `/api/v1/organizer/events/:event_id/staff/:user_id` | Bearer（organizer、所有イベントのみ） | スタッフのロール変更（最後の manager ガード） |
@@ -60,6 +63,8 @@
 | GET | `/api/v1/admin/events/:event_id/dashboard` | Bearer（staff） | 運営ダッシュボード（簡易集計）。`bingo` は DB の事実のみ（`checkins` / `ratings` / `rating_collection_rate` / `unlocks` / `fallback_rate_last_30min`）。フェーズ情報は返さない → 下記 `recommender/state` を使う |
 | GET | `/api/v1/admin/events/:event_id/recommender/state` | Bearer（staff） | 推薦エンジンの `/ops/state` を中継（10秒キャッシュ）。到達不能でも 200 で `{available:false, reason}`（`UNCONFIGURED`/`UNAUTHORIZED`/`UNREACHABLE`/`BAD_RESPONSE`）。監査ログなし |
 | GET | `/api/v1/admin/events/:event_id/analytics/{booths,participants,checkins,recommendations}` | Bearer（staff） | 分析データ取得（推薦集計の集計元は下記） |
+| POST | `/api/v1/admin/events/:event_id/survey-questions/defaults` | Bearer（manager） | 既定の事前アンケート設問6問の投入し直し（冪等。既存設問は書き換えない。#146） |
+| PATCH | `/api/v1/admin/events/:event_id` | Bearer（manager） | イベント情報の更新。`survey_url`（事後アンケート URL）の**正の編集口**。監査ログに before / after を残す（#156） |
 | CRUD | `/api/v1/admin/events/:event_id/{categories,booths,survey-questions}` ほか | Bearer（manager。GET 系は staff） | カテゴリ/ブース/設問の運営 CRUD・参加者一覧 |
 
 運営 CRUD の各エンドポイントは `src/routes/v1/admin/` 配下に分割、オーガナイザー系は `src/routes/v1/organizer/` 配下（`app.ts` の登録順を参照）。

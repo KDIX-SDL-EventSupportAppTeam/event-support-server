@@ -1,9 +1,32 @@
 import type { FastifyInstance } from 'fastify'
 import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt } from '../../plugins/auth.js'
+import { isValidQrToken } from '../../lib/qr-token.js'
 
 export async function boothRoutes(app: FastifyInstance) {
   const pre = [requireBearerAuth, requireEventMatchesJwt]
+
+  // 掲示 QR（/c/<qr_token>）の解決（issue #155）。URL に event_id が無いので
+  // requireEventMatchesJwt は使えず、解決したブースの event_id を JWT と突き合わせる。
+  // 他イベント・無効ブース・存在しないトークンはすべて 404（他イベントのトークンの存在を漏らさない）。
+  // qr_token はレスポンスに含めない（入力値のエコーバックを増やさない）。
+  app.get<{ Params: { qr_token: string } }>(
+    '/booths/by-qr-token/:qr_token',
+    { preHandler: [requireBearerAuth] },
+    async (req, reply) => {
+      const notFound = () =>
+        sendFail(reply, 404, 'NOT_FOUND', 'QRコードに一致するブースがありません')
+      const token = req.params.qr_token
+      if (!isValidQrToken(token)) return notFound()
+      const [rows] = await app.db.query(
+        'SELECT id, name, event_id FROM booths WHERE qr_token = ? AND is_active = 1 LIMIT 1',
+        [token],
+      )
+      const b = (rows as { id: string; name: string; event_id: string }[])[0]
+      if (!b || b.event_id !== req.jwtUser!.event_id) return notFound()
+      return sendOk(reply, { booth: { id: b.id, name: b.name, event_id: b.event_id } })
+    },
+  )
 
   app.get<{ Params: { event_id: string }; Querystring: { category_id?: string } }>(
     '/events/:event_id/booths',

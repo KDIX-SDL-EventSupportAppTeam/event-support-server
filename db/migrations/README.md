@@ -3,7 +3,7 @@
 ## 番号規則
 
 - ファイル名は `NN_<内容>.sql`。**`NN` は 2 桁・一意**。辞書順 ＝ 適用順。
-- 新しいファイルは **既存の最大番号 + 1**（現在の最大は `19`。次は `20_`）。
+- 新しいファイルは **既存の最大番号 + 1**（現在の最大は `20`。次は `21_`）。
 - 番号を飛ばさない。同じ番号を 2 つ作らない（2026-09 に `10_` が 2 つあった事故の再発防止。issue #112）。
 - 作成したら `db/create-tables.sql`（空 DB 向けの正本・25 テーブル）にも同じ定義を反映する。片方だけ直すと docker 初期化と本番でスキーマが割れる。
 - **これは DDL の話である。** `16_` のようなデータ投入は `create-tables.sql` に載せない。
@@ -33,6 +33,7 @@
 | 17 | `17_event_mail_from.sql` | 01（`events`） |
 | 18 | `18_rating_prompt_context_immediate.sql` | 09（`booth_ratings.prompt_context`） |
 | 19 | `19_bingo_cell_no_candidate.sql` | 09（`bingo_cells.source`） |
+| 20 | `20_booth_qr_token.sql` | 01（`booths`）。既存行へ採番してから `NOT NULL` + `UNIQUE` |
 
 ## どの経路が何を読むか
 
@@ -50,6 +51,8 @@
 - `11` は同じ型への `MODIFY` なので 2 回流しても無害。
 - `18` も同じ型への `MODIFY`（ENUM に値を追加）なので 2 回流しても無害。
 - `19` は ENUM への値追加（`MODIFY`）と、ストアドプロシージャで存在確認してからの `ADD COLUMN` なので 2 回流しても無害。
+- `20` は列の有無を確認してから追加し、採番は `qr_token IS NULL` の行だけに行うため、2 回流しても無害。
+  既存行の採番は SQL の `RAND()`（暗号論的乱数ではない）。UNIQUE が張れなければ（偶然の衝突）もう一度流す。
 - `16` は `question_key` で存在確認してから `INSERT ... SELECT ... WHERE NOT EXISTS` するため、2 回流しても無害。
   既存の設問文・選択肢は**書き換えない**（文言を直したいときは運営画面か個別の UPDATE で行う）。
 - **`10_gacha_coins.sql` は `gacha_coin_uses` を `DROP` してから作り直す。データの入った DB に再実行するとコイン使用台帳が消える。** 空 DB か「消してよい」と判断した DB にしか流さない。
