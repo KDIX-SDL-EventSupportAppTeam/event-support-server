@@ -544,7 +544,7 @@ describe('POST /organizer/events の既定設問の自動投入（issue #146）'
     venue: null, survey_url: null,
   }
 
-  it('イベント作成で6問が入る（question_key / answer_type / is_required / display_order）', async () => {
+  it('イベント作成で7問が入る（question_key / answer_type / is_required / display_order）', async () => {
     const inserted: unknown[][] = []
     const db = makeDb([
       { match: /^SELECT question_key FROM survey_questions/, rows: [] },
@@ -567,9 +567,10 @@ describe('POST /organizer/events の既定設問の自動投入（issue #146）'
       [1, 1, 'interest_categories', 'multi'],
       [2, 1, 'top_interest_category', 'single'],
       [3, 1, 'age_range', 'single'],
-      [4, 1, 'occupation', 'single'],
-      [5, 0, 'gender', 'single'],
-      [6, 1, 'exploration_disposition', 'single'],
+      [4, 1, 'affiliation', 'single'],
+      [5, 1, 'occupation', 'multi'],
+      [6, 0, 'gender', 'single'],
+      [7, 1, 'exploration_disposition', 'single'],
     ])
     expect(inserted[0][3]).toBe('[]')
     await app.close()

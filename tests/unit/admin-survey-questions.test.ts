@@ -374,16 +374,17 @@ describe('PATCH /admin/events/:event_id/survey-questions/:question_id', () => {
 })
 
 describe('POST /admin/events/:event_id/survey-questions/defaults（issue #146）', () => {
-  it('設問0問のイベントへ6問を投入する', async () => {
+  it('設問0問のイベントへ7問を投入する', async () => {
     const { db, rows } = makeDb()
     const app = await buildTestApp(db)
     const res = await app.inject({ method: 'POST', url: `${BASE}/defaults`, headers: managerAuth(), payload: {} })
     expect(res.statusCode).toBe(200)
-    expect(res.json().data.inserted).toHaveLength(6)
+    expect(res.json().data.inserted).toHaveLength(7)
     expect(rows.map((r) => r.question_key)).toEqual([
       'interest_categories',
       'top_interest_category',
       'age_range',
+      'affiliation',
       'occupation',
       'gender',
       'exploration_disposition',
@@ -397,7 +398,7 @@ describe('POST /admin/events/:event_id/survey-questions/defaults（issue #146）
     await app.inject({ method: 'POST', url: `${BASE}/defaults`, headers: managerAuth(), payload: {} })
     const second = await app.inject({ method: 'POST', url: `${BASE}/defaults`, headers: managerAuth(), payload: {} })
     expect(second.json().data.inserted).toEqual([])
-    expect(rows).toHaveLength(6)
+    expect(rows).toHaveLength(7)
     await app.close()
   })
 
@@ -416,7 +417,7 @@ describe('POST /admin/events/:event_id/survey-questions/defaults（issue #146）
     const app = await buildTestApp(db)
     const res = await app.inject({ method: 'POST', url: `${BASE}/defaults`, headers: managerAuth(), payload: {} })
     expect(res.json().data.inserted).not.toContain('age_range')
-    expect(res.json().data.inserted).toHaveLength(5)
+    expect(res.json().data.inserted).toHaveLength(6)
     const age = rows.find((r) => r.question_key === 'age_range')!
     expect(age.question_text).toBe('運営が直した年代の設問')
     expect(age.options).toBe(JSON.stringify([{ value: 'teens', label: '10代' }]))

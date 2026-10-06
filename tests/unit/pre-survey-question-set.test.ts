@@ -1,5 +1,6 @@
 /**
- * 対象: db/migrations/16_pre_survey_questions.sql, src/lib/sample-data/generate.ts
+ * 対象: db/migrations/16_pre_survey_questions.sql, 21_affiliation_and_multi_occupation.sql,
+ *       src/lib/sample-data/generate.ts
  * 仕様: docs/specs/pre-survey/02-data-model.md「本番の設問セット」
  *
  * question_key と options の value は分析・推薦側との契約である。
@@ -11,10 +12,11 @@ import { CATEGORY_DERIVED_QUESTION_KEYS } from '../../src/lib/survey-options.js'
 import { DEFAULT_PRE_SURVEY_QUESTIONS } from '../../src/lib/pre-survey/default-questions.js'
 
 const MIGRATION = readFileSync('db/migrations/16_pre_survey_questions.sql', 'utf8')
+const MIGRATION_21 = readFileSync('db/migrations/21_affiliation_and_multi_occupation.sql', 'utf8')
 const GENERATOR = readFileSync('src/lib/sample-data/generate.ts', 'utf8')
 const DEFAULTS_SRC = readFileSync('src/lib/pre-survey/default-questions.ts', 'utf8')
 
-/** 上から順に、期待する設問セット（必須5問 + 任意1問）。 */
+/** migration 16 が投入する設問セット（必須5問 + 任意1問）。21 で上書きされる前の形。 */
 const EXPECTED = [
   { key: 'interest_categories', answerType: 'multi', required: true, values: [] },
   { key: 'top_interest_category', answerType: 'single', required: true, values: [] },
@@ -43,6 +45,28 @@ const EXPECTED = [
     values: ['high', 'mid', 'low'],
   },
 ] as const
+
+/** 現在の既定設問（16 に 21 を重ねた形。必須6問 + 任意1問）。 */
+const EXPECTED_CURRENT = [
+  EXPECTED[0],
+  EXPECTED[1],
+  EXPECTED[2],
+  { key: 'affiliation', answerType: 'single', required: true, values: ['internal', 'external'] },
+  {
+    key: 'occupation',
+    answerType: 'multi',
+    required: true,
+    values: ['student', 'teacher', 'staff', 'engineer', 'designer', 'planner', 'other'],
+  },
+  EXPECTED[4],
+  EXPECTED[5],
+] as const
+
+/** 21 で設問文・選択肢を定義し直した設問は 21 の文を、それ以外は 16 の文を返す。 */
+function currentStatementFor(key: string): string {
+  const stmt21 = MIGRATION_21.split(/;\s*\n/).find((s) => s.includes(`'${key}'`) && s.includes('JSON_'))
+  return stmt21 ?? statementFor(key)
+}
 
 /** 各 INSERT 文を question_key ごとに切り出す。 */
 function statementFor(key: string): string {
@@ -96,7 +120,7 @@ describe('db/migrations/16_pre_survey_questions.sql', () => {
 
 describe('src/lib/pre-survey/default-questions.ts / sample-data/generate.ts', () => {
   it('本番と同じ question_key を使う', () => {
-    for (const e of EXPECTED) {
+    for (const e of EXPECTED_CURRENT) {
       expect(DEFAULTS_SRC).toContain(`question_key: '${e.key}'`)
     }
   })
@@ -118,11 +142,11 @@ describe('src/lib/pre-survey/default-questions.ts / sample-data/generate.ts', ()
   })
 })
 
-describe('DEFAULT_PRE_SURVEY_QUESTIONS と migration 16 の突き合わせ（issue #146）', () => {
+describe('DEFAULT_PRE_SURVEY_QUESTIONS と migration 16 + 21 の突き合わせ（issue #146）', () => {
   it('設問・順序・必須・answer_type・選択肢の value が一致する', () => {
-    expect(DEFAULT_PRE_SURVEY_QUESTIONS.map((q) => q.question_key)).toEqual(EXPECTED.map((e) => e.key))
+    expect(DEFAULT_PRE_SURVEY_QUESTIONS.map((q) => q.question_key)).toEqual(EXPECTED_CURRENT.map((e) => e.key))
     DEFAULT_PRE_SURVEY_QUESTIONS.forEach((q, i) => {
-      const e = EXPECTED[i]
+      const e = EXPECTED_CURRENT[i]
       expect(q.display_order).toBe(i + 1)
       expect(q.answer_type).toBe(e.answerType)
       expect(q.is_required).toBe(e.required)
@@ -132,7 +156,7 @@ describe('DEFAULT_PRE_SURVEY_QUESTIONS と migration 16 の突き合わせ（iss
 
   it('設問文と選択肢の label が migration と同じ', () => {
     for (const q of DEFAULT_PRE_SURVEY_QUESTIONS) {
-      const stmt = statementFor(q.question_key)
+      const stmt = currentStatementFor(q.question_key)
       expect(stmt).toContain(`'${q.question_text}'`)
       for (const o of q.options) {
         expect(stmt).toContain(`JSON_OBJECT('value', '${o.value}'`)
