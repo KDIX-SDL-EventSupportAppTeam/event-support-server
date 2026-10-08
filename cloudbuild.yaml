@@ -4,7 +4,8 @@ substitutions:
   _SERVICE: event-support-server
   _REPOSITORY: event-support
   _IMAGE: event-support-server
-  _CLOUDSQL_INSTANCE: event-support-app:asia-northeast1:event-support-db
+  # 本番 DB はさくら（sutolab_bingo）。サーバーは HTTP プロキシ経由で SQL を投げる（src/db/http-proxy.ts）。
+  _SAKURA_PROXY_URL: https://sutolab.sakura.ne.jp/bingo/query/index.php
   # 確認メールの送信元アカウント（SMTP_USER）。Gmail の場合はアプリパスワードを
   # Secret Manager の SMTP_PASS に入れる。組織ログイン用のメールとは無関係。
   _SMTP_HOST: smtp.gmail.com
@@ -52,17 +53,18 @@ steps:
       # WebSocket 配信が届かなくなるため、1 インスタンスに固定する。
       # 運営画面のみ socket を張り負荷も軽いため 1 台で十分。
       - --max-instances=1
-      # Cloud SQL（MySQL 8.0）へ Unix ソケット /cloudsql/<接続名> で繋ぐ。
-      # DATABASE_URL の ?socket= が src/db/parse-mysql-url.ts で socketPath に変換される。
-      - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
-      # update ではなく set。update だと既存サービスに残る SAKURA_PROXY_URL が消えず、
-      # index.ts が従来どおりプロキシ経路を選んでしまい切り替えが無言で失敗する。
+      # 本番 DB を Cloud SQL からさくらのプロキシ経由に戻した（2026-10-08）。
+      # Cloud SQL への接続は不要なので外す。
+      - --clear-cloudsql-instances
+      # update ではなく set。前回の値を残さず、ここに書いたものだけを正とする。
+      # SAKURA_PROXY_URL があると index.ts はプロキシ経路を選ぶ（DATABASE_URL より優先）。
+      # キーは Secret Manager の SAKURA_PROXY_KEY（さくら側 index.php の設定値と同じ）。
       # 区切りは |（CORS_ORIGIN がカンマを、SMTP_USER / MAIL_FROM が @ を含むため）。
       # @ を区切りにすると gmail.com が独立した項目になり gcloud が引数エラーで落ちる。
       # NODE_ENV=production では SMTP_HOST が無いと起動時に落ちる（src/config.ts）。
       # 本番はオーガナイザー登録 API を止める（410）。組織アカウントは DB に直接 INSERT する。
-      - --set-env-vars=^|^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com|FRONTEND_BASE_URL=https://event-support-app.web.app|SMTP_HOST=${_SMTP_HOST}|SMTP_PORT=${_SMTP_PORT}|SMTP_USER=${_SMTP_USER}|MAIL_FROM=PRoToFES <${_SMTP_USER}>|ORGANIZER_SIGNUP_MODE=disabled
-      - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,DATABASE_URL=DATABASE_URL:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest,SMTP_PASS=SMTP_PASS:latest
+      - --set-env-vars=^|^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com|FRONTEND_BASE_URL=https://event-support-app.web.app|SMTP_HOST=${_SMTP_HOST}|SMTP_PORT=${_SMTP_PORT}|SMTP_USER=${_SMTP_USER}|MAIL_FROM=PRoToFES <${_SMTP_USER}>|ORGANIZER_SIGNUP_MODE=disabled|SAKURA_PROXY_URL=${_SAKURA_PROXY_URL}
+      - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest,SMTP_PASS=SMTP_PASS:latest
 
 options:
   logging: CLOUD_LOGGING_ONLY
