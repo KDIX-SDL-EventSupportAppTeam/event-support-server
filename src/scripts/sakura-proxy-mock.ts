@@ -54,6 +54,25 @@ function readBody(req: IncomingMessage): Promise<string> {
   })
 }
 
+// 本物のさくらプロキシ（PDO エミュレートモード）は数値も JSON 列も文字列で返す。
+// mysql2 の型付きの値をそのまま返すと本番だけで起きる型の不具合を手元で再現できないため、揃える。
+// mysql2 と同じ型で返したいときは PROXY_MOCK_NATIVE_TYPES=1。
+const NATIVE_TYPES = process.env.PROXY_MOCK_NATIVE_TYPES === '1'
+
+function stringifyLikePdo(rows: unknown[]): unknown[] {
+  if (NATIVE_TYPES) return rows
+  return rows.map((row) => {
+    if (row === null || typeof row !== 'object') return row
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+      if (typeof v === 'number' || typeof v === 'bigint') out[k] = String(v)
+      else if (v !== null && typeof v === 'object' && !Buffer.isBuffer(v)) out[k] = JSON.stringify(v)
+      else out[k] = v
+    }
+    return out
+  })
+}
+
 function sendJson(res: ServerResponse, status: number, data: unknown): void {
   const body = JSON.stringify(data)
   res.writeHead(status, {
@@ -89,7 +108,7 @@ const server = createServer(async (req, res) => {
 
     if (Array.isArray(result)) {
       // SELECT 系: rows に結果
-      return sendJson(res, 200, { rows: result, affectedRows: 0, insertId: null })
+      return sendJson(res, 200, { rows: stringifyLikePdo(result), affectedRows: result.length, insertId: null })
     } else {
       // INSERT / UPDATE / DELETE 系
       const r = result as { affectedRows: number; insertId: number }
