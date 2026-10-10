@@ -6,6 +6,45 @@ import { sendFail, sendOk } from '../../lib/response.js'
 import { safeCompare } from '../../lib/safe-compare.js'
 import { generateManualCode } from '../../lib/manual-code.js'
 
+/**
+ * trim → 空文字除外 → 重複除去。booth_tags は (booth_id, tag) が一意で、照合順序が大文字小文字を
+ * 区別しない（utf8mb4_unicode_ci）ため、"AI" と "ai" も同じタグとして扱い、最初の表記を残す。
+ */
+function normalizeTags(tags: string[] | undefined): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of tags ?? []) {
+    const tag = raw.trim()
+    if (!tag) continue
+    const key = tag.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(tag)
+  }
+  return out
+}
+
+/**
+ * タグを置き換える。先に新タグを入れてから、新タグに無いものだけを消す。
+ * 本番はトランザクションが無い（1リクエスト=1SQL）ため、途中で失敗しても古いタグが残る順序にする。
+ * INSERT は ON DUPLICATE KEY UPDATE で、既存タグ・照合順序上の同一タグでも例外にしない（ADR 0001）。
+ */
+async function replaceBoothTags(app: FastifyInstance, boothId: string, tags: string[]): Promise<void> {
+  if (tags.length) {
+    await app.db.execute(
+      `INSERT INTO booth_tags (id, booth_id, tag) VALUES ${tags.map(() => '(?,?,?)').join(',')}
+       ON DUPLICATE KEY UPDATE tag = tag`,
+      tags.flatMap((tag) => [randomUUID(), boothId, tag]),
+    )
+    await app.db.execute(
+      `DELETE FROM booth_tags WHERE booth_id = ? AND tag NOT IN (${tags.map(() => '?').join(',')})`,
+      [boothId, ...tags],
+    )
+  } else {
+    await app.db.execute('DELETE FROM booth_tags WHERE booth_id = ?', [boothId])
+  }
+}
+
 const webhookBody = z.object({
   event_id: z.string().uuid(),
   google_form_response_id: z.string().min(1).max(500),
@@ -13,7 +52,7 @@ const webhookBody = z.object({
     name: z.string().min(1).max(500),
     description: z.string().max(5000).optional(),
     category_name: z.string().max(200).optional(),
-    tags: z.array(z.string().max(255)).max(50).optional(),
+    tags: z.array(z.string().max(255)).max(50).optional().transform(normalizeTags),
   }),
 })
 
@@ -70,15 +109,8 @@ export async function webhookRoutes(app: FastifyInstance) {
          WHERE id = ?`,
         [booth.name, booth.description ?? null, categoryId, existingId],
       )
-      await app.db.execute('DELETE FROM booth_tags WHERE booth_id = ?', [existingId])
-      if (booth.tags?.length) {
-        for (const tag of booth.tags) {
-          await app.db.execute(
-            'INSERT INTO booth_tags (id, booth_id, tag) VALUES (?,?,?)',
-            [randomUUID(), existingId, tag.slice(0, 255)],
-          )
-        }
-      }
+      // tags 省略時は従来どおり全削除（空配列と同じ）
+      await replaceBoothTags(app, existingId, booth.tags)
       return sendOk(reply, { booth_id: existingId, action: 'updated' as const })
     }
 
@@ -112,14 +144,7 @@ export async function webhookRoutes(app: FastifyInstance) {
         google_form_response_id,
       ],
     )
-    if (booth.tags?.length) {
-      for (const tag of booth.tags) {
-        await app.db.execute(
-          'INSERT INTO booth_tags (id, booth_id, tag) VALUES (?,?,?)',
-          [randomUUID(), boothId, tag.slice(0, 255)],
-        )
-      }
-    }
+    if (booth.tags.length) await replaceBoothTags(app, boothId, booth.tags)
     return sendOk(reply, { booth_id: boothId, action: 'created' as const })
   })
 }
