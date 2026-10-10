@@ -6,6 +6,7 @@ import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt, requireVerifiedEmail } from '../../plugins/auth.js'
 import { ensureCard } from '../../lib/bingo/ensureCard.js'
 import { processCenterAchievement, type UnlockedPair } from '../../lib/bingo/unlock.js'
+import { assignCenterCell } from '../../lib/bingo/assignCenterCell.js'
 import type { NoCandidateCell } from '../../lib/bingo/assignOuterCells.js'
 import { checkCooldown } from '../../lib/bingo/cooldown.js'
 import { countCompletedLines } from '../../lib/bingo/lines.js'
@@ -159,29 +160,14 @@ export async function checkinRoutes(app: FastifyInstance) {
       }
 
       // 分岐2: 中央マスに空きがある（後出し割当）
+      // 同じユーザーの別チェックインと同時に走ると、同じ中央マスを取り合う。負けても諦めず、
+      // assignCenterCell が次の空きマスを取り直して再試行する（#176）
       if (!filledCell) {
-        const [centerRows] = await app.db.query(
-          `SELECT id, position FROM bingo_cells
-           WHERE card_id = ? AND zone = 'CENTER' AND booth_id IS NULL
-           ORDER BY position ASC LIMIT 1`,
-          [card.id],
-        )
-        const centerCell = (centerRows as { id: string; position: number }[])[0]
+        const centerCell = await assignCenterCell(app.db, card.id, boothId)
         if (centerCell) {
-          const now = utcMysqlNow()
-          const [result] = await app.db.execute(
-            `UPDATE bingo_cells
-             SET booth_id = ?, is_revealed = 1, is_achieved = 1,
-                 source = 'FREE_VISIT', assigned_at = ?, achieved_at = ?
-             WHERE id = ? AND booth_id IS NULL`,
-            [boothId, now, now, centerCell.id],
-          )
-          const affected = (result as { affectedRows: number }).affectedRows
-          if (affected === 1) {
-            filledCell = { position: centerCell.position }
-            filledZone = 'CENTER'
-            await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [centerCell.id, id])
-          }
+          filledCell = { position: centerCell.position }
+          filledZone = 'CENTER'
+          await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [centerCell.cellId, id])
         }
       }
       // 分岐3: どちらでもない（カード外訪問）。cell_id は NULL のまま。記録は必ず残す。

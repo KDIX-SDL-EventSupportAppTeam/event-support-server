@@ -96,8 +96,13 @@ export async function assignOuterCellsForPairs(
     phase = response.phase
     decisionTableSize = response.decisionTableSize
 
+    const scoredBoothIds = new Set<string>()
     for (const s of response.scores) {
       if (!activeCandidateIds.has(s.booth_id)) continue // E11: 存在しない/非活性は捨てる
+      // 推薦の応答に同じブースが重複していても 1 件だけ採る。そのまま INSERT すると
+      // uq_score_event_booth に当たり、解放の途中（マスは公開済み・記録は未確定）で 500 になる（#176）
+      if (scoredBoothIds.has(s.booth_id)) continue
+      scoredBoothIds.add(s.booth_id)
       scoreRows.push({
         boothId: s.booth_id,
         score: s.score,
