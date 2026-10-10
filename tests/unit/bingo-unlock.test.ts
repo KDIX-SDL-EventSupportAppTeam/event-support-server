@@ -985,7 +985,7 @@ describe('解放の同時実行の壊れ方（#93 / E22）', () => {
     expect(cells.filter((c) => c.zone === 'OUTER').every((c) => c.is_revealed === 1)).toBe(true)
   })
 
-  it('sakura 相当: 敗者リクエストは 500 で落ちるが、解放は勝者側で成立し二重解放は起きない', async () => {
+  it('sakura 相当（エラーコード無し）: 敗者は再 SELECT で負けを判定して落ちず、二重解放も起きない（#173）', async () => {
     const cells = buildAllCenterAchievedCard()
     const { db, unlockEvents, scores } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
     const wrapped = withDupMode(db, 'sakura')
@@ -995,9 +995,8 @@ describe('解放の同時実行の壊れ方（#93 / E22）', () => {
       processCenterAchievement(wrapped, config, 'event-1', 'user-1', 'card-1'),
     ])
 
-    // 少なくとも1本は 500（rejected）になる ← これが「壊れ方」。塞がない
-    const rejected = settled.filter((s) => s.status === 'rejected')
-    expect(rejected.length).toBeGreaterThanOrEqual(1)
+    // #173: エラーコードが無くても、例外時の再 SELECT で「先に確保された」と判定できるので 500 にならない
+    expect(settled.filter((s) => s.status === 'rejected')).toHaveLength(0)
 
     // それでも二重解放・ログ重複は起きない
     expect(unlockEvents.length).toBeLessThanOrEqual(6)
