@@ -9,7 +9,8 @@
 
 ### テストコード（tests）
 
-- `tests/integration/masked-errors/dup-entry.test.ts`
+- `tests/integration/masked-errors/dup-entry.test.ts`（新規）
+- `tests/unit/bingo-unlock.test.ts`（「sakura 相当」の期待を「敗者も落ちない」に更新）
 
 ## なぜ
 
