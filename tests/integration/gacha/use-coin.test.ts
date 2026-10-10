@@ -121,6 +121,30 @@ describe('C-2. 同じ冪等キーの逐次2回（リトライ相当）', () => {
   })
 })
 
+describe('C-2b. 最後のコインを使った直後の再送（#172）', () => {
+  it('残高1枚で同じキーを2回送ると、両方 200 で同じ coin_index。行は1件', async () => {
+    const f = await fixture(1)
+    const key = randomUUID()
+    const first = await useCoinReq(app, f.eventId, f.token, key)
+    const second = await useCoinReq(app, f.eventId, f.token, key)
+    expect(first.statusCode).toBe(200)
+    expect(second.statusCode).toBe(200)
+    expect(second.body.data!.coin_index).toBe(first.body.data!.coin_index)
+    expect(second.body.data!.used).toBe(first.body.data!.used)
+    expect(await dumpUses(db, f.eventId, f.userId)).toHaveLength(1)
+  })
+
+  it('残高1枚で別キーを2回送ると、2回目は 409 NO_COINS_AVAILABLE（再送扱いにしない）', async () => {
+    const f = await fixture(1)
+    const first = await useCoinReq(app, f.eventId, f.token, randomUUID())
+    const second = await useCoinReq(app, f.eventId, f.token, randomUUID())
+    expect(first.statusCode).toBe(200)
+    expect(second.statusCode).toBe(409)
+    expect(second.body.error!.code).toBe('NO_COINS_AVAILABLE')
+    expect(await dumpUses(db, f.eventId, f.userId)).toHaveLength(1)
+  })
+})
+
 describe('C-3. 別キーの並行2回・残高1枚', () => {
   it('成功ちょうど1本、もう1本は 409。行1件・coin_index=0・500 が返らない', async () => {
     const f = await fixture(1)
