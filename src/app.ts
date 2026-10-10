@@ -2,7 +2,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import type { AppConfig } from './config.js'
 import type { DbClient } from './db/client.js'
-import { sendFail } from './lib/response.js'
+import { globalErrorHandler } from './lib/error-handler.js'
 import { createMailer } from './lib/mailer.js'
 import { authRoutes } from './routes/v1/auth.js'
 import { adminRoutes } from './routes/v1/admin/dashboard.js'
@@ -101,11 +101,7 @@ export async function buildApp(config: AppConfig, db: DbClient) {
     { prefix: '/api/v1' },
   )
 
-  app.setErrorHandler((err, req, reply) => {
-    req.log.error(err)
-    if (reply.sent) return
-    sendFail(reply, 500, 'INTERNAL_ERROR', 'サーバーエラーが発生しました')
-  })
+  app.setErrorHandler(globalErrorHandler)
 
   registerSocketIO(app)
 
