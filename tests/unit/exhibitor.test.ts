@@ -95,7 +95,7 @@ describe('POST /admin/events/:event_id/exhibitors/bulk', () => {
       method: 'POST',
       url: `/api/v1/admin/events/${EVENT_ID}/exhibitors/bulk`,
       headers: participantAuth(),
-      payload: { accounts: [{ email: 'a@example.com', password: 'password1', booth_id: BOOTH_ID }] },
+      payload: { accounts: [{ email: 'a@example.com', booth_id: BOOTH_ID }] },
     })
     expect(res.statusCode).toBe(403)
     await app.close()
@@ -108,20 +108,7 @@ describe('POST /admin/events/:event_id/exhibitors/bulk', () => {
       method: 'POST',
       url: `/api/v1/admin/events/${EVENT_ID}/exhibitors/bulk`,
       headers: managerAuth(),
-      payload: { accounts: [{ email: 'not-an-email', password: 'password1', booth_id: BOOTH_ID }] },
-    })
-    expect(res.statusCode).toBe(422)
-    await app.close()
-  })
-
-  it('zod 不正（password 7文字）は 422', async () => {
-    const db = makeDb([])
-    const app = await buildTestApp(db)
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/v1/admin/events/${EVENT_ID}/exhibitors/bulk`,
-      headers: managerAuth(),
-      payload: { accounts: [{ email: 'a@example.com', password: '1234567', booth_id: BOOTH_ID }] },
+      payload: { accounts: [{ email: 'not-an-email', booth_id: BOOTH_ID }] },
     })
     expect(res.statusCode).toBe(422)
     await app.close()
@@ -140,7 +127,7 @@ describe('POST /admin/events/:event_id/exhibitors/bulk', () => {
     await app.close()
   })
 
-  it('新規=INSERT users+INSERT exhibitor_booths、既存participant=UPDATE role+INSERT、既存manager=行エラーCONFLICT', async () => {
+  it('新規=仮登録 INSERT（users は作らない）、既存participant=UPDATE role+INSERT、既存manager=行エラーCONFLICT', async () => {
     const log: string[] = []
     const db = makeDb(
       [
@@ -157,6 +144,7 @@ describe('POST /admin/events/:event_id/exhibitors/bulk', () => {
             return []
           },
         },
+        { match: /SELECT 1 FROM exhibitor_invites/, rows: [] },
         ...writeHandlers,
       ],
       log,
@@ -168,19 +156,20 @@ describe('POST /admin/events/:event_id/exhibitors/bulk', () => {
       headers: managerAuth(),
       payload: {
         accounts: [
-          { email: 'new@example.com', password: 'password1', booth_id: BOOTH_ID },
-          { email: 'exist-participant@example.com', password: 'password1', booth_id: BOOTH_ID },
-          { email: 'mgr@example.com', password: 'password1', booth_id: BOOTH_ID },
+          { email: 'new@example.com', booth_id: BOOTH_ID },
+          { email: 'exist-participant@example.com', booth_id: BOOTH_ID },
+          { email: 'mgr@example.com', booth_id: BOOTH_ID },
         ],
       },
     })
     expect(res.statusCode).toBe(200)
     const { data } = res.json()
-    expect(data.summary).toEqual({ total: 3, created: 1, updated: 1, skipped: 0, failed: 1 })
-    expect(data.results[0].status).toBe('created')
+    expect(data.summary).toEqual({ total: 3, invited: 1, updated: 1, skipped: 0, failed: 1 })
+    expect(data.results[0]).toMatchObject({ status: 'invited', user_id: null })
     expect(data.results[1].status).toBe('updated')
     expect(data.results[2]).toMatchObject({ status: 'error', error: { code: 'CONFLICT' } })
-    expect(log.some((sql) => /INSERT INTO users/.test(sql))).toBe(true)
+    expect(log.some((sql) => /INSERT INTO users/.test(sql))).toBe(false)
+    expect(log.some((sql) => /INSERT INTO exhibitor_invites/.test(sql))).toBe(true)
     expect(log.some((sql) => /INSERT INTO exhibitor_booths/.test(sql))).toBe(true)
     expect(log.some((sql) => /UPDATE users SET role = 'exhibitor'/.test(sql))).toBe(true)
     expect(log.some((sql) => /INSERT INTO audit_logs/.test(sql))).toBe(true)
@@ -218,14 +207,14 @@ describe('POST /admin/events/:event_id/exhibitors/bulk', () => {
       headers: managerAuth(),
       payload: {
         accounts: [
-          { email: 'ex@example.com', password: 'password1', booth_id: BOOTH_ID },
-          { email: 'ex@example.com', password: 'password1', booth_id: OTHER_BOOTH },
+          { email: 'ex@example.com', booth_id: BOOTH_ID },
+          { email: 'ex@example.com', booth_id: OTHER_BOOTH },
         ],
       },
     })
     expect(res.statusCode).toBe(200)
     const { data } = res.json()
-    expect(data.summary).toEqual({ total: 2, created: 0, updated: 1, skipped: 1, failed: 0 })
+    expect(data.summary).toEqual({ total: 2, invited: 0, updated: 1, skipped: 1, failed: 0 })
     expect(data.results[0].status).toBe('skipped')
     expect(data.results[1].status).toBe('updated')
     await app.close()
@@ -241,7 +230,7 @@ describe('POST /admin/events/:event_id/exhibitors/bulk', () => {
       method: 'POST',
       url: `/api/v1/admin/events/${EVENT_ID}/exhibitors/bulk`,
       headers: managerAuth(),
-      payload: { accounts: [{ email: 'a@example.com', password: 'password1', booth_id: BOOTH_ID }] },
+      payload: { accounts: [{ email: 'a@example.com', booth_id: BOOTH_ID }] },
     })
     expect(res.statusCode).toBe(200)
     const { data } = res.json()
@@ -253,6 +242,7 @@ describe('POST /admin/events/:event_id/exhibitors/bulk', () => {
     const db = makeDb([
       { match: /SELECT id, name FROM booths WHERE event_id = \?/, rows: [{ id: BOOTH_ID, name: 'ブースA' }] },
       { match: /SELECT id, role FROM users WHERE event_id = \? AND email = \? LIMIT 1/, rows: [] },
+      { match: /SELECT 1 FROM exhibitor_invites/, rows: [] },
       ...writeHandlers,
     ])
     const app = await buildTestApp(db)
@@ -262,14 +252,14 @@ describe('POST /admin/events/:event_id/exhibitors/bulk', () => {
       headers: managerAuth(),
       payload: {
         accounts: [
-          { email: 'dup@example.com', password: 'password1', booth_id: BOOTH_ID },
-          { email: 'DUP@example.com', password: 'password1', booth_id: BOOTH_ID },
+          { email: 'dup@example.com', booth_id: BOOTH_ID },
+          { email: 'DUP@example.com', booth_id: BOOTH_ID },
         ],
       },
     })
     expect(res.statusCode).toBe(200)
     const { data } = res.json()
-    expect(data.results[0].status).toBe('created')
+    expect(data.results[0].status).toBe('invited')
     expect(data.results[1]).toMatchObject({ status: 'error', error: { code: 'VALIDATION_ERROR' } })
     await app.close()
   })
