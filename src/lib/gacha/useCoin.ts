@@ -101,7 +101,11 @@ async function attempt(db: DbClient, input: UseCoinInput): Promise<AttemptOutcom
       }
     }
 
-    // affectedRows = 0 → HAVING 不成立 = 残高ゼロ
+    // affectedRows = 0 → HAVING 不成立 = 残高ゼロ。
+    // ただし最後の1枚を使った直後の再送（同じ冪等キー）も同じ判定になる。
+    // 残高ゼロ扱いにすると結果を失うので、先に冪等キーで既存行を引く。
+    const existing = await findByIdempotencyKey(db, input)
+    if (existing) return { kind: 'success', ...existing }
     return { kind: 'no_coins' }
   } catch {
     // 手順4: 例外時（プロキシ経由では 500）。握りつぶさず必ず idempotency_key で判定する。
