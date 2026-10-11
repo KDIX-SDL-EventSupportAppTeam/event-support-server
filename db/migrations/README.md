@@ -3,7 +3,7 @@
 ## 番号規則
 
 - ファイル名は `NN_<内容>.sql`。**`NN` は 2 桁・一意**。辞書順 ＝ 適用順。
-- 新しいファイルは **既存の最大番号 + 1**（現在の最大は `22`。次は `23_`）。
+- 新しいファイルは **既存の最大番号 + 1**（現在の最大は `20`。次は `21_`）。
 - 番号を飛ばさない。同じ番号を 2 つ作らない（2026-09 に `10_` が 2 つあった事故の再発防止。issue #112）。
 - 作成したら `db/create-tables.sql`（空 DB 向けの正本・25 テーブル）にも同じ定義を反映する。片方だけ直すと docker 初期化と本番でスキーマが割れる。
 - **これは DDL の話である。** `16_` のようなデータ投入は `create-tables.sql` に載せない。
@@ -34,8 +34,6 @@
 | 18 | `18_rating_prompt_context_immediate.sql` | 09（`booth_ratings.prompt_context`） |
 | 19 | `19_bingo_cell_no_candidate.sql` | 09（`bingo_cells.source`） |
 | 20 | `20_booth_qr_token.sql` | 01（`booths`）。既存行へ採番してから `NOT NULL` + `UNIQUE` |
-| 21 | `21_affiliation_and_multi_occupation.sql` | 16（事前アンケートの既定設問） |
-| 22 | `22_exhibitor_invites.sql` | 01（`events` / `booths`） |
 
 ## どの経路が何を読むか
 

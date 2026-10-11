@@ -16,15 +16,15 @@
 --   1. 下の「USE」の行で、実際のデータベース名に書き換える。
 --      （phpMyAdmin 等で対象 DB を選択済みの場合は、USE 行を削除しても構いません。）
 --   2. このファイル全文を SQL 実行画面に貼り付けて実行する。
---   3. 末尾の確認用 SELECT で、テーブル数が 26 であることを確認する。
---      （26 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
+--   3. 末尾の確認用 SELECT で、テーブル数が 25 であることを確認する。
+--      （25 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
 --
--- 【削除 → 再作成されるテーブル（26）】
+-- 【削除 → 再作成されるテーブル（25）】
 --   organizers, events, categories, booths, booth_tags, users, survey_questions,
 --   user_survey_answers, bingo_cards, bingo_cells, check_ins, booth_ratings,
 --   card_unlock_events, recommendation_scores, gacha_coin_uses, gacha_settings,
 --   awards, award_votes, award_settings,
---   booth_categories, exhibitor_booths, exhibitor_invites, email_verification_tokens, password_reset_tokens, audit_logs,
+--   booth_categories, exhibitor_booths, email_verification_tokens, password_reset_tokens, audit_logs,
 --   event_app_access
 --
 -- 開発用の同一 DDL: db/migrations/01_initial_schema.sql 〜 15_*.sql（内容を同期すること。順序は db/migrations/README.md）
@@ -58,7 +58,6 @@ DROP TABLE IF EXISTS event_app_access;
 DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS password_reset_tokens;
 DROP TABLE IF EXISTS email_verification_tokens;
-DROP TABLE IF EXISTS exhibitor_invites;
 DROP TABLE IF EXISTS exhibitor_booths;
 DROP TABLE IF EXISTS booth_categories;
 DROP TABLE IF EXISTS booth_ratings;
@@ -362,17 +361,6 @@ CREATE TABLE exhibitor_booths (
   FOREIGN KEY (booth_id) REFERENCES booths(id) ON DELETE CASCADE
 );
 
--- 出展者の仮登録（db/migrations/22_exhibitor_invites.sql）
-CREATE TABLE exhibitor_invites (
-  event_id   CHAR(36)     NOT NULL,
-  email      VARCHAR(255) NOT NULL,
-  booth_id   CHAR(36)     NOT NULL,
-  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (event_id, email, booth_id),
-  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
-  FOREIGN KEY (booth_id) REFERENCES booths(id) ON DELETE CASCADE
-);
-
 CREATE TABLE email_verification_tokens (
   token      CHAR(64)  NOT NULL PRIMARY KEY,
   user_id    CHAR(36)  NOT NULL,
@@ -418,7 +406,7 @@ CREATE TABLE event_app_access (
   FOREIGN KEY (updated_by) REFERENCES organizers(id) ON DELETE SET NULL
 );
 
--- 確認（一覧に26テーブルが表示されれば成功）
+-- 確認（一覧に25テーブルが表示されれば成功）
 -- ※ さくら等の共有サーバーでは information_schema へのアクセスが権限で拒否される
 --   （#1044）ため、COUNT ではなく SHOW TABLES で確認する。
 SHOW TABLES;
