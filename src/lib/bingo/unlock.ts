@@ -76,17 +76,35 @@ export async function processCenterAchievement(
       .filter((t): t is { cellId: string; position: number } => t !== null),
   }))
 
-  const { releasedPositions, noCandidateCells } = await assignOuterCellsForPairs(
-    db,
-    config,
-    eventId,
-    userId,
-    cardId,
-    pairContexts,
-    {
-      globalCheckinCount, // C-1: 同一リクエスト内で数え直さない
-    },
-  )
+  let releasedPositions: number[]
+  let noCandidateCells: NoCandidateCell[]
+  try {
+    ;({ releasedPositions, noCandidateCells } = await assignOuterCellsForPairs(
+      db,
+      config,
+      eventId,
+      userId,
+      cardId,
+      pairContexts,
+      {
+        globalCheckinCount, // C-1: 同一リクエスト内で数え直さない
+      },
+    ))
+  } catch (e: unknown) {
+    // #176: 同じカードで別の解放・自己修復が同時に走ると、同じブースを選んで uq_cell_card_booth に当たり
+    // UPDATE ごと失敗する（1文なので部分適用は無い）。ここで 500 にするとチェックインは保存済みなのに
+    // 失敗表示になり、再送は 409 で解放演出も失われる。その場で自己修復を走らせて取り直す
+    // （自己修復は DB の現状から除外集合を作り直すので、相手が選んだブースは避けられる）。
+    ;({ releasedPositions, noCandidateCells } = await recoverAfterAssignFailure(
+      db,
+      config,
+      eventId,
+      userId,
+      cardId,
+      pairContexts,
+      e,
+    ))
+  }
 
   const releasedSet = new Set(releasedPositions)
   return {
@@ -98,6 +116,53 @@ export async function processCenterAchievement(
     })),
     noCandidateCells,
   }
+}
+
+/** 解放の割当が失敗したときの取り直し回数（自己修復の呼び出し回数）。 */
+const RECOVER_ATTEMPTS = 2
+
+/**
+ * 割当失敗後の回復（#176）。自己修復を最大 RECOVER_ATTEMPTS 回走らせ、
+ * 今回確保したペアの対象マスが DB 上で公開済みになっていれば、それを解放結果として返す。
+ * 自己修復の側も競合で失敗しうるので、例外は次の試行に回す。最後まで公開できなければ元の例外を投げる。
+ */
+async function recoverAfterAssignFailure(
+  db: DbClient,
+  config: AppConfig,
+  eventId: string,
+  userId: string,
+  cardId: string,
+  pairContexts: readonly PairAssignmentContext[],
+  originalError: unknown,
+): Promise<{ releasedPositions: number[]; noCandidateCells: NoCandidateCell[] }> {
+  const targetPositions = pairContexts.flatMap((p) => p.targets.map((t) => t.position))
+  for (let attempt = 0; attempt < RECOVER_ATTEMPTS; attempt++) {
+    try {
+      await healUnlockedCardIfNeeded(db, config, eventId, userId, cardId)
+    } catch {
+      // 相手の割当とまた衝突した。次の試行で DB の現状から取り直す
+    }
+    const [rows] = await db.query(
+      `SELECT position, is_revealed, source, no_candidate_reason
+         FROM bingo_cells WHERE card_id = ? AND zone = 'OUTER'`,
+      [cardId],
+    )
+    const byPosition = new Map(
+      (rows as { position: number; is_revealed: number; source: string | null; no_candidate_reason: string | null }[]).map(
+        (r) => [r.position, r],
+      ),
+    )
+    const cells = targetPositions.map((pos) => byPosition.get(pos))
+    if (cells.every((c) => c && Number(c.is_revealed) === 1)) {
+      return {
+        releasedPositions: targetPositions,
+        noCandidateCells: cells
+          .filter((c) => c!.source === 'NO_CANDIDATE' && c!.no_candidate_reason)
+          .map((c) => ({ position: c!.position, reason: c!.no_candidate_reason as NoCandidateCell['reason'] })),
+      }
+    }
+  }
+  throw originalError
 }
 
 async function getAchievedCenterPositions(db: DbClient, cardId: string): Promise<Set<number>> {

@@ -42,7 +42,13 @@ export async function bingoRoutes(app: FastifyInstance) {
 
       // self-healing（05-recommender/fallback.md）: 解放イベントはあるのにマスが is_revealed=0 の
       // まま残っている（解放処理の途中失敗）ケースをこの GET で検知して修復する
-      await healUnlockedCardIfNeeded(app.db, app.config, eventId, uid, card.id)
+      // #176: 同じカードの解放と同時に走ると割当が衝突して失敗しうる。修復できなくてもカードは返す
+      // （未公開のマスは次の GET でまた修復を試みる）。ここで 500 にすると参加者がカードを見られない
+      try {
+        await healUnlockedCardIfNeeded(app.db, app.config, eventId, uid, card.id)
+      } catch (err) {
+        req.log.warn({ err, cardId: card.id }, 'self-heal failed; card returned without healing')
+      }
 
       const [rows] = await app.db.query(
         `SELECT c.position, c.zone, c.is_revealed, c.is_achieved, c.source, c.no_candidate_reason, c.booth_id,
