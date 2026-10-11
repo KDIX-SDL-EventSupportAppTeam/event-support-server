@@ -131,7 +131,7 @@ async function getOuterCellsByPosition(db: DbClient, cardId: string): Promise<Ma
  * phase/decision_table_size はこの時点では未確定のため暫定値で INSERT し、
  * assignOuterCellsForPairs 完了後に確定値へ UPDATE する。
  */
-async function tryClaimPair(
+export async function tryClaimPair(
   db: DbClient,
   cardId: string,
   pair: PairDefinition,
@@ -163,8 +163,13 @@ async function tryClaimPair(
     )
     return id
   } catch (e: unknown) {
-    const err = e as { code?: string }
-    if (err.code === 'ER_DUP_ENTRY') return null // 他リクエストが先に確保した
+    // 本番プロキシはエラーコードを消す（ADR 0001）ため code では判定せず、再 SELECT で状態を見る。
+    // 行があれば他リクエストが先に確保済み。無ければ別の失敗なので再 throw
+    const [rows] = await db.query(
+      `SELECT id FROM card_unlock_events WHERE card_id = ? AND pair_key = ? LIMIT 1`,
+      [cardId, pair.pairKey],
+    )
+    if ((rows as { id: string }[])[0]) return null
     throw e
   }
 }

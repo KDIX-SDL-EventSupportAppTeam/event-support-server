@@ -125,8 +125,12 @@ export async function checkinRoutes(app: FastifyInstance) {
           [id, uid, boothId, eventId, method, checkedMysql, synced, visitOrder],
         )
       } catch (e: unknown) {
-        const err = e as { code?: string }
-        if (err.code === 'ER_DUP_ENTRY') {
+        // 本番プロキシは ER_DUP_ENTRY を返せない（ADR 0001）。例外時は再 SELECT して状態で判定する
+        const [after] = await app.db.query(
+          'SELECT id FROM check_ins WHERE user_id = ? AND booth_id = ? LIMIT 1',
+          [uid, boothId],
+        )
+        if ((after as { id: string }[])[0]) {
           return sendFail(reply, 409, 'CONFLICT', 'このブースには既にチェックイン済みです')
         }
         throw e
@@ -320,8 +324,12 @@ export async function checkinRoutes(app: FastifyInstance) {
           [rid, uid, ci.booth_id, event_id, checkin_id, parsed.data.rating, comment, parsed.data.context, ratingScale],
         )
       } catch (e: unknown) {
-        const err = e as { code?: string }
-        if (err.code === 'ER_DUP_ENTRY') {
+        // 同上。同時送信の敗者は、既に評価行があることで判定する
+        const [after] = await app.db.query(
+          'SELECT id FROM booth_ratings WHERE checkin_id = ? LIMIT 1',
+          [checkin_id],
+        )
+        if ((after as { id: string }[])[0]) {
           return sendFail(reply, 409, 'CONFLICT', 'このチェックインには既に評価があります')
         }
         throw e
