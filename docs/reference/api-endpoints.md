@@ -51,7 +51,9 @@
 | GET | `/api/v1/organizer/events/:event_id/gacha/settings` | Bearer（organizer、所有イベントのみ） | ガチャ換算規則の取得（行が無ければ既定値 `0/1/4/0`） |
 | PUT | `/api/v1/organizer/events/:event_id/gacha/settings` | Bearer（organizer、所有イベントのみ） | ガチャ換算規則の更新（`is_enabled` で当日停止。`coins_per_line` 0-10 / `max_coins` 0-50 / `bonus_coins` 0-10。監査ログ記録） |
 | GET | `/api/v1/events/:event_id/public` | — | 公開イベント情報（名前・日程・会場・アンケートURL） |
+| GET | `/api/v1/admin/events/:event_id/exhibitors` | Bearer（manager/viewer） | 出展者一覧（ブース単位・ブース番号の自然順） |
 | POST | `/api/v1/admin/events/:event_id/exhibitors/bulk` | Bearer（manager） | 出展者アカウント一括登録（行単位の成功/失敗を返す） |
+| PATCH | `/api/v1/admin/events/:event_id/users/:user_id/role` | Bearer（manager） | 参加者 ⇄ 出展者のロール変更（[仕様](../specs/exhibitor-list-and-role-change/README.md)） |
 | GET | `/api/v1/events/:event_id/exhibitor/booths` | Bearer | 出展者の担当ブース一覧（exhibitor 以外は空で返す） |
 | GET | `/api/v1/events/:event_id/exhibitor/booths/:booth_id/stats` | Bearer（担当ブースのみ、DB 認可） | 出展者向け集計（チェックイン数・時間帯別・評価分布・コメント） |
 | GET | `/api/v1/events/:event_id/exhibitor/booths/:booth_id/comments` | Bearer（担当ブースのみ、DB 認可） | 出展者向けコメント一覧（limit/offset。匿名・is_hidden 除外） |
