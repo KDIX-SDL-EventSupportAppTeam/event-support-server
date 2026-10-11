@@ -6,6 +6,7 @@ import { sendFail, sendOk } from '../../lib/response.js'
 import { requireBearerAuth, requireEventMatchesJwt, requireVerifiedEmail } from '../../plugins/auth.js'
 import { ensureCard } from '../../lib/bingo/ensureCard.js'
 import { processCenterAchievement, type UnlockedPair } from '../../lib/bingo/unlock.js'
+import { assignCenterCell } from '../../lib/bingo/assignCenterCell.js'
 import type { NoCandidateCell } from '../../lib/bingo/assignOuterCells.js'
 import { checkCooldown } from '../../lib/bingo/cooldown.js'
 import { countCompletedLines } from '../../lib/bingo/lines.js'
@@ -125,8 +126,12 @@ export async function checkinRoutes(app: FastifyInstance) {
           [id, uid, boothId, eventId, method, checkedMysql, synced, visitOrder],
         )
       } catch (e: unknown) {
-        const err = e as { code?: string }
-        if (err.code === 'ER_DUP_ENTRY') {
+        // 本番プロキシは ER_DUP_ENTRY を返せない（ADR 0001）。例外時は再 SELECT して状態で判定する
+        const [after] = await app.db.query(
+          'SELECT id FROM check_ins WHERE user_id = ? AND booth_id = ? LIMIT 1',
+          [uid, boothId],
+        )
+        if ((after as { id: string }[])[0]) {
           return sendFail(reply, 409, 'CONFLICT', 'このブースには既にチェックイン済みです')
         }
         throw e
@@ -159,29 +164,14 @@ export async function checkinRoutes(app: FastifyInstance) {
       }
 
       // 分岐2: 中央マスに空きがある（後出し割当）
+      // 同じユーザーの別チェックインと同時に走ると、同じ中央マスを取り合う。負けても諦めず、
+      // assignCenterCell が次の空きマスを取り直して再試行する（#176）
       if (!filledCell) {
-        const [centerRows] = await app.db.query(
-          `SELECT id, position FROM bingo_cells
-           WHERE card_id = ? AND zone = 'CENTER' AND booth_id IS NULL
-           ORDER BY position ASC LIMIT 1`,
-          [card.id],
-        )
-        const centerCell = (centerRows as { id: string; position: number }[])[0]
+        const centerCell = await assignCenterCell(app.db, card.id, boothId)
         if (centerCell) {
-          const now = utcMysqlNow()
-          const [result] = await app.db.execute(
-            `UPDATE bingo_cells
-             SET booth_id = ?, is_revealed = 1, is_achieved = 1,
-                 source = 'FREE_VISIT', assigned_at = ?, achieved_at = ?
-             WHERE id = ? AND booth_id IS NULL`,
-            [boothId, now, now, centerCell.id],
-          )
-          const affected = (result as { affectedRows: number }).affectedRows
-          if (affected === 1) {
-            filledCell = { position: centerCell.position }
-            filledZone = 'CENTER'
-            await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [centerCell.id, id])
-          }
+          filledCell = { position: centerCell.position }
+          filledZone = 'CENTER'
+          await app.db.execute('UPDATE check_ins SET cell_id = ? WHERE id = ?', [centerCell.cellId, id])
         }
       }
       // 分岐3: どちらでもない（カード外訪問）。cell_id は NULL のまま。記録は必ず残す。
@@ -320,8 +310,12 @@ export async function checkinRoutes(app: FastifyInstance) {
           [rid, uid, ci.booth_id, event_id, checkin_id, parsed.data.rating, comment, parsed.data.context, ratingScale],
         )
       } catch (e: unknown) {
-        const err = e as { code?: string }
-        if (err.code === 'ER_DUP_ENTRY') {
+        // 同上。同時送信の敗者は、既に評価行があることで判定する
+        const [after] = await app.db.query(
+          'SELECT id FROM booth_ratings WHERE checkin_id = ? LIMIT 1',
+          [checkin_id],
+        )
+        if ((after as { id: string }[])[0]) {
           return sendFail(reply, 409, 'CONFLICT', 'このチェックインには既に評価があります')
         }
         throw e
