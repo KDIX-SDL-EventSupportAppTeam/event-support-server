@@ -95,10 +95,6 @@ describe('groupExhibitorsByBooth', () => {
 describe('GET /admin/events/:event_id/exhibitors', () => {
   const listHandlers: Handler[] = [
     { match: /FROM users u\s+LEFT JOIN exhibitor_booths/, rows: [row({ user_id: 'u1', email: 'a@x', booth_id: BOOTH_A, booth_name: 'A', display_code: '1' })] },
-    {
-      match: /FROM exhibitor_invites i/,
-      rows: [{ email: 'inv@x', booth_id: BOOTH_A, booth_name: 'A', display_code: '1', created_at: '2026-10-01 00:00:00' }],
-    },
   ]
 
   it('viewer は閲覧できる', async () => {
@@ -107,9 +103,6 @@ describe('GET /admin/events/:event_id/exhibitors', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json().data.booths[0].exhibitors[0].email).toBe('a@x')
     expect(res.json().data.unassigned).toEqual([])
-    expect(res.json().data.invites).toEqual([
-      { email: 'inv@x', booth_id: BOOTH_A, booth_name: 'A', display_code: '1', created_at: '2026-10-01T00:00:00Z' },
-    ])
     await app.close()
   })
 

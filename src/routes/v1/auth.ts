@@ -75,21 +75,12 @@ export async function authRoutes(app: FastifyInstance) {
       return sendFail(reply, 409, 'CONFLICT', 'このメールアドレスは既に登録されています')
     }
 
-    // 運営が出展者として仮登録したメアドなら、出展者として作りブースを紐付ける。
-    // それ以外の流れ（メール確認・事前アンケート・ホーム）は参加者と同じ
-    const [inviteRows] = await app.db.query(
-      'SELECT booth_id FROM exhibitor_invites WHERE event_id = ? AND email = ?',
-      [event_id, email.toLowerCase()],
-    )
-    const inviteBoothIds = (inviteRows as { booth_id: string }[]).map((r) => r.booth_id)
-    const role = inviteBoothIds.length > 0 ? ('exhibitor' as const) : ('participant' as const)
-
     const id = randomUUID()
     const hash = await bcrypt.hash(password, 10)
     try {
       await app.db.execute(
         `INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)`,
-        [id, event_id, email.toLowerCase(), hash, display_name, role],
+        [id, event_id, email.toLowerCase(), hash, display_name, 'participant'],
       )
     } catch (e: unknown) {
       const err = e as { code?: string }
@@ -97,21 +88,6 @@ export async function authRoutes(app: FastifyInstance) {
         return sendFail(reply, 409, 'CONFLICT', 'このメールアドレスは既に登録されています')
       }
       throw e
-    }
-
-    if (role === 'exhibitor') {
-      try {
-        for (const boothId of inviteBoothIds) {
-          await app.db.execute('INSERT INTO exhibitor_booths (user_id, booth_id) VALUES (?, ?)', [id, boothId])
-        }
-        await app.db.execute('DELETE FROM exhibitor_invites WHERE event_id = ? AND email = ?', [
-          event_id,
-          email.toLowerCase(),
-        ])
-      } catch (e) {
-        // 登録自体は成功させる。紐付けは運営の出展者一覧（ロール変更）から回復できる
-        req.log.error(e, '仮登録からのブース紐付けに失敗')
-      }
     }
 
     // メール確認トークンを発行して確認メールを送る。
@@ -133,7 +109,7 @@ export async function authRoutes(app: FastifyInstance) {
     const token = await signAccessToken(app.db, app.config.jwtSecret, id, event_id, display_name)
     return sendOk(reply, {
       token,
-      user: { id, display_name, event_id, role, email_verified: false },
+      user: { id, display_name, event_id, role: 'participant' as const, email_verified: false },
     })
   })
 
