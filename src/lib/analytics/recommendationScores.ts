@@ -23,6 +23,12 @@ export type RecScoreRow = {
   strategy: string | null
   user_id: string
   created_at: string
+  /**
+   * 割り当て先マスの `bingo_cells.assigned_at`（アプリが UTC で書く）。割り当てられていない候補行は NULL。
+   * さくら DB では `recommendation_scores.created_at`（DB 既定値）が JST で入っており、
+   * UTC の `check_ins.checked_in_at` と比べると 9 時間ずれるため、推薦時刻にはこちらを優先する。
+   */
+  cell_assigned_at?: string | null
 }
 
 /** `summary.algorithm` の既定値。解放が1件も無いイベントで使う */
@@ -34,11 +40,23 @@ export const DEFAULT_ALGORITHM = 'mab'
  * **`users.event_id` では絞らない**（出展者・運営アカウントが混ざるため）。
  */
 export const REC_SCORE_BY_EVENT_SQL = `
-  SELECT rs.unlock_event_id, rs.booth_id, rs.was_assigned, rs.user_id, rs.created_at, cue.strategy
+  SELECT rs.unlock_event_id, rs.booth_id, rs.was_assigned, rs.user_id, rs.created_at, cue.strategy,
+         cell.assigned_at AS cell_assigned_at
   FROM recommendation_scores rs
   INNER JOIN card_unlock_events cue ON cue.id = rs.unlock_event_id
   INNER JOIN bingo_cards        bc  ON bc.id  = cue.card_id
+  LEFT JOIN  bingo_cells        cell
+         ON cell.card_id = cue.card_id AND cell.booth_id = rs.booth_id AND rs.was_assigned = 1
   WHERE bc.event_id = ?`
+
+/**
+ * 推薦（割り当て）時刻を UTC の DATETIME 文字列で返す。
+ * `bingo_cells.assigned_at`（UTC）があればそれを使い、無ければ `created_at` に落とす。
+ * 既存データの `created_at` は JST（さくら DB 既定値）のことがあるため、集計側で補正する手段がこれ。
+ */
+export function recommendedAtUtc(row: Pick<RecScoreRow, 'created_at' | 'cell_assigned_at'>): string {
+  return row.cell_assigned_at ?? row.created_at
+}
 
 /** `was_assigned` は TINYINT(1)。ドライバによって文字列で返り得るので正規化する */
 export function isAssigned(wasAssigned: number | string): boolean {

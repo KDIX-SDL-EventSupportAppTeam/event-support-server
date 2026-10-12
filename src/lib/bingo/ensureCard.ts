@@ -175,10 +175,12 @@ async function recordPreSurveyUnlockEvent(
   // 候補リストに含まれないことがある（競合の勝者が別プロセスで別候補を選んだ場合）ので必ず足す。
   const boothIds = [...new Set([...candidateBoothIds, assignedBoothId])]
 
+  // created_at は DB 既定値に任せない（さくら DB は JST で入り、UTC の check_ins と比べられなくなる）
+  const createdAt = utcMysqlNow()
   const placeholders: string[] = []
   const params: unknown[] = []
   for (const boothId of boothIds) {
-    placeholders.push('(?,?,?,?,?,?,?,?,?,?)')
+    placeholders.push('(?,?,?,?,?,?,?,?,?,?,?)')
     params.push(
       randomUUID(),
       unlockEventId,
@@ -194,12 +196,13 @@ async function recordPreSurveyUnlockEvent(
       'UNKNOWN',
       null,
       null,
+      createdAt,
     )
   }
 
   await db.execute(
     `INSERT INTO recommendation_scores
-       (id, unlock_event_id, user_id, booth_id, score, rank_in_event, was_assigned, interest_match, attributes, reason_payload)
+       (id, unlock_event_id, user_id, booth_id, score, rank_in_event, was_assigned, interest_match, attributes, reason_payload, created_at)
      VALUES ${placeholders.join(',')}`,
     params,
   )
