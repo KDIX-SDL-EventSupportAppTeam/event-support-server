@@ -12,7 +12,7 @@ import { rankTopBooths } from '../../../lib/award/ranking.js'
  *
  * - 閲覧（一覧・集計）は `viewer` 可
  * - 追加・編集・削除・開閉は `manager` 限定
- * - 集計は participant・exhibitor・viewer（manager の試し投票は数えない）
+ * - 集計はロールを問わず全員の票を数える（2026-10-13 変更。manager の票も含む）
  *
  * 仕様: docs/specs/gacha-and-award/06-api/award-api.md
  */
@@ -33,20 +33,11 @@ const patchBody = z.object({
 
 const votingBody = z.object({ is_open: z.boolean() })
 
-/**
- * 集計に数える役割（2026-10-06 変更）。参加者に加えて出展者・閲覧者の票も数える。
- * 数えないのは manager（運営の試し投票）。未知の役割を混ぜないよう許可リストで書く。
- */
-const AWARD_VOTER_ROLE_SQL = (alias?: string) => {
-  const col = alias ? `${alias}.role` : 'role'
-  return `(${col} IS NULL OR ${col} IN ('participant', 'exhibitor', 'viewer'))`
-}
-
 export async function adminAwardRoutes(app: FastifyInstance) {
   const staff = [requireStaff, requireEventMatchesJwt]
   const manager = [requireManager, requireEventMatchesJwt]
 
-  // 賞の一覧（票数つき）。manager 以外の票を数える。
+  // 賞の一覧（票数つき）。全員の票を数える。
   app.get<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/awards',
     { preHandler: staff },
@@ -57,7 +48,7 @@ export async function adminAwardRoutes(app: FastifyInstance) {
         `SELECT a.id, a.name, a.description, a.color, a.sort_order,
                 (SELECT COUNT(*)
                    FROM award_votes v
-                   JOIN users u ON u.id = v.user_id AND ${AWARD_VOTER_ROLE_SQL('u')}
+                   JOIN users u ON u.id = v.user_id
                   WHERE v.award_id = a.id) AS vote_count
            FROM awards a
           WHERE a.event_id = ?
@@ -237,7 +228,7 @@ export async function adminAwardRoutes(app: FastifyInstance) {
       const [rows] = await app.db.query(
         `SELECT v.booth_id AS booth_id, b.name AS booth_name, COUNT(*) AS votes
            FROM award_votes v
-           JOIN users u  ON u.id = v.user_id AND ${AWARD_VOTER_ROLE_SQL('u')}
+           JOIN users u  ON u.id = v.user_id
            JOIN booths b ON b.id = v.booth_id
           WHERE v.award_id = ?
           GROUP BY v.booth_id, b.name
@@ -259,7 +250,7 @@ export async function adminAwardRoutes(app: FastifyInstance) {
   )
 
   // 結果（運営の結果画面。staff）。全賞の上位3位（同率を含む）と、投票者数などの周辺指標を1回で返す。
-  // 母集団は一覧・tally と同じ（AWARD_VOTER_ROLE_SQL）。manager の試し投票は数えない。
+  // 母集団は一覧・tally と同じ（ロールを問わず全員）。
   app.get<{ Params: { event_id: string } }>(
     '/admin/events/:event_id/awards/results',
     { preHandler: staff },
@@ -268,15 +259,14 @@ export async function adminAwardRoutes(app: FastifyInstance) {
       const [settings, [pRows], [vRows], [aRows], [bRows]] = await Promise.all([
         fetchAwardSettings(app.db, eventId),
         app.db.query(
-          `SELECT COUNT(*) AS c FROM users
-            WHERE event_id = ? AND ${AWARD_VOTER_ROLE_SQL()}`,
+          `SELECT COUNT(*) AS c FROM users WHERE event_id = ?`,
           [eventId],
         ),
         app.db.query(
           `SELECT COUNT(DISTINCT v.user_id) AS c
              FROM award_votes v
              JOIN awards a ON a.id = v.award_id AND a.event_id = ?
-             JOIN users u  ON u.id = v.user_id AND ${AWARD_VOTER_ROLE_SQL('u')}`,
+             JOIN users u  ON u.id = v.user_id`,
           [eventId],
         ),
         app.db.query(
@@ -290,7 +280,7 @@ export async function adminAwardRoutes(app: FastifyInstance) {
           `SELECT v.award_id AS award_id, v.booth_id AS booth_id, b.name AS booth_name, COUNT(*) AS votes
              FROM award_votes v
              JOIN awards a ON a.id = v.award_id AND a.event_id = ?
-             JOIN users u  ON u.id = v.user_id AND ${AWARD_VOTER_ROLE_SQL('u')}
+             JOIN users u  ON u.id = v.user_id
              JOIN booths b ON b.id = v.booth_id
             GROUP BY v.award_id, v.booth_id, b.name
             ORDER BY v.award_id, votes DESC, b.name ASC`,
