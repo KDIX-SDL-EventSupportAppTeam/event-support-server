@@ -232,7 +232,7 @@ function makeTestDb(opts: {
       return [{ affectedRows: affected }, undefined]
     }
     if (/INSERT INTO recommendation_scores/.test(sql)) {
-      for (let i = 0; i < params.length; i += 10) {
+      for (let i = 0; i < params.length; i += 11) {
         scores.push({
           id: params[i] as string,
           unlock_event_id: params[i + 1] as string,
@@ -240,7 +240,7 @@ function makeTestDb(opts: {
           was_assigned: params[i + 6] as number,
         })
       }
-      return [{ affectedRows: params.length / 10 }, undefined]
+      return [{ affectedRows: params.length / 11 }, undefined]
     }
     // C-3: CASE 式でまとめた1回の UPDATE
     if (/UPDATE card_unlock_events\s+SET phase = \?, decision_table_size = \?, global_checkin_count = \?,\s+strategy = CASE id/.test(sql)) {

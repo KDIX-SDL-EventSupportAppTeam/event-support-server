@@ -129,9 +129,9 @@ function makeDb(opts: { booths: string[] | string[][]; interestCategoryIds?: str
       return [{ affectedRows: 1 }, undefined]
     }
     if (/INSERT INTO recommendation_scores/.test(sql)) {
-      // 10 カラム × N 行の複数行 INSERT（本番は 1リクエスト = 1SQL のためまとめる）
+      // 11 カラム × N 行の複数行 INSERT（本番は 1リクエスト = 1SQL のためまとめる）
       scoreInsertCalls.push(sql)
-      for (let i = 0; i < params.length; i += 10) {
+      for (let i = 0; i < params.length; i += 11) {
         scores.push({
           unlock_event_id: params[i + 1] as string,
           booth_id: params[i + 3] as string,
@@ -139,7 +139,7 @@ function makeDb(opts: { booths: string[] | string[][]; interestCategoryIds?: str
           was_assigned: params[i + 6] as number,
         })
       }
-      return [{ affectedRows: params.length / 10 }, undefined]
+      return [{ affectedRows: params.length / 11 }, undefined]
     }
     throw new Error(`unmatched EXECUTE: ${sql}`)
   }
