@@ -144,7 +144,8 @@ async function ensureExhibitorUser(pool: ReturnType<typeof createPool>) {
     exhibitorId = EXHIBITOR_USER_ID
     const hash = await bcrypt.hash(EXHIBITOR_PASSWORD, 10)
     await pool.execute(
-      `INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)`,
+      // 出展者もメール確認の対象のため、参加者シードと同じく確認済みで作る
+      `INSERT INTO users (id, event_id, email, password_hash, display_name, role, email_verified_at) VALUES (?,?,?,?,?,?,UTC_TIMESTAMP())`,
       [exhibitorId, EVENT_ID, EXHIBITOR_EMAIL.toLowerCase(), hash, EXHIBITOR_DISPLAY_NAME, 'exhibitor'],
     )
     console.log('Seed: exhibitor user created:', EXHIBITOR_EMAIL, '/', EXHIBITOR_PASSWORD)
