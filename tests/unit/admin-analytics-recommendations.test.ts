@@ -225,6 +225,30 @@ describe('GET /admin/events/:event_id/analytics/recommendations', () => {
     await app.close()
   })
 
+  it('さくら DB の JST な created_at でも、assigned_at（UTC）で比べて conversion を数える', async () => {
+    // created_at は DB 既定値で JST（UTC 10:00 → 19:00）。assigned_at はアプリが UTC で書く
+    const jstRows = [
+      { ...scoreRows[0], created_at: '2026-08-27 19:00:00', cell_assigned_at: '2026-08-27 10:00:00' },
+      { ...scoreRows[1], created_at: '2026-08-27 19:00:00', cell_assigned_at: null },
+    ]
+    const app = await buildTestApp(
+      makeDb([
+        recScores(jstRows),
+        boothNames,
+        checkins([{ user_id: 'u1', booth_id: 'b-1', checked_in_at: '2026-08-27 10:30:00' }]),
+      ]),
+    )
+    const res = await getRecommendations(app)
+
+    expect(res.json().data.conversion).toEqual({
+      selected_then_checkedin: 1,
+      selected_total: 1,
+      conversion_rate: 100,
+      avg_minutes_to_checkin: 30,
+    })
+    await app.close()
+  })
+
   it('推薦データが 0 件でも 500 にならず、既定値で返る（サンプル投入時の状態）', async () => {
     const app = await buildTestApp(makeDb([recScores([]), boothNames, checkins()]))
     const res = await getRecommendations(app)

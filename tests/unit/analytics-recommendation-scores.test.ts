@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   aggregateRecommendations,
   isAssigned,
+  recommendedAtUtc,
   REC_SCORE_BY_EVENT_SQL,
   type RecScoreRow,
 } from '../../src/lib/analytics/recommendationScores.js'
@@ -44,8 +45,24 @@ describe('REC_SCORE_BY_EVENT_SQL', () => {
     expect(REC_SCORE_BY_EVENT_SQL).toMatch(/WHERE bc\.event_id = \?/)
   })
 
+  it('割り当て行だけ bingo_cells.assigned_at を引く（推薦時刻の UTC 補正用）', () => {
+    expect(REC_SCORE_BY_EVENT_SQL).toMatch(/LEFT JOIN\s+bingo_cells/)
+    expect(REC_SCORE_BY_EVENT_SQL).toMatch(/cell\.assigned_at AS cell_assigned_at/)
+    expect(REC_SCORE_BY_EVENT_SQL).toMatch(/rs\.was_assigned = 1/)
+  })
+
   it('起きてはいけないこと: users.event_id で絞る（出展者・運営が混ざる）', () => {
     expect(/users/.test(REC_SCORE_BY_EVENT_SQL)).toBe(false)
+  })
+})
+
+describe('recommendedAtUtc', () => {
+  it('assigned_at（UTC）があれば created_at（JST のことがある）より優先する', () => {
+    expect(recommendedAtUtc({ created_at: '2026-08-27 19:00:00', cell_assigned_at: '2026-08-27 10:00:00' })).toBe('2026-08-27 10:00:00')
+  })
+  it('assigned_at が無ければ created_at に落とす', () => {
+    expect(recommendedAtUtc({ created_at: '2026-08-27 10:00:00', cell_assigned_at: null })).toBe('2026-08-27 10:00:00')
+    expect(recommendedAtUtc({ created_at: '2026-08-27 10:00:00' })).toBe('2026-08-27 10:00:00')
   })
 })
 

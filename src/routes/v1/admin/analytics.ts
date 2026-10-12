@@ -5,6 +5,7 @@ import { requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
 import {
   aggregateRecommendations,
   isAssigned,
+  recommendedAtUtc,
   REC_SCORE_BY_EVENT_SQL,
   type RecScoreRow,
 } from '../../../lib/analytics/recommendationScores.js'
@@ -477,7 +478,8 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
 
       // 推薦（割り当て）→ チェックインコンバージョン。
       // 旧実装の「利用者が選んだブース」は「システムが割り当てたブース（was_assigned=1）」に対応する。
-      // 推薦時刻は recommendation_scores.created_at を使う（新旧で変わらない）。
+      // 推薦時刻は bingo_cells.assigned_at（UTC）を優先する。recommendation_scores.created_at は
+      // さくら DB では JST で入っており、UTC の checked_in_at と比べると 9 時間ずれて常に 0% になる。
       const checkinsByUserBooth = new Map<string, string[]>()
       for (const c of checkinRows as { user_id: string; booth_id: string; checked_in_at: string }[]) {
         const key = `${c.user_id}\0${c.booth_id}`
@@ -492,7 +494,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
         if (!isAssigned(r.was_assigned)) continue
         const key = `${r.user_id}\0${r.booth_id}`
         const times = checkinsByUserBooth.get(key) ?? []
-        const recTime = new Date(toIsoDatetime(r.created_at)).getTime()
+        const recTime = new Date(toIsoDatetime(recommendedAtUtc(r))).getTime()
         const after = times
           .map((t) => new Date(toIsoDatetime(t)).getTime())
           .filter((t) => t >= recTime)

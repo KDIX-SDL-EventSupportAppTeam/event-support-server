@@ -444,11 +444,13 @@ async function insertRecommendationScores(
   },
 ): Promise<void> {
   if (!opts.scoreRows.length || !opts.pairs.length) return
+  // created_at は DB 既定値に任せない（さくら DB は JST で入り、UTC の check_ins と比べられなくなる）
+  const createdAt = utcMysqlNow()
   const placeholders: string[] = []
   const params: unknown[] = []
   for (const pair of opts.pairs) {
     for (const r of opts.scoreRows) {
-      placeholders.push('(?,?,?,?,?,?,?,?,?,?)')
+      placeholders.push('(?,?,?,?,?,?,?,?,?,?,?)')
       params.push(
         randomUUID(),
         pair.unlockEventId,
@@ -460,12 +462,13 @@ async function insertRecommendationScores(
         r.interestMatch,
         r.attributes !== null && r.attributes !== undefined ? JSON.stringify(r.attributes) : null,
         r.reason !== null && r.reason !== undefined ? JSON.stringify(r.reason) : null,
+        createdAt,
       )
     }
   }
   await db.execute(
     `INSERT INTO recommendation_scores
-       (id, unlock_event_id, user_id, booth_id, score, rank_in_event, was_assigned, interest_match, attributes, reason_payload)
+       (id, unlock_event_id, user_id, booth_id, score, rank_in_event, was_assigned, interest_match, attributes, reason_payload, created_at)
      VALUES ${placeholders.join(',')}`,
     params,
   )
