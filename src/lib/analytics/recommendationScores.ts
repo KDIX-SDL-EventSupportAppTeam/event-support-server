@@ -73,7 +73,8 @@ export function aggregateRecommendations(rows: RecScoreRow[]): RecommendationAgg
     } else {
       openCount++
     }
-    if (row.strategy) strategyByUnlockEvent.set(row.unlock_event_id, row.strategy)
+    // PRESURVEY は事前アンケートで決まる初期マス（ensureCard.ts）で、推薦アルゴリズムではないので数えない
+    if (row.strategy && row.strategy !== 'PRESURVEY') strategyByUnlockEvent.set(row.unlock_event_id, row.strategy)
   }
 
   const strategyTally: Record<string, number> = {}

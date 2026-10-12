@@ -85,6 +85,14 @@ export function loadConfig(): AppConfig {
     )
   }
 
+  // 推薦エンジンの接続先。空だと解放は常にフォールバック（lib/bingo/recommenderClient.ts）で、
+  // 本番でも黙って動き続けてしまう。cloudbuild.yaml の --set-env-vars に無いと CD で消えるので警告する。
+  if (isProduction && !e.RECOMMENDER_URL.trim()) {
+    console.warn(
+      'RECOMMENDER_URL が未設定です。ビンゴ解放は推薦エンジンを呼ばず常にフォールバックになります。',
+    )
+  }
+
   if (e.ORGANIZER_SIGNUP_MODE === 'invite' && !e.ORGANIZER_REGISTRATION_KEY) {
     console.warn(
       'ORGANIZER_SIGNUP_MODE=invite ですが ORGANIZER_REGISTRATION_KEY が未設定です。' +
