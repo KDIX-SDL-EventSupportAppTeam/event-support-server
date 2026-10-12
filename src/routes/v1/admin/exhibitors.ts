@@ -1,6 +1,4 @@
 import type { FastifyInstance } from 'fastify'
-import bcrypt from 'bcryptjs'
-import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../../lib/response.js'
 import { requireManager, requireStaff, requireEventMatchesJwt } from '../../../plugins/auth.js'
@@ -10,18 +8,17 @@ import { dateToMysqlUtc } from '../../../lib/datetime.js'
 
 const bulkAccountItem = z.object({
   email: z.string().email(),
-  password: z.string().min(8).max(200), // auth.ts registerBody と同一制約
   booth_id: z.string().uuid(),
-  display_name: z.string().min(1).max(200).optional(), // 省略時は email（staff.ts:90 と同じ流儀）
 })
 const bulkBody = z.object({
-  accounts: z.array(bulkAccountItem).min(1).max(200), // bcrypt cost10 × N のCPU負荷と30sタイムアウト(プロキシ)を考慮した上限
+  accounts: z.array(bulkAccountItem).min(1).max(200), // 1行あたり数クエリ × N と30sタイムアウト(プロキシ)を考慮した上限
 })
 
-type RowStatus = 'created' | 'updated' | 'skipped'
+// invited: 未登録のメアド。仮登録だけ作り、本人が参加者登録した時点で出展者になる（auth.ts の /register）
+type RowStatus = 'invited' | 'updated' | 'skipped'
 
 type RowResult =
-  | { index: number; email: string; booth_id: string; status: RowStatus; user_id: string }
+  | { index: number; email: string; booth_id: string; status: RowStatus; user_id: string | null }
   | {
       index: number
       email: string
@@ -47,6 +44,16 @@ type ExhibitorListRow = {
   booth_name: string | null
   display_code: string | null
 }
+
+type InviteRow = {
+  email: string
+  booth_id: string
+  booth_name: string
+  display_code: string | null
+  created_at: string
+}
+
+const inviteDeleteQuery = z.object({ email: z.string().email(), booth_id: z.string().uuid() })
 
 type ExhibitorItem = { user_id: string; email: string; display_name: string | null; created_at: string }
 type BoothGroup = {
@@ -127,7 +134,50 @@ export async function adminExhibitorRoutes(app: FastifyInstance) {
          WHERE u.event_id = ? AND u.role = 'exhibitor'`,
         [req.params.event_id],
       )
-      return sendOk(reply, groupExhibitorsByBooth(rows as ExhibitorListRow[]))
+      // 仮登録（本人がまだ参加者登録していない出展者）。ブースが別イベントのものは JOIN で落ちる
+      const [inviteRows] = await app.db.query(
+        `SELECT i.email, i.booth_id, b.name AS booth_name, b.display_code, i.created_at
+         FROM exhibitor_invites i
+         JOIN booths b ON b.id = i.booth_id AND b.event_id = i.event_id
+         WHERE i.event_id = ?
+         ORDER BY i.email ASC`,
+        [req.params.event_id],
+      )
+      const invites = (inviteRows as InviteRow[]).map((r) => ({
+        ...r,
+        display_code: r.display_code ?? null,
+        created_at: `${String(r.created_at).replace(' ', 'T')}Z`,
+      }))
+      return sendOk(reply, { ...groupExhibitorsByBooth(rows as ExhibitorListRow[]), invites })
+    },
+  )
+
+  app.delete<{ Params: { event_id: string }; Querystring: { email?: string; booth_id?: string } }>(
+    '/admin/events/:event_id/exhibitor-invites',
+    { preHandler: pre },
+    async (req, reply) => {
+      const parsed = inviteDeleteQuery.safeParse(req.query)
+      if (!parsed.success) {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
+      }
+      const { event_id: eventId } = req.params
+      const email = parsed.data.email.toLowerCase()
+      const [res] = await app.db.execute(
+        'DELETE FROM exhibitor_invites WHERE event_id = ? AND email = ? AND booth_id = ?',
+        [eventId, email, parsed.data.booth_id],
+      )
+      if (affectedRows(res) === 0) {
+        return sendFail(reply, 404, 'NOT_FOUND', '仮登録が見つかりません')
+      }
+      await insertAuditLog(app.db, {
+        eventId,
+        actorId: req.jwtUser!.sub,
+        actorRole: 'manager',
+        action: 'exhibitor.invite_delete',
+        targetType: 'user',
+        detail: { email, booth_id: parsed.data.booth_id },
+      })
+      return sendOk(reply, { email, booth_id: parsed.data.booth_id })
     },
   )
 
@@ -293,15 +343,7 @@ export async function adminExhibitorRoutes(app: FastifyInstance) {
           const existing = (existingRows as ExistingUserRow[])[0]
 
           if (!existing) {
-            const result = await createExhibitor(app, conn, {
-              index,
-              email,
-              boothId,
-              password: item.password,
-              displayName: item.display_name ?? email,
-              eventId,
-            })
-            results.push(result)
+            results.push(await createInvite(app, { index, email, boothId, eventId }))
             continue
           }
 
@@ -345,7 +387,7 @@ export async function adminExhibitorRoutes(app: FastifyInstance) {
 
       const summary = {
         total: accounts.length,
-        created: results.filter((r) => r.status === 'created').length,
+        invited: results.filter((r) => r.status === 'invited').length,
         updated: results.filter((r) => r.status === 'updated').length,
         skipped: results.filter((r) => r.status === 'skipped').length,
         failed: results.filter((r) => r.status === 'error').length,
@@ -365,63 +407,34 @@ export async function adminExhibitorRoutes(app: FastifyInstance) {
   )
 }
 
-/** 新規ユーザーを role='exhibitor' で作成し、exhibitor_booths に紐付ける。 */
-async function createExhibitor(
+/** 未登録のメアドを仮登録する（既に同じ組み合わせがあれば冪等に skip）。 */
+async function createInvite(
   app: FastifyInstance,
-  conn: DbConnection | undefined,
-  args: { index: number; email: string; boothId: string; password: string; displayName: string; eventId: string },
+  args: { index: number; email: string; boothId: string; eventId: string },
 ): Promise<RowResult> {
-  const { index, email, boothId, password, displayName, eventId } = args
-  const userId = randomUUID()
-  const hash = await bcrypt.hash(password, 10)
-  const insertUserSql =
-    'INSERT INTO users (id, event_id, email, password_hash, display_name, role) VALUES (?,?,?,?,?,?)'
-  const insertUserParams = [userId, eventId, email, hash, displayName, 'exhibitor']
-
-  if (conn) {
-    try {
-      await conn.beginTransaction()
-      await conn.execute(insertUserSql, insertUserParams)
-      await conn.execute(INSERT_EXHIBITOR_BOOTH_SQL, [userId, boothId])
-      await conn.commit()
-      return { index, email, booth_id: boothId, status: 'created', user_id: userId }
-    } catch {
-      await conn.rollback()
-      return {
-        index,
-        email,
-        booth_id: boothId,
-        status: 'error',
-        error: { code: 'INTERNAL_ERROR', message: 'アカウント作成に失敗しました' },
-      }
-    }
+  const { index, email, boothId, eventId } = args
+  // INSERT 前 SELECT（ADR 0001: さくらプロキシは重複キーエラーを 500 に潰すため）
+  const [dupRows] = await app.db.query(
+    'SELECT 1 FROM exhibitor_invites WHERE event_id = ? AND email = ? AND booth_id = ? LIMIT 1',
+    [eventId, email, boothId],
+  )
+  if ((dupRows as unknown[]).length > 0) {
+    return { index, email, booth_id: boothId, status: 'skipped', user_id: null }
   }
-
-  // getConnection 非対応（さくらプロキシ）: 順次実行 + 補償削除
   try {
-    await app.db.execute(insertUserSql, insertUserParams)
+    await app.db.execute('INSERT INTO exhibitor_invites (event_id, email, booth_id) VALUES (?, ?, ?)', [
+      eventId,
+      email,
+      boothId,
+    ])
+    return { index, email, booth_id: boothId, status: 'invited', user_id: null }
   } catch {
     return {
       index,
       email,
       booth_id: boothId,
       status: 'error',
-      error: { code: 'INTERNAL_ERROR', message: 'アカウント作成に失敗しました' },
-    }
-  }
-
-  try {
-    await app.db.execute(INSERT_EXHIBITOR_BOOTH_SQL, [userId, boothId])
-    return { index, email, booth_id: boothId, status: 'created', user_id: userId }
-  } catch {
-    // users を新規 INSERT した後の exhibitor_booths INSERT 失敗時のみ補償削除
-    await app.db.execute('DELETE FROM users WHERE id = ?', [userId])
-    return {
-      index,
-      email,
-      booth_id: boothId,
-      status: 'error',
-      error: { code: 'INTERNAL_ERROR', message: 'ブース紐付けに失敗しました' },
+      error: { code: 'INTERNAL_ERROR', message: '仮登録に失敗しました' },
     }
   }
 }
@@ -523,7 +536,7 @@ async function promoteToExhibitor(db: Writer, userId: string, boothIds: string[]
 
 /**
  * exhibitor → participant。紐付けをすべて外す。
- * 一括登録の出展者は email_verified_at が NULL のため、そのままだとチェックインが EMAIL_NOT_VERIFIED になる。
+ * 旧方式（パスワード付き一括登録）やシードの出展者は email_verified_at が NULL のことがあり、そのままだとチェックインが EMAIL_NOT_VERIFIED になる。
  * 運営が本人確認した扱いとして現在時刻を入れる。
  */
 async function demoteToParticipant(db: Writer, userId: string): Promise<void> {

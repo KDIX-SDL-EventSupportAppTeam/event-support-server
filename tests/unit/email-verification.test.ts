@@ -100,10 +100,11 @@ describe('POST /auth/register（メール確認トークン発行）', () => {
     match: /SELECT date_end FROM events WHERE id = \?\s+LIMIT 1/,
     rows: [{ date_end: '2026-12-31 23:59:59' }],
   }
+  const noInvite: Handler = { match: /SELECT booth_id FROM exhibitor_invites/, rows: [] }
 
   it('登録成功でトークン INSERT とメール send が呼ばれ、応答に email_verified:false が入る', async () => {
     const log: string[] = []
-    const db = makeDb([eventExists, dupCheck, dateEnd, ...writeHandlers], log)
+    const db = makeDb([eventExists, dupCheck, dateEnd, noInvite, ...writeHandlers], log)
     const { mailer, sent } = makeMailer()
     const app = await buildTestApp(db, mailer)
     const res = await app.inject({
@@ -126,8 +127,34 @@ describe('POST /auth/register（メール確認トークン発行）', () => {
     await app.close()
   })
 
+  it('仮登録のメアドは出展者として作られ、ブースを紐付けて仮登録を消す（メール確認は参加者と同じく求める）', async () => {
+    const log: string[] = []
+    const db = makeDb(
+      [eventExists, dupCheck, dateEnd, { match: /SELECT booth_id FROM exhibitor_invites/, rows: [{ booth_id: 'b-1' }, { booth_id: 'b-2' }] }, ...writeHandlers],
+      log,
+    )
+    const { mailer, sent } = makeMailer()
+    const app = await buildTestApp(db, mailer)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        event_id: '20000000-0000-4000-8000-000000000001',
+        email: 'Exhibitor@example.com',
+        password: 'password123',
+        display_name: '出展者',
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.user).toMatchObject({ role: 'exhibitor', email_verified: false })
+    expect(sent).toHaveLength(1)
+    expect(log.filter((sql) => /INSERT INTO exhibitor_booths/.test(sql))).toHaveLength(2)
+    expect(log.some((sql) => /DELETE FROM exhibitor_invites/.test(sql))).toBe(true)
+    await app.close()
+  })
+
   it('send が throw しても register は 200 のまま成功する（副作用の失敗で本体を巻き戻さない）', async () => {
-    const db = makeDb([eventExists, dupCheck, dateEnd, ...writeHandlers])
+    const db = makeDb([eventExists, dupCheck, dateEnd, noInvite, ...writeHandlers])
     const { mailer } = makeMailer(true)
     const app = await buildTestApp(db, mailer)
     const res = await app.inject({
@@ -282,6 +309,24 @@ describe('requireVerifiedEmail（POST checkins の preHandler）', () => {
     const { mailer } = makeMailer()
     const app = await buildTestApp(db, mailer)
     const token = makeParticipantToken('u1', EVENT_ID, 'participant')
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/checkins`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: {},
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error.code).toBe('EMAIL_NOT_VERIFIED')
+    await app.close()
+  })
+
+  it('未確認 exhibitor も 403 EMAIL_NOT_VERIFIED（出展者も本人が参加者登録画面から登録する）', async () => {
+    const db = makeDb([
+      { match: /SELECT role, email_verified_at FROM users WHERE id = \?/, rows: [{ role: 'exhibitor', email_verified_at: null }] },
+    ])
+    const { mailer } = makeMailer()
+    const app = await buildTestApp(db, mailer)
+    const token = makeParticipantToken('e1', EVENT_ID, 'exhibitor')
     const res = await app.inject({
       method: 'POST',
       url: `/api/v1/events/${EVENT_ID}/checkins`,
