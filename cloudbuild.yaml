@@ -6,6 +6,9 @@ substitutions:
   _IMAGE: event-support-server
   # 本番 DB はさくら（sutolab_bingo）。サーバーは HTTP プロキシ経由で SQL を投げる（src/db/http-proxy.ts）。
   _SAKURA_PROXY_URL: https://sutolab.sakura.ne.jp/bingo/query/index.php
+  # 推薦エンジン（event-support-recommend）。未設定だとビンゴ解放が常にフォールバックになり、
+  # 運営画面の推薦状態も UNCONFIGURED になる。2026-10-12 に手動設定だけが CD で消えた（rev 00050）ため、ここを正とする。
+  _RECOMMENDER_URL: https://event-support-recommend-2vfu7wrxxa-an.a.run.app
   # 確認メールの送信元アカウント（SMTP_USER）。Gmail の場合はアプリパスワードを
   # Secret Manager の SMTP_PASS に入れる。組織ログイン用のメールとは無関係。
   _SMTP_HOST: smtp.gmail.com
@@ -63,7 +66,7 @@ steps:
       # @ を区切りにすると gmail.com が独立した項目になり gcloud が引数エラーで落ちる。
       # NODE_ENV=production では SMTP_HOST が無いと起動時に落ちる（src/config.ts）。
       # 本番はオーガナイザー登録 API を止める（410）。組織アカウントは DB に直接 INSERT する。
-      - --set-env-vars=^|^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com|FRONTEND_BASE_URL=https://event-support-app.web.app|SMTP_HOST=${_SMTP_HOST}|SMTP_PORT=${_SMTP_PORT}|SMTP_USER=${_SMTP_USER}|MAIL_FROM=PRoToFES <${_SMTP_USER}>|ORGANIZER_SIGNUP_MODE=disabled|SAKURA_PROXY_URL=${_SAKURA_PROXY_URL}
+      - --set-env-vars=^|^CORS_ORIGIN=https://event-support-app.web.app,https://event-support-app.firebaseapp.com|FRONTEND_BASE_URL=https://event-support-app.web.app|SMTP_HOST=${_SMTP_HOST}|SMTP_PORT=${_SMTP_PORT}|SMTP_USER=${_SMTP_USER}|MAIL_FROM=PRoToFES <${_SMTP_USER}>|ORGANIZER_SIGNUP_MODE=disabled|SAKURA_PROXY_URL=${_SAKURA_PROXY_URL}|RECOMMENDER_URL=${_RECOMMENDER_URL}
       - --set-secrets=JWT_SECRET=JWT_SECRET:latest,WEBHOOK_API_KEY=WEBHOOK_API_KEY:latest,SAKURA_PROXY_KEY=SAKURA_PROXY_KEY:latest,ADMIN_REGISTRATION_KEY=ADMIN_REGISTRATION_KEY:latest,SMTP_PASS=SMTP_PASS:latest,RECOMMENDER_OPS_TOKEN=RECOMMEND_OPS_TOKEN:latest
 
 options:

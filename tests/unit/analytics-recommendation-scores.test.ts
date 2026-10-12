@@ -99,6 +99,16 @@ describe('aggregateRecommendations', () => {
     expect(aggregateRecommendations(rows).algorithm).toBe('mab')
   })
 
+  it('algorithm は PRESURVEY（事前アンケートの初期マス）を数えない', () => {
+    const rows: RecScoreRow[] = [
+      row({ unlock_event_id: 'p1', strategy: 'PRESURVEY' }),
+      row({ unlock_event_id: 'p2', strategy: 'PRESURVEY' }),
+      row({ unlock_event_id: 'ue1', strategy: 'RECOMMEND' }),
+    ]
+
+    expect(aggregateRecommendations(rows).algorithm).toBe('RECOMMEND')
+  })
+
   it('行が無ければ算出せず既定値 mab を返す', () => {
     const agg = aggregateRecommendations([])
 
