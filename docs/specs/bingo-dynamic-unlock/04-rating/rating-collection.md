@@ -1,6 +1,6 @@
 ---
 状態: 実装済み
-最終更新: 2026-09-23
+最終更新: 2026-10-13
 ---
 
 # 評価収集（P0 — 理論の成立条件）
@@ -19,11 +19,15 @@ DRSA を使えるかどうかを決める（[background.md](../01-concept/backgr
 
 ## UI（[D-7](../01-concept/decisions.md)）
 
-**星4段階（中央値なし）＋ コメント入力欄 ＋「完了」ボタン1つ。**
+**星4段階（中央値なし）＋ コメント入力欄 ＋「完了」「スキップ」ボタン。**（2026-10 改訂: server#199）
+
+- 「完了」は星を選ぶまで押せない。評価しない場合は「スキップ」を押す
+- スキップは `rating_skips` に記録する。「評価しなかった」と「画面を離れた・送信に失敗した」を区別するため
 
 - 5段階は中間（3）に集中しやすく、実験データとして分析しづらい
 - 「評価を送信」「コメント送信」の2ボタン構成は、どちらをスキップしたか区別がつかない
-- ボタンを1つにすることで、「星だけ」「星＋コメント」「何もせず閉じる」の3状態が明確になる
+- 「完了」と「スキップ」を分けることで、「星だけ」「星＋コメント」「スキップ」の3状態が明確になる
+  （旧仕様の「星未選択で完了＝スキップ」は記録が残らなかったため廃止）
 
 詳細な画面仕様はフロント側 `event-support-frontend/docs/specs/bingo-dynamic-unlock/` を参照。
 
@@ -62,6 +66,19 @@ DRSA を使えるかどうかを決める（[background.md](../01-concept/backgr
 - 既存の重複チェック（`UNIQUE (checkin_id)`、INSERT 前 SELECT）は維持する。評価済みの
   `checkin_id` への再評価は 409 `CONFLICT`。他人の `checkin_id` への評価は 404 `NOT_FOUND`
 
+## スキップ API（server#199）
+
+`POST /events/:event_id/checkins/:checkin_id/rating/skip`
+
+```json
+{ "context": "IMMEDIATE" }
+```
+
+- `context` は `IMMEDIATE` / `MANUAL`。省略時は `IMMEDIATE`。レスポンスは `{ "skipped": true }`
+- `rating_skips`（`checkin_id` 主キー）に 1 行入れる。`booth_ratings` は変更しない
+- 既にスキップ済みなら 200（冪等。行は増えない）。評価済みなら 409 `CONFLICT`。他人の `checkin_id` は 404
+- スキップしたチェックインも、あとから評価できる（`rated` は評価の有無だけを表す。スキップ行は履歴として残る）
+
 ## 監視
 
 **当日、回収率をリアルタイムで見られるようにする。** 回収率が想定を大きく下回った場合、
@@ -84,3 +101,6 @@ DRSA を使えるかどうかを決める（[background.md](../01-concept/backgr
 - `POST /checkins` のレスポンスに `pending_rating` キーは存在しない
 - `rating` が 0 または 5 のとき（`RATING_SCALE=4` の場合）422 になる
 - `booth_ratings.scale` に 4 が入る
+- スキップすると `rating_skips` に 1 行入り、2 回目も 200 で行は増えない
+- 評価済みのチェックインのスキップは 409、他人のチェックインは 404
+- スキップしたチェックインを、あとから評価できる

@@ -11,14 +11,14 @@
  *   npm run db:check
  *
  * 期待値:
- *   - tables: 25
+ *   - tables: 27
  *   - events / survey_questions に最低 1 行（空なら seed が必要）
  */
 import 'dotenv/config'
 import { loadConfig } from '../config.js'
 import { createPool } from '../db/pool.js'
 
-const EXPECTED_TABLES = 25
+const EXPECTED_TABLES = 27
 const EXPECTED_TABLE_NAMES = [
   'organizers',
   'events',
@@ -30,8 +30,10 @@ const EXPECTED_TABLE_NAMES = [
   'user_survey_answers',
   'check_ins',
   'booth_ratings',
+  'rating_skips',
   'booth_categories',
   'exhibitor_booths',
+  'exhibitor_invites',
   'email_verification_tokens',
   'password_reset_tokens',
   'audit_logs',

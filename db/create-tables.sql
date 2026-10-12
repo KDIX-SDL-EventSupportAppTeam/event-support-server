@@ -16,12 +16,12 @@
 --   1. 下の「USE」の行で、実際のデータベース名に書き換える。
 --      （phpMyAdmin 等で対象 DB を選択済みの場合は、USE 行を削除しても構いません。）
 --   2. このファイル全文を SQL 実行画面に貼り付けて実行する。
---   3. 末尾の確認用 SELECT で、テーブル数が 26 であることを確認する。
---      （26 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
+--   3. 末尾の確認用 SELECT で、テーブル数が 27 であることを確認する。
+--      （27 を超える場合は、本スキーマ外の古いテーブルが残っている可能性あり）
 --
--- 【削除 → 再作成されるテーブル（26）】
+-- 【削除 → 再作成されるテーブル（27）】
 --   organizers, events, categories, booths, booth_tags, users, survey_questions,
---   user_survey_answers, bingo_cards, bingo_cells, check_ins, booth_ratings,
+--   user_survey_answers, bingo_cards, bingo_cells, check_ins, booth_ratings, rating_skips,
 --   card_unlock_events, recommendation_scores, gacha_coin_uses, gacha_settings,
 --   awards, award_votes, award_settings,
 --   booth_categories, exhibitor_booths, exhibitor_invites, email_verification_tokens, password_reset_tokens, audit_logs,
@@ -61,6 +61,7 @@ DROP TABLE IF EXISTS email_verification_tokens;
 DROP TABLE IF EXISTS exhibitor_invites;
 DROP TABLE IF EXISTS exhibitor_booths;
 DROP TABLE IF EXISTS booth_categories;
+DROP TABLE IF EXISTS rating_skips;
 DROP TABLE IF EXISTS booth_ratings;
 DROP TABLE IF EXISTS check_ins;
 DROP TABLE IF EXISTS user_survey_answers;
@@ -245,6 +246,21 @@ CREATE TABLE booth_ratings (
   UNIQUE KEY uq_rating_per_checkin (checkin_id)
 );
 
+-- 評価のスキップ（db/migrations/23_rating_skips.sql）。1 チェックイン 1 行
+CREATE TABLE rating_skips (
+  checkin_id     CHAR(36)  PRIMARY KEY,
+  user_id        CHAR(36)  NOT NULL,
+  booth_id       CHAR(36)  NOT NULL,
+  event_id       CHAR(36)  NOT NULL,
+  prompt_context ENUM('MANUAL','IMMEDIATE') NOT NULL DEFAULT 'IMMEDIATE',
+  skipped_at     DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id)    REFERENCES users(id)     ON DELETE CASCADE,
+  FOREIGN KEY (booth_id)   REFERENCES booths(id)    ON DELETE CASCADE,
+  FOREIGN KEY (event_id)   REFERENCES events(id)    ON DELETE CASCADE,
+  FOREIGN KEY (checkin_id) REFERENCES check_ins(id) ON DELETE CASCADE,
+  INDEX idx_rating_skip_event (event_id)
+);
+
 -- card_unlock_events（追記専用）: 解放の履歴。UNIQUE(card_id, pair_key) が冪等性の要（D-15）
 CREATE TABLE card_unlock_events (
   id                   CHAR(36)    PRIMARY KEY,
@@ -418,7 +434,7 @@ CREATE TABLE event_app_access (
   FOREIGN KEY (updated_by) REFERENCES organizers(id) ON DELETE SET NULL
 );
 
--- 確認（一覧に26テーブルが表示されれば成功）
+-- 確認（一覧に27テーブルが表示されれば成功）
 -- ※ さくら等の共有サーバーでは information_schema へのアクセスが権限で拒否される
 --   （#1044）ため、COUNT ではなく SHOW TABLES で確認する。
 SHOW TABLES;

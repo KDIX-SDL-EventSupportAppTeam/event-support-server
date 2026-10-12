@@ -25,6 +25,7 @@
 | POST | `/api/v1/events/:event_id/checkins` | Bearer | チェックイン（QR / 手動コード）。ビンゴの後出し割当・解放（`unlocked_positions` / `unlocked_pairs` / `no_candidate_cells`）・ライン判定を含む。`pending_rating` は廃止（server#133） |
 | GET | `/api/v1/events/:event_id/checkins` | Bearer | 自分のチェックイン履歴。各要素に評価済みかどうかの `rated`（真偽値。点数は含まない）を含む |
 | POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating` | Bearer | 評価送信（+comment、`context`: `IMMEDIATE`/`MANUAL`。`NEXT_CHECKIN` は新規には422。空白のみは NULL 正規化、再送信は409、他人のcheckin_idは404。`rating` は `1..RATING_SCALE`） |
+| POST | `/api/v1/events/:event_id/checkins/:checkin_id/rating/skip` | Bearer | 評価のスキップを記録（`context`: `IMMEDIATE`(既定)/`MANUAL`。`rating_skips` に1行。再送信は200で冪等、評価済みは409、他人のcheckin_idは404） |
 | GET | `/api/v1/events/:event_id/bingo/card` | Bearer | ビンゴカード取得（無ければ生成。解放漏れの self-healing を含む。`is_revealed=0` のマスは `booth` を `null` で返す） |
 | GET | `/api/v1/events/:event_id/gacha/coins` | Bearer | ガチャコイン枚数（`is_enabled / lines_completed / earned / used / available / max_coins`）。無効時も 200 |
 | POST | `/api/v1/events/:event_id/gacha/coins/use` | Bearer | コイン1枚消費（`idempotency_key` はクライアント生成 UUID 必須）。再送は同じ行を返し枚数は増えない。`403 GACHA_DISABLED` / `409 NO_COINS_AVAILABLE` |

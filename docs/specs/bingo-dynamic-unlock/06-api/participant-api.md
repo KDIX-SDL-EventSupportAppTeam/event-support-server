@@ -185,6 +185,17 @@
 - コメントは空文字・空白のみなら `NULL` に正規化する
 - 同じ `checkin_id` への2回目は 409。他人の `checkin_id` は 404
 
+
+## POST /api/v1/events/:event_id/checkins/:checkin_id/rating/skip
+
+```json
+{ "context": "IMMEDIATE" }
+→ { "skipped": true }
+```
+
+評価画面の「スキップ」を記録する（server#199）。再送信は 200（冪等）、評価済みは 409、他人のチェックインは 404。
+詳細は [04-rating/rating-collection.md](../04-rating/rating-collection.md)。
+
 ## GET /api/v1/events/:event_id/gacha/coins
 
 **器だけ用意する。ガチャ本体は後から実装する**（[D-5](../01-concept/decisions.md)）。

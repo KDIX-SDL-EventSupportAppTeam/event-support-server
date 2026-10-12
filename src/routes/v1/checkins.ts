@@ -31,6 +31,13 @@ const ratingBody = z.object({
   context: z.enum(['IMMEDIATE', 'MANUAL']).optional().default('MANUAL'),
 })
 
+const ratingSkipBody = z
+  .object({
+    context: z.enum(['IMMEDIATE', 'MANUAL']).optional().default('IMMEDIATE'),
+  })
+  .optional()
+  .default({})
+
 async function getAchievedPositions(app: FastifyInstance, cardId: string): Promise<Set<number>> {
   const [rows] = await app.db.query(
     `SELECT position FROM bingo_cells WHERE card_id = ? AND is_achieved = 1`,
@@ -330,6 +337,64 @@ export async function checkinRoutes(app: FastifyInstance) {
       })
 
       return sendOk(reply, { rating_id: rid })
+    },
+  )
+
+  // 評価画面の「スキップ」を記録する（server#199）。booth_ratings には触れず rating_skips に 1 行残す。
+  // 既にスキップ済みなら冪等に 200。評価済みのチェックインはスキップできない（409）
+  app.post<{ Params: { event_id: string; checkin_id: string } }>(
+    '/events/:event_id/checkins/:checkin_id/rating/skip',
+    { preHandler: pre },
+    async (req, reply) => {
+      const parsed = ratingSkipBody.safeParse(req.body ?? undefined)
+      if (!parsed.success) {
+        return sendFail(reply, 422, 'VALIDATION_ERROR', '入力が不正です')
+      }
+      const { event_id, checkin_id } = req.params
+      const uid = req.jwtUser!.sub
+      const [rows] = await app.db.query(
+        `SELECT ci.booth_id, b.name AS booth_name
+         FROM check_ins ci
+         JOIN booths b ON b.id = ci.booth_id
+         WHERE ci.id = ? AND ci.user_id = ? AND ci.event_id = ? LIMIT 1`,
+        [checkin_id, uid, event_id],
+      )
+      const ci = (rows as { booth_id: string; booth_name: string }[])[0]
+      if (!ci) {
+        return sendFail(reply, 404, 'NOT_FOUND', 'チェックインが見つかりません')
+      }
+
+      const [rated] = await app.db.query(
+        'SELECT id FROM booth_ratings WHERE checkin_id = ? LIMIT 1',
+        [checkin_id],
+      )
+      if ((rated as { id: string }[])[0]) {
+        return sendFail(reply, 409, 'CONFLICT', 'このチェックインには既に評価があります')
+      }
+
+      // さくらプロキシは重複キーを 500 に潰すため、INSERT 前に既存のスキップを確認する
+      const skippedSql = 'SELECT checkin_id FROM rating_skips WHERE checkin_id = ? LIMIT 1'
+      const [skipped] = await app.db.query(skippedSql, [checkin_id])
+      if ((skipped as { checkin_id: string }[])[0]) {
+        return sendOk(reply, { skipped: true })
+      }
+
+      try {
+        await app.db.execute(
+          `INSERT INTO rating_skips (checkin_id, user_id, booth_id, event_id, prompt_context)
+           VALUES (?,?,?,?,?)`,
+          [checkin_id, uid, ci.booth_id, event_id, parsed.data.context],
+        )
+      } catch (e: unknown) {
+        // 同時送信の敗者は、既にスキップ行があることで判定する
+        const [after] = await app.db.query(skippedSql, [checkin_id])
+        if ((after as { checkin_id: string }[])[0]) {
+          return sendOk(reply, { skipped: true })
+        }
+        throw e
+      }
+
+      return sendOk(reply, { skipped: true })
     },
   )
 }

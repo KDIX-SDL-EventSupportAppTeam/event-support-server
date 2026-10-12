@@ -51,6 +51,7 @@ function makeDb(opts: {
 } = {}): DbClient {
   const ratings = new Map<string, { id: string }>()
   if (opts.ratedCheckinId) ratings.set(opts.ratedCheckinId, { id: 'rating-existing' })
+  const skips = new Map<string, { context: string }>()
 
   const run = async (sql: string, params: unknown[] = []): Promise<[unknown, unknown]> => {
     if (/SELECT role, email_verified_at FROM users/.test(sql)) {
@@ -115,9 +116,18 @@ function makeDb(opts: {
       ratings.set(checkinId, { id: 'new-rating' })
       return [{ affectedRows: 1 }, undefined]
     }
+    if (/SELECT checkin_id FROM rating_skips WHERE checkin_id = \?/.test(sql)) {
+      const [checkinId] = params as [string]
+      return [skips.has(checkinId) ? [{ checkin_id: checkinId }] : [], undefined]
+    }
+    if (/INSERT INTO rating_skips/.test(sql)) {
+      const [checkinId, , , , context] = params as string[]
+      skips.set(checkinId, { context })
+      return [{ affectedRows: 1 }, undefined]
+    }
     throw new Error(`unmatched SQL: ${sql} / ${JSON.stringify(params)}`)
   }
-  return { query: run, execute: run, end: async () => {} } as DbClient
+  return Object.assign({ query: run, execute: run, end: async () => {} } as DbClient, { skips })
 }
 
 async function buildTestApp(db: DbClient): Promise<FastifyInstance> {
@@ -259,6 +269,83 @@ describe('POST /events/:event_id/checkins（#133 D3）', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(res.json().data).not.toHaveProperty('pending_rating')
+    await app.close()
+  })
+})
+
+describe('POST /events/:event_id/checkins/:checkin_id/rating/skip（#199）', () => {
+  const skipUrl = `/api/v1/events/${EVENT_ID}/checkins/${CHECKIN_ID}/rating/skip`
+
+  it("T-8: スキップすると rating_skips に1行入る。context 省略時は 'IMMEDIATE'", async () => {
+    const db = makeDb()
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'POST', url: skipUrl, headers: authHeader(), payload: {} })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data).toEqual({ skipped: true })
+    expect((db as unknown as { skips: Map<string, { context: string }> }).skips.get(CHECKIN_ID)).toEqual({
+      context: 'IMMEDIATE',
+    })
+    await app.close()
+  })
+
+  it('T-9: 2回スキップしても2回目も200（冪等）。行は1つのまま', async () => {
+    const db = makeDb()
+    const inserts: unknown[] = []
+    const originalExecute = db.execute.bind(db)
+    db.execute = (async (sql: string, params: unknown[]) => {
+      if (/INSERT INTO rating_skips/.test(sql)) inserts.push(params)
+      return originalExecute(sql, params)
+    }) as DbClient['execute']
+    const app = await buildTestApp(db)
+    const first = await app.inject({ method: 'POST', url: skipUrl, headers: authHeader(), payload: {} })
+    const second = await app.inject({ method: 'POST', url: skipUrl, headers: authHeader(), payload: {} })
+    expect(first.statusCode).toBe(200)
+    expect(second.statusCode).toBe(200)
+    expect(inserts).toHaveLength(1)
+    await app.close()
+  })
+
+  it('T-10: 評価済みのチェックインはスキップできず409', async () => {
+    const db = makeDb({ ratedCheckinId: CHECKIN_ID })
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'POST', url: skipUrl, headers: authHeader(), payload: {} })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error.code).toBe('CONFLICT')
+    await app.close()
+  })
+
+  it('T-11: 他人のチェックインは404', async () => {
+    const db = makeDb()
+    const app = await buildTestApp(db)
+    const res = await app.inject({ method: 'POST', url: skipUrl, headers: authHeader(OTHER_USER_ID), payload: {} })
+    expect(res.statusCode).toBe(404)
+    await app.close()
+  })
+
+  it("T-12: context: 'NEXT_CHECKIN' は422", async () => {
+    const db = makeDb()
+    const app = await buildTestApp(db)
+    const res = await app.inject({
+      method: 'POST',
+      url: skipUrl,
+      headers: authHeader(),
+      payload: { context: 'NEXT_CHECKIN' },
+    })
+    expect(res.statusCode).toBe(422)
+    await app.close()
+  })
+
+  it('T-13: スキップ後でも、あとから評価できる', async () => {
+    const db = makeDb()
+    const app = await buildTestApp(db)
+    await app.inject({ method: 'POST', url: skipUrl, headers: authHeader(), payload: {} })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/events/${EVENT_ID}/checkins/${CHECKIN_ID}/rating`,
+      headers: authHeader(),
+      payload: { rating: 3 },
+    })
+    expect(res.statusCode).toBe(200)
     await app.close()
   })
 })

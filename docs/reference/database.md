@@ -7,7 +7,7 @@
 
 # データベース
 
-完全なスキーマの正は `db/create-tables.sql`（**25 テーブル**）。増分は `db/migrations/`（15 ファイル）。
+完全なスキーマの正は `db/create-tables.sql`（**27 テーブル**）。増分は `db/migrations/`（23 ファイル）。
 起動手順・Docker init と `db:migrate` の使い分けは [README.md § ローカル開発](./README.md#ローカル開発) を参照。
 
 > `db/migrations/` の番号は一意で、辞書順 ＝ 適用順（issue #112 で `10_` の重複を解消）。
@@ -43,6 +43,7 @@ npm run db:check   # テーブルの過不足と件数をまとめて確認す�
 
 既存テーブルへの追加: `booths.is_active`、`check_ins.visit_order` / `cell_id`、
 `booth_ratings.prompt_context` / `scale`（`rating` の `CHECK` は削除）。
+評価のスキップは `rating_skips`（`checkin_id` 主キー、migration 23。server#199）に別で記録する。
 
 削除したテーブル: `recommendations`、`cell_assignment_logs`。
 
