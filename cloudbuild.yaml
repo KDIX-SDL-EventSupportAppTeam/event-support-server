@@ -56,6 +56,10 @@ steps:
       # WebSocket 配信が届かなくなるため、1 インスタンスに固定する。
       # 運営画面のみ socket を張り負荷も軽いため 1 台で十分。
       - --max-instances=1
+      # Cloud Run は WebSocket 1本を、接続中ずっと「処理中のリクエスト1件」として数える。
+      # 既定の 80 では、運営の socket が増えたときに通常の API まで詰まるため、
+      # 1 インスタンスに固定している分、同時処理数を引き上げる。
+      - --concurrency=1000
       # 本番 DB を Cloud SQL からさくらのプロキシ経由に戻した（2026-10-08）。
       # Cloud SQL への接続は不要なので外す。
       - --clear-cloudsql-instances
