@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { DbClient } from '../../db/client.js'
-import { mysqlUtcToIso } from '../datetime.js'
+import { mysqlUtcToIso, utcMysqlNow } from '../datetime.js'
 
 /** 所持枚数 0（HAVING 不成立）。ルートは 409 NO_COINS_AVAILABLE に変換する。 */
 export class NoCoinsAvailableError extends Error {
@@ -76,14 +76,24 @@ async function attempt(db: DbClient, input: UseCoinInput): Promise<AttemptOutcom
   const id = randomUUID()
 
   try {
-    // 手順3: 残高超過を SQL 自身に判定させる単一 INSERT
+    // 手順3: 残高超過を SQL 自身に判定させる単一 INSERT。
+    // used_at は DB 既定値（さくらでは JST）に任せず、アプリの他の時刻列と同じ UTC で明示的に入れる
     const [header] = await db.execute(
-      `INSERT INTO gacha_coin_uses (id, event_id, user_id, coin_index, idempotency_key)
-       SELECT ?, ?, ?, COUNT(*), ?
+      `INSERT INTO gacha_coin_uses (id, event_id, user_id, coin_index, idempotency_key, used_at)
+       SELECT ?, ?, ?, COUNT(*), ?, ?
          FROM gacha_coin_uses
         WHERE event_id = ? AND user_id = ?
        HAVING COUNT(*) < ?`,
-      [id, input.eventId, input.userId, input.idempotencyKey, input.eventId, input.userId, earned],
+      [
+        id,
+        input.eventId,
+        input.userId,
+        input.idempotencyKey,
+        utcMysqlNow(),
+        input.eventId,
+        input.userId,
+        earned,
+      ],
     )
     const affected = (header as InsertHeader).affectedRows ?? 0
 

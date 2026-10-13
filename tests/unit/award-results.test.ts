@@ -91,13 +91,12 @@ describe('GET /admin/events/:id/awards/results', () => {
     await app.close()
   })
 
-  it('集計 SQL は participant・exhibitor・viewer だけを数える（manager の試し投票を数えない）', async () => {
+  it('集計 SQL はロールで絞らない（manager の票も数える）', async () => {
     const calls: Call[] = []
     const app = await buildApp(makeDb(handler, calls))
     await app.inject({ method: 'GET', url: `/api/v1/admin/events/${EVENT_ID}/awards/results`, headers: auth('manager') })
     for (const c of calls.filter((c) => /award_votes|FROM users/.test(c.sql))) {
-      expect(c.sql).toMatch(/role IN \('participant', 'exhibitor', 'viewer'\)/)
-      expect(c.sql).not.toContain('manager')
+      expect(c.sql).not.toMatch(/role/)
     }
     await app.close()
   })

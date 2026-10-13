@@ -75,7 +75,7 @@
 | GET | `/api/v1/admin/events/:event_id/awards/:award_id/tally` | staff。ブース別票数（降順） |
 | GET | `/api/v1/admin/events/:event_id/awards/results` | staff。全賞の上位3位＋投票者数などの周辺指標（運営の結果画面用） |
 
-- **集計は `users.role` が `participant` / `exhibitor` / `viewer`（または NULL）の票に絞る。** manager（運営）の試し投票は数えない（2026-10-06 変更。以前は participant のみ）
+- **集計はロールを問わず全員の票を数える。** manager の票も含む（2026-10-13 変更。2026-10-06〜は manager を除外、それ以前は participant のみ）
 - 追加・編集・削除・開閉は監査ログに残す（`award.create` / `award.update` / `award.delete` / `award.voting.update`）
 - **同数の順位付けはサーバーでしない。** 票数をそのまま返す
 
@@ -115,11 +115,10 @@
 
 - **上位3位は同数を同順位にする**（標準競技順位: 23, 23, 20 → 1位, 1位, 3位）。3位以内の行は同率をすべて返すので、`top` が3件を超えることがある
 - 0票のブースは `top` に入れない
-- 母集団は一覧・tally と同じ（participant / exhibitor / viewer / NULL）
+- 母集団は一覧・tally と同じ（ロールを問わず全員）
 
 ## 起きてはいけないこと
 
 - チェックイン済み判定をフロントだけで行うこと（直接 POST で回避できる）
-- 集計に manager の票が混ざること
 - 賞名をキーに投票を保存すること（名前の修正で票が消える。`award_id` で持つ）
 - 投票を既定で開けておくこと（`is_open` の既定は `false`）
