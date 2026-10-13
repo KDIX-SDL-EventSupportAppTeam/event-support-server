@@ -119,6 +119,7 @@ gcloud run deploy $SERVICE \
   --port=8080 \
   --min-instances=1 \
   --max-instances=1 \
+  --concurrency=1000 \
   --session-affinity \
   --timeout=3600 \
   --cpu=1 \
@@ -132,6 +133,7 @@ gcloud run deploy $SERVICE \
 |--------|------|
 | `--min-instances=1` | コールドスタートによる WebSocket 接続断を防ぐ |
 | `--max-instances=1` | socket.io がインメモリ管理のため複数インスタンスだと配信が届かない（[ADR 0002](../decisions/adrs/0002-cloud-run-single-instance-for-websocket.md)） |
+| `--concurrency=1000` | WebSocket 1本が接続中ずっと処理中リクエスト1件として数えられ、既定の 80 では接続が増えると通常の API まで詰まる（1 インスタンス固定のため同時処理数で吸収する。2026-10-13） |
 | `--session-affinity` | 同一クライアントを同一インスタンスへルーティング |
 | `--timeout=3600` | WebSocket がデフォルト 300 秒で切れるのを防ぐ |
 
