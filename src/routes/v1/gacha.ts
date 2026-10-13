@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { sendFail, sendOk } from '../../lib/response.js'
+import { mysqlUtcToIso } from '../../lib/datetime.js'
 import { requireBearerAuth, requireEventMatchesJwt } from '../../plugins/auth.js'
 import { findCard } from '../../lib/bingo/ensureCard.js'
 import { countCompletedLines } from '../../lib/bingo/lines.js'
@@ -88,6 +89,54 @@ export async function gachaRoutes(app: FastifyInstance) {
           maxCoins: settings.maxCoins,
         }),
       )
+    },
+  )
+
+  /**
+   * 本人のコイン使用履歴（運営が申し出に対応するときの確認用）。
+   * 集計値は GET /gacha/coins と同じ関数で出す。別ロジックを書かない。
+   * users（email / display_name）と gacha_coin_uses は互いに独立なので並列に引く。
+   */
+  app.get<{ Params: { event_id: string } }>(
+    '/events/:event_id/gacha/coins/history',
+    { preHandler: pre },
+    async (req, reply) => {
+      const eventId = req.params.event_id
+      const uid = req.jwtUser!.sub
+
+      const [settings, linesCompleted, used, userRows, useRows] = await Promise.all([
+        fetchGachaSettings(app.db, eventId),
+        countLines(eventId, uid),
+        countUsed(eventId, uid),
+        app.db.query(`SELECT email, display_name FROM users WHERE id = ? AND event_id = ? LIMIT 1`, [
+          uid,
+          eventId,
+        ]),
+        app.db.query(
+          `SELECT coin_index, used_at FROM gacha_coin_uses
+            WHERE event_id = ? AND user_id = ? ORDER BY coin_index ASC`,
+          [eventId, uid],
+        ),
+      ])
+      const user = (userRows[0] as { email: string; display_name: string | null }[])[0]
+      const uses = (useRows[0] as { coin_index: number; used_at: string }[]).map((r) => ({
+        coin_index: Number(r.coin_index),
+        used_at: mysqlUtcToIso(r.used_at),
+      }))
+      const earned = calcCoinsEarned(linesCompleted, settings)
+
+      return sendOk(reply, {
+        email: user?.email ?? '',
+        display_name: user?.display_name ?? '',
+        ...basePayload({
+          isEnabled: settings.isEnabled,
+          linesCompleted,
+          earned,
+          used,
+          maxCoins: settings.maxCoins,
+        }),
+        uses,
+      })
     },
   )
 
