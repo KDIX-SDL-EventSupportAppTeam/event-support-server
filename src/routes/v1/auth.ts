@@ -240,30 +240,36 @@ export async function authRoutes(app: FastifyInstance) {
     }
     const { token } = parsed.data
 
+    // 冪等にする（issue #208）：成功してもトークンは消さず、再クリックには already_verified で 200 を返す。
+    // Outlook のリンクスキャナーが先に開いても、本人のクリックが 404 にならないようにするため。
+    // トークンの掃除は再送時の issueVerificationToken（既存トークン削除）と期限切れ時に任せる。
     const [rows] = await app.db.query(
-      'SELECT user_id, expires_at FROM email_verification_tokens WHERE token = ? LIMIT 1',
+      `SELECT t.user_id, t.expires_at, u.email_verified_at
+       FROM email_verification_tokens t JOIN users u ON u.id = t.user_id
+       WHERE t.token = ? LIMIT 1`,
       [token],
     )
-    const row = (rows as { user_id: string; expires_at: string }[])[0]
+    const row = (rows as { user_id: string; expires_at: string; email_verified_at: string | null }[])[0]
     if (!row) {
-      // 使用済み（＝確認済み）の再クリックもここに来る。フロントはその旨を案内文で吸収する
+      // 再送で消えた古いトークン、または期限切れで掃除済みのトークン
       return sendFail(reply, 404, 'TOKEN_INVALID', 'この確認リンクは無効です')
     }
     // dateStrings: true / timezone: 'Z' なので UTC 文字列 → Z 付き ISO に直して比較（jwt.ts の date_end と同じ流儀）
     const expMs = new Date(`${row.expires_at.replace(' ', 'T')}Z`).getTime()
     if (!Number.isFinite(expMs) || expMs <= Date.now()) {
       await app.db.execute('DELETE FROM email_verification_tokens WHERE token = ?', [token]) // 掃除
+      if (row.email_verified_at) return sendOk(reply, { verified: true, already_verified: true })
       return sendFail(
         reply, 410, 'TOKEN_EXPIRED',
         '確認リンクの有効期限が切れています。確認メールを再送してください',
       )
     }
 
+    if (row.email_verified_at) return sendOk(reply, { verified: true, already_verified: true })
     await app.db.execute(
       'UPDATE users SET email_verified_at = ? WHERE id = ? AND email_verified_at IS NULL',
       [utcMysqlNow(), row.user_id],
     )
-    await app.db.execute('DELETE FROM email_verification_tokens WHERE user_id = ?', [row.user_id])
     return sendOk(reply, { verified: true })
   })
 
