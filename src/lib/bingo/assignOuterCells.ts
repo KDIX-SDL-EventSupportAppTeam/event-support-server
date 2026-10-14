@@ -267,6 +267,17 @@ async function buildExcludeSet(db: DbClient, eventId: string, userId: string, ca
   return new Set((rows as { booth_id: string | null }[]).map((r) => r.booth_id).filter((b): b is string => !!b))
 }
 
+/**
+ * visited_booths の source はマスの種類（bingo_cells.source）をそのまま送る。
+ * 推薦マス（RECOMMEND）への訪問を FREE_VISIT と送ると、推薦エンジンの行動信号（自分で選んだ分野,
+ * preference_match の B）に推薦が混ざり、決定表（FREE_VISIT のマスだけを数える）とずれる
+ * （recommend docs/specs/02-features.md F-2）。訪問済みでブースが載るマスは必ず source を持つが、
+ * 万一それ以外なら FREE_VISIT に寄せず null で送る（推薦エンジンは UNKNOWN として行動信号に使わない）。
+ */
+function toVisitedSource(source: string | null): VisitedBoothPayload['source'] {
+  return source === 'PRESURVEY' || source === 'RECOMMEND' || source === 'FREE_VISIT' ? source : null
+}
+
 async function buildVisitedBoothsPayload(
   db: DbClient,
   cardId: string,
@@ -290,7 +301,7 @@ async function buildVisitedBoothsPayload(
     .map((r, idx) => ({
       booth_id: r.booth_id as string,
       order: r.visit_order ?? idx,
-      source: (r.source === 'PRESURVEY' ? 'PRESURVEY' : 'FREE_VISIT') as 'PRESURVEY' | 'FREE_VISIT',
+      source: toVisitedSource(r.source),
       rating: r.rating ?? null,
       rating_scale: ratingScale,
     }))
