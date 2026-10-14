@@ -174,73 +174,90 @@ describe('POST /auth/register（メール確認トークン発行）', () => {
 })
 
 describe('GET /auth/verify-email', () => {
-  it('有効なトークンは 200 verified:true を返し、UPDATE と DELETE が発行される', async () => {
+  const future = () => new Date(Date.now() + 3600_000).toISOString().slice(0, 19).replace('T', ' ')
+  const PAST = '2020-01-01 00:00:00'
+  const tokenRow = (rows: unknown[]): Handler => ({
+    match: /SELECT t\.user_id, t\.expires_at, u\.email_verified_at\s+FROM email_verification_tokens t JOIN users u/,
+    rows,
+  })
+
+  async function verify(handlers: Handler[], token: string, log?: string[]) {
+    const app = await buildTestApp(makeDb([...handlers, ...writeHandlers], log), makeMailer().mailer)
+    const res = await app.inject({ method: 'GET', url: `/api/v1/auth/verify-email?token=${token}` })
+    await app.close()
+    return res
+  }
+
+  it('初回クリックは 200 verified:true を返して UPDATE し、トークンは消さない', async () => {
     const log: string[] = []
-    const future = new Date(Date.now() + 3600_000).toISOString().slice(0, 19).replace('T', ' ')
-    const db = makeDb(
-      [
-        { match: /SELECT user_id, expires_at FROM email_verification_tokens WHERE token = \?/, rows: [{ user_id: 'u1', expires_at: future }] },
-        ...writeHandlers,
-      ],
-      log,
-    )
-    const { mailer } = makeMailer()
-    const app = await buildTestApp(db, mailer)
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/v1/auth/verify-email?token=${'a'.repeat(64)}`,
-    })
+    const res = await verify([tokenRow([{ user_id: 'u1', expires_at: future(), email_verified_at: null }])], 'a'.repeat(64), log)
     expect(res.statusCode).toBe(200)
     expect(res.json().data).toEqual({ verified: true })
     expect(log.some((sql) => /UPDATE users SET email_verified_at = \? WHERE id = \? AND email_verified_at IS NULL/.test(sql))).toBe(true)
-    expect(log.some((sql) => /DELETE FROM email_verification_tokens WHERE user_id = \?/.test(sql))).toBe(true)
-    await app.close()
+    expect(log.some((sql) => /DELETE FROM email_verification_tokens/.test(sql))).toBe(false)
   })
 
-  it('未知のトークンは 404 TOKEN_INVALID', async () => {
-    const db = makeDb([
-      { match: /SELECT user_id, expires_at FROM email_verification_tokens WHERE token = \?/, rows: [] },
-    ])
-    const { mailer } = makeMailer()
-    const app = await buildTestApp(db, mailer)
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/v1/auth/verify-email?token=${'b'.repeat(64)}`,
-    })
-    expect(res.statusCode).toBe(404)
-    expect(res.json().error.code).toBe('TOKEN_INVALID')
-    await app.close()
-  })
-
-  it('期限切れトークンは 410 TOKEN_EXPIRED を返し、該当トークンを DELETE する', async () => {
+  it('同じトークンで2回目（確認済み）は 200 already_verified:true で、UPDATE しない', async () => {
     const log: string[] = []
-    const db = makeDb(
-      [
-        { match: /SELECT user_id, expires_at FROM email_verification_tokens WHERE token = \?/, rows: [{ user_id: 'u1', expires_at: '2020-01-01 00:00:00' }] },
-        ...writeHandlers,
-      ],
+    const res = await verify(
+      [tokenRow([{ user_id: 'u1', expires_at: future(), email_verified_at: '2026-10-14 00:00:00' }])],
+      'a'.repeat(64),
       log,
     )
-    const { mailer } = makeMailer()
-    const app = await buildTestApp(db, mailer)
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/v1/auth/verify-email?token=${'c'.repeat(64)}`,
-    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data).toEqual({ verified: true, already_verified: true })
+    expect(log.some((sql) => /^\s*UPDATE/i.test(sql))).toBe(false)
+  })
+
+  it('期限切れでも確認済みなら 200 already_verified:true（トークンは掃除する）', async () => {
+    const log: string[] = []
+    const res = await verify(
+      [tokenRow([{ user_id: 'u1', expires_at: PAST, email_verified_at: '2020-01-01 00:00:00' }])],
+      'c'.repeat(64),
+      log,
+    )
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data).toEqual({ verified: true, already_verified: true })
+    expect(log.some((sql) => /DELETE FROM email_verification_tokens WHERE token = \?/.test(sql))).toBe(true)
+  })
+
+  it('期限切れ・未確認は 410 TOKEN_EXPIRED を返し、該当トークンを DELETE する', async () => {
+    const log: string[] = []
+    const res = await verify([tokenRow([{ user_id: 'u1', expires_at: PAST, email_verified_at: null }])], 'c'.repeat(64), log)
     expect(res.statusCode).toBe(410)
     expect(res.json().error.code).toBe('TOKEN_EXPIRED')
     expect(log.some((sql) => /DELETE FROM email_verification_tokens WHERE token = \?/.test(sql))).toBe(true)
-    await app.close()
+  })
+
+  it('未知のトークンは 404 TOKEN_INVALID', async () => {
+    const res = await verify([tokenRow([])], 'b'.repeat(64))
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error.code).toBe('TOKEN_INVALID')
+  })
+
+  it('再送後に古いトークンを使うと 404 TOKEN_INVALID（再送で旧トークンが消える）', async () => {
+    const OLD = 'd'.repeat(64)
+    const NEW = 'e'.repeat(64)
+    // 再送（issueVerificationToken）後の状態：表には新トークンだけが残っている
+    const tokens = new Map([[NEW, { user_id: 'u1', expires_at: future(), email_verified_at: null }]])
+    const lookup: Handler = {
+      match: tokenRow([]).match,
+      rows: (params) => {
+        const r = tokens.get(params[0] as string)
+        return r ? [r] : []
+      },
+    }
+    const oldRes = await verify([lookup], OLD)
+    expect(oldRes.statusCode).toBe(404)
+    expect(oldRes.json().error.code).toBe('TOKEN_INVALID')
+    const newRes = await verify([lookup], NEW)
+    expect(newRes.statusCode).toBe(200)
   })
 
   it('形式不正なトークンは 422 VALIDATION_ERROR', async () => {
-    const db = makeDb([])
-    const { mailer } = makeMailer()
-    const app = await buildTestApp(db, mailer)
-    const res = await app.inject({ method: 'GET', url: '/api/v1/auth/verify-email?token=xyz' })
+    const res = await verify([], 'xyz')
     expect(res.statusCode).toBe(422)
     expect(res.json().error.code).toBe('VALIDATION_ERROR')
-    await app.close()
   })
 })
 
