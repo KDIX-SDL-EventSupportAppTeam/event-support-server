@@ -727,6 +727,39 @@ describe('visited_booths ペイロード（A-1）', () => {
     expect(visited.map((v) => v.booth_id)).toEqual(['visited-10', 'visited-9', 'visited-6', 'visited-5'])
     expect(visited.map((v) => v.order)).toEqual([1, 2, 3, 4])
   })
+
+  it('source はマスの種類のまま送る（推薦マスへの訪問を FREE_VISIT にしない。recommend F-2）', async () => {
+    const cells = buildAllCenterAchievedCard()
+    // 訪問済みの外周マス: 推薦マス 2 つと事前推薦マス 1 つ
+    const outer: Record<number, string> = { 0: 'RECOMMEND', 1: 'RECOMMEND', 2: 'PRESURVEY' }
+    let order = 10
+    for (const [pos, source] of Object.entries(outer)) {
+      const c = cells.find((x) => x.position === Number(pos))!
+      c.booth_id = `outer-${pos}`
+      c.is_revealed = 1
+      c.is_achieved = 1
+      c.source = source
+      c.visit_order = order++
+    }
+    const { db } = makeTestDb({ cardId: 'card-1', cells, boothCount: 40 })
+    const { requests } = stubRecommender()
+
+    await processCenterAchievement(db, configWithRecommender, 'event-1', 'user-1', 'card-1')
+
+    expect(requests).toHaveLength(1)
+    const bySource = Object.fromEntries(
+      (requests[0]!.visited_booths as { booth_id: string; source: string }[]).map((v) => [v.booth_id, v.source]),
+    )
+    expect(bySource).toEqual({
+      'visited-5': 'FREE_VISIT',
+      'visited-6': 'FREE_VISIT',
+      'visited-9': 'FREE_VISIT',
+      'visited-10': 'FREE_VISIT',
+      'outer-0': 'RECOMMEND',
+      'outer-1': 'RECOMMEND',
+      'outer-2': 'PRESURVEY',
+    })
+  })
 })
 
 describe('pre_survey ペイロード（A-3）', () => {
