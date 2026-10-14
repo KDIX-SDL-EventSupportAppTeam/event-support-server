@@ -12,7 +12,8 @@ import type { AppConfig } from '../../config.js'
 export type VisitedBoothPayload = {
   booth_id: string
   order: number
-  source: 'PRESURVEY' | 'FREE_VISIT'
+  /** マスの種類（bingo_cells.source）。推薦マスへの訪問は RECOMMEND（FREE_VISIT にしない） */
+  source: 'PRESURVEY' | 'RECOMMEND' | 'FREE_VISIT' | null
   rating: number | null
   rating_scale: number
 }

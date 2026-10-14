@@ -1,6 +1,6 @@
 ---
 状態: 実装済み
-最終更新: 2026-10-11
+最終更新: 2026-10-14
 ---
 
 # 推薦サービスとの契約
@@ -37,7 +37,8 @@ POST {RECOMMENDER_URL}/recommend/cells
   "cell_count": 4,
   "visited_booths": [
     { "booth_id": "…", "order": 0, "source": "FREE_VISIT", "rating": 3, "rating_scale": 4 },
-    { "booth_id": "…", "order": 1, "source": "PRESURVEY",  "rating": null, "rating_scale": 4 }
+    { "booth_id": "…", "order": 1, "source": "PRESURVEY",  "rating": null, "rating_scale": 4 },
+    { "booth_id": "…", "order": 2, "source": "RECOMMEND",  "rating": 4, "rating_scale": 4 }
   ],
   "pre_survey": {
     "age_group": "twenties",
@@ -55,7 +56,7 @@ POST {RECOMMENDER_URL}/recommend/cells
 | フィールド | 説明 |
 |---|---|
 | `cell_count` | 必要なブース数。1回の解放で 2 / 4 / 6 のいずれか |
-| `visited_booths` | 訪問順。`source` で事前推薦マスと自由訪問を区別できる |
+| `visited_booths` | 訪問順。`source` はマスの種類（`PRESURVEY` / `RECOMMEND` / `FREE_VISIT`）をそのまま送る。**推薦マスへの訪問を `FREE_VISIT` と送らない**（推薦エンジンの行動信号「自分で選んだ分野」に推薦が混ざり、`FREE_VISIT` のマスだけを数える決定表とずれるため。recommend `docs/specs/02-features.md` F-2）。推薦エンジンは `FREE_VISIT` 以外を行動信号に使わない（未知の値・`null` は `UNKNOWN` 扱い） |
 | `rating` | 未評価なら `null`。**件数の上限は無い**（チェックインごとに評価画面が出るため。スキップされたマスは `null`） |
 | `pre_survey` | 未回答なら `null` または空オブジェクト。**未回答でも 200 を返せること** |
 | `exclude_booth_ids` | 既にカードに載っている・訪問済み・中止のブース |
