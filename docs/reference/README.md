@@ -4,6 +4,7 @@
 
 | ファイル | 内容 |
 |---|---|
+| [system-architecture.md](system-architecture.md) | **システム構成図。** 全コンポーネント・通信・認証・デプロイ・秘匿情報の置き場所 |
 | [environment-variables.md](environment-variables.md) | 環境変数一覧と本番での渡し方 |
 | [api-endpoints.md](api-endpoints.md) | 実装済みエンドポイントと WebSocket イベント |
 | [auth.md](auth.md) | 認証・認可の仕組み |
