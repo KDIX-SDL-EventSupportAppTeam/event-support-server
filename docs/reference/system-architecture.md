@@ -11,51 +11,100 @@
 
 ## 1. 全体図
 
+### 1.1 レイヤー構成（まずこれだけ見ればよい）
+
+```mermaid
+flowchart TB
+  U["利用者<br/>参加者・出展者 / 運営 / 主催者"]
+
+  subgraph L1["① 画面（Firebase Hosting）"]
+    FE["フロントエンド<br/>React SPA"]
+  end
+
+  subgraph L2["② アプリケーション（Cloud Run）"]
+    SV["サーバー<br/>API + WebSocket"]
+  end
+
+  subgraph L3["③ 推薦・分析（Cloud Run ほか）"]
+    RC["推薦エンジン"]
+    AN["分析ダッシュボード"]
+    RO["読み取り専用プロキシ"]
+  end
+
+  subgraph L4["④ データ（さくら）"]
+    DB[("本番 DB<br/>MySQL + PHP ラッパー")]
+  end
+
+  EXT["外部サービス<br/>Google Forms / SMTP"]
+
+  U --> FE
+  FE -->|"REST / WebSocket"| SV
+  SV -->|"読み書き"| DB
+  SV -->|"推薦を依頼"| RC
+  RC & AN -->|"読むだけ"| RO
+  RO -->|"SELECT"| DB
+  EXT <--> SV
+```
+
+| 層 | 中身 | 一言で |
+|---|---|---|
+| ① 画面 | フロントエンド | 表示するだけ。計算しない |
+| ② アプリケーション | サーバー | 業務ロジックと書き込みはすべてここ |
+| ③ 推薦・分析 | 推薦エンジン・分析・読み取り専用プロキシ | DB を**読むだけ**。書けない構造にしてある |
+| ④ データ | さくらの MySQL | 唯一の書き込み先 |
+
+**書き込みは ② → ④ の1本だけ。** ③ は読み取り専用プロキシを通るので本番データを壊せない。
+
+### 1.2 画面とサーバー
+
 ```mermaid
 flowchart LR
-  subgraph Users["利用者（スマホ・PC ブラウザ）"]
+  subgraph Users["利用者"]
     P["参加者・出展者"]
-    A["運営（admin）"]
-    O["主催者（organizer）"]
+    A["運営"]
+    O["主催者"]
   end
-
-  subgraph Firebase["Firebase Hosting"]
-    FE["event-support-frontend<br/>React SPA（静的配信）"]
-  end
-
-  subgraph GCP["Google Cloud（asia-northeast1）"]
-    SV["event-support-server<br/>Cloud Run・Fastify + socket.io<br/>max-instances=1"]
-    RC["event-support-recommend<br/>Cloud Run・FastAPI（DRSA 推薦）<br/>読み取り専用"]
-    RO["読み取り専用プロキシ<br/>Cloud Run（さくら DB の参照口）"]
-    AN["event-support-analytics<br/>Streamlit（当日監視・事後分析）"]
-    SM[("Secret Manager")]
-    CB["Cloud Build<br/>（main へのマージで CD）"]
-  end
-
-  subgraph Sakura["さくらのレンタルサーバー"]
-    PX["DB ラッパー API<br/>（PHP・HTTP プロキシ）"]
-    DB[("MySQL<br/>本番 DB")]
-  end
-
-  GF["Google Forms + Apps Script<br/>（ブース情報の登録）"]
-  SMTP["SMTP サーバー<br/>（確認メール・パスワード再設定）"]
-
+  FE["フロントエンド<br/>（Firebase Hosting）"]
+  SV["サーバー<br/>（Cloud Run・1 インスタンス）"]
   P & A & O -->|HTTPS| FE
-  FE -->|"REST /api/v1（JWT）"| SV
-  FE <-->|"WebSocket（socket.io・JWT）"| SV
-  SV -->|"HTTP（X-Proxy-Key）読み書き"| PX
-  PX --> DB
-  SV -->|"POST /recommend/cells"| RC
-  SV -->|"GET /ops/state（X-Ops-Token）"| RC
+  FE -->|"REST /api/v1<br/>JWT"| SV
+  SV -.->|"socket.io<br/>bingo:unlocked / checkin:new / rating:new"| FE
+```
+
+### 1.3 サーバーの接続先
+
+```mermaid
+flowchart LR
+  SV["サーバー"]
+  subgraph Data["さくら"]
+    PX["PHP ラッパー API"] --> DB[("MySQL")]
+  end
+  RC["推薦エンジン"]
+  GF["Google Forms<br/>+ Apps Script"]
+  MAIL["SMTP"]
+  SV -->|"読み書き<br/>X-Proxy-Key"| PX
+  SV -->|"POST /recommend/cells<br/>GET /ops/state（X-Ops-Token）"| RC
+  GF -->|"POST /webhook/booths/sync<br/>X-Api-Key"| SV
+  SV -->|"確認メール・再設定メール"| MAIL
+```
+
+### 1.4 推薦・分析の読み取り経路
+
+```mermaid
+flowchart TB
+  RC["推薦エンジン"]
+  AN["分析ダッシュボード"]
+  RO["読み取り専用プロキシ"]
+  PX["さくら PHP ラッパー"] --> DB[("MySQL")]
   RC -->|"スナップショット取得"| RO
-  AN -->|"当日監視の読み取り"| RO
+  AN -->|"当日監視"| RO
   AN -->|"GET /ops/state"| RC
   RO -->|"SELECT のみ"| PX
-  GF -->|"POST /webhook/booths/sync（X-Api-Key）"| SV
-  SV -->|SMTP| SMTP
-  SM -.->|"--set-secrets"| SV & RC
-  CB -.->|deploy| SV & RC & FE
 ```
+
+デプロイ（Cloud Build）と秘匿値（Secret Manager）の流れは [5. デプロイ](#5-デプロイ)・[6. 秘匿情報の置き場所](#6-秘匿情報の置き場所) に分けた。
+
+### 1.5 コンポーネント一覧
 
 | コンポーネント | リポジトリ | 実行環境 | 役割 |
 |---|---|---|---|
