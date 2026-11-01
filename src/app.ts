@@ -59,7 +59,12 @@ export async function buildApp(config: AppConfig, db: DbClient) {
     hint: 'REST は docs/legacy/designs/api.md の /api/v1 配下',
   }))
 
-  app.get('/health', async () => ({ ok: true }))
+  // commit / revision で「旧リビジョンのまま」を切り分ける（未設定のローカルでは null）
+  app.get('/health', async () => ({
+    ok: true,
+    commit: config.appCommit ?? null,
+    revision: config.revision ?? null,
+  }))
 
   await app.register(
     async (v1) => {

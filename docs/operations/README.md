@@ -7,3 +7,4 @@
 | [production-db-apply.md](production-db-apply.md) | **本番DBへのスキーマ適用。** phpMyAdmin 経由・先生への依頼内容とロールバック |
 | [run-day-guide.md](run-day-guide.md) | **当日の運営向け手引き。** ガチャ設定・誤使用の救済・推薦/プロキシ障害時の対処・ダッシュボードの読み方（非エンジニア向け） |
 | [rollback.md](rollback.md) | **ロールバック手順（エンジニア向け）。** 戻す/戻さないの判断基準・DB復元・Cloud Run リビジョン差し戻し・部分停止 |
+| [pitfalls.md](pitfalls.md) | **v1 運用で踏んだ落とし穴の一覧。** デプロイ・実機テスト前に読む |

@@ -86,7 +86,7 @@
 
 ### 確認方法
 
-- server: `GET https://<server>/health` が `{"ok":true}` を返す
+- server: `GET https://<server>/health` が `ok: true` を返し、`commit` が戻したいコミットと一致する
 - frontend: 素の `/admin/login` を開き、**本番イベント名**が出る（別イベントを指していないこと）
 - recommend の疎通: 運営ログイン後のトークン（`requireStaff`。manager / viewer いずれか）で
   `GET /api/v1/admin/events/:event_id/recommender/state` を叩き、封筒 `data.available` が
