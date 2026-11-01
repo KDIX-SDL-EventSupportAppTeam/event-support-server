@@ -9,7 +9,7 @@
 
 | メソッド | パス | 認証 | 説明 |
 |----------|------|------|------|
-| GET | `/health` | — | 死活監視 |
+| GET | `/health` | — | 死活監視。`{ ok, commit, revision }`（未設定時は `null`）でデプロイ中のコミットとリビジョンが分かる |
 | POST | `/api/v1/auth/register` | — | 参加者登録 |
 | POST | `/api/v1/auth/register/admin` | `X-Admin-Key` | 運営アカウント登録 |
 | POST | `/api/v1/auth/login` | — | ログイン・JWT 発行 |

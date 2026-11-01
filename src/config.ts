@@ -25,6 +25,10 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   MAIL_FROM: z.string().optional().default('PRoToFES <no-reply@example.com>'),
+  // どのコミット・リビジョンが動いているかを /health で確かめるため（cloudbuild.yaml が渡す）
+  APP_COMMIT: z.string().optional(),
+  // Cloud Run が自動で設定するリビジョン名
+  K_REVISION: z.string().optional(),
 })
 
 export type AppConfig = {
@@ -51,6 +55,8 @@ export type AppConfig = {
   smtpUser: string | undefined
   smtpPass: string | undefined
   mailFrom: string
+  appCommit: string | undefined
+  revision: string | undefined
 }
 
 export function loadConfig(): AppConfig {
@@ -124,5 +130,7 @@ export function loadConfig(): AppConfig {
     smtpUser: e.SMTP_USER,
     smtpPass: e.SMTP_PASS,
     mailFrom: e.MAIL_FROM,
+    appCommit: e.APP_COMMIT,
+    revision: e.K_REVISION,
   }
 }
